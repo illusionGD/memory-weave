@@ -11,7 +11,7 @@
 
 ## 拉取与开发启动
 
-准备 Node.js **24.19.0**、pnpm **11.25.0**、Docker Engine 与 Compose v2。版本分别记录在 `.nvmrc` 和 `package.json`；使用 pnpm 锁文件安装依赖。
+准备 Node.js **22.20.0 或以上的 22.x**、pnpm **11.25.0**、Docker Engine 与 Compose v2。推荐使用 `.nvmrc` 中的 **22.23.4**，Docker 同步采用该版本；CI 同时验证最低版本与推荐版本。当前锁定工具链的版本要求合并后，以 22.20.0 为最低支持版本；较早的 22.x 需要先升级。使用 pnpm 锁文件安装依赖。
 
 ```bash
 git fetch origin

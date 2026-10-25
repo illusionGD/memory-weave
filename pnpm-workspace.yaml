@@ -2,6 +2,13 @@ packages:
   - apps/*
   - packages/*
 
+catalog:
+  '@types/node': ^22.20.5
+
+# Keep transitive type packages on the same Node API baseline as the workspace.
+overrides:
+  '@types/node': 'catalog:'
+
 injectWorkspacePackages: true
 syncInjectedDepsAfterScripts:
   - build

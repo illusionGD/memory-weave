@@ -52,7 +52,7 @@
 | 工程 | pnpm workspace + TypeScript | 前后端共仓，统一检查命令；公共契约单独管理 |
 | 前端 | Vue 3 + Vite + Vue Router + Pinia | 遵循现有 rules；Pinia 使用 setup store，接口访问放 services |
 | 界面与图谱 | SCSS + Element Plus；Cytoscape.js | 表单、管理组件按需引入；聊天界面适配移动端；图谱按中心与分页展开 |
-| 后端 | Node.js 24 LTS + NestJS，默认 Express 适配器 | 模块化单体，按 M01–M12 职责划分；复用成熟 HTTP 与依赖注入能力 [R1][R2] |
+| 后端 | Node.js 22 LTS（≥22.20.0）+ NestJS，默认 Express 适配器 | 与用户环境一致；模块化单体，按 M01–M12 职责划分；复用成熟 HTTP 与依赖注入能力 [R1][R2] |
 | 数据库 | PostgreSQL 17 + pgvector 0.8 系列作为初始验证组合 | 同库保存业务状态、任务和向量；该组合通过 S0 兼容验证后锁定补丁版本 [R3][R4] |
 | 数据访问 | Drizzle ORM + node-postgres + 版本化 SQL migration | 常规查询保留类型；任务锁、向量与复杂迁移使用显式 SQL；扩展创建纳入迁移 [R5] |
 | 接口与输入校验 | HTTP JSON / OpenAPI + Zod | 公共 schema 驱动 HTTP 校验、类型及 OpenAPI 映射，S0 验证集成；模型与终端输入同样校验，不另维护重复 DTO 校验规则，不暴露数据库实体 |
@@ -287,7 +287,7 @@ TDD 技能要求：“**Before writing any test, write down the seams under test
 以下资料于 2026-10-25 查阅；本次未安装候选产品、运行性能对比或核定云服务价格。精确版本与供应商条款在采用时再次核对。
 
 - **[R1]** [NestJS 文档](https://docs.nestjs.com/)、[模块机制](https://docs.nestjs.com/modules)、[源码与许可证](https://github.com/nestjs/nest)：支持 TypeScript 和模块化服务；用于框架能力依据。
-- **[R2]** [Node.js 发布与支持状态](https://nodejs.org/en/about/previous-releases)：本次查阅时 24 为 LTS；据此选择运行时基线。
+- **[R2]** [Node.js 发布与支持状态](https://nodejs.org/en/about/previous-releases)：按用户现有环境采用仍受支持的 22 LTS；结合当前锁定工具链，将最低支持版本设为 22.20.0，具体推荐补丁版本见 `.nvmrc`。
 - **[R3]** [PostgreSQL SELECT / SKIP LOCKED](https://www.postgresql.org/docs/current/sql-select.html)：官方说明适用于队列表的并发消费者；任务租约、幂等和恢复仍需应用实现。
 - **[R4]** [pgvector](https://github.com/pgvector/pgvector)：精确/近似检索、过滤及 0.8 起的迭代扫描；说明 ANN 过滤可能导致返回数量不足。
 - **[R5]** [Drizzle pgvector 指南](https://orm.drizzle.team/docs/guides/vector-similarity-search)：向量查询与自定义扩展迁移；不等于本项目依赖组合已测。
