@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      DATABASE_URL: postgresql://memory_weave:ci_database_password@127.0.0.1:5432/memory_weave
+      TEST_DATABASE_URL: postgresql://memory_weave:ci_database_password@127.0.0.1:5432/memory_weave
+      ADMIN_PASSWORD: ci-admin-password-for-tests-only
+      APP_ORIGIN: http://127.0.0.1:4173
+      COOKIE_SECURE: 'false'
+      HOST: 127.0.0.1
+      PORT: '4173'
+      DATA_DIR: ${{ github.workspace }}/.data/ci
+    services:
+      database:
+        image: pgvector/pgvector:0.8.2-pg17
+        env:
+          POSTGRES_DB: memory_weave
+          POSTGRES_USER: memory_weave
+          POSTGRES_PASSWORD: ci_database_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U memory_weave -d memory_weave"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+          run_install: false
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node24-pnpm11-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node24-pnpm11-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Enable pgvector in the test database
+        run: >-
+          docker exec "${{ job.services.database.id }}"
+          psql -U memory_weave -d memory_weave -v ON_ERROR_STOP=1
+          -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Check types
+        run: pnpm typecheck
+
+      - name: Test public behavior
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Install Chromium for browser tests
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Test browser workflows
+        run: pnpm test:e2e
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-results
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7

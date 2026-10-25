@@ -1,0 +1,35 @@
+{
+  "name": "memory-weave",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=11 <12"
+  },
+  "scripts": {
+    "setup": "node scripts/setup-env.mjs",
+    "dev": "pnpm --filter @memory-weave/contracts build && node --env-file=.env scripts/dev.mjs",
+    "start": "node --env-file-if-exists=.env scripts/start.mjs",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "typecheck": "pnpm --filter @memory-weave/contracts build && pnpm -r typecheck",
+    "format:check": "prettier --check .",
+    "test": "pnpm --filter @memory-weave/contracts build && pnpm -r --if-present test",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.56.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.5.0",
+    "globals": "^16.5.0",
+    "prettier": "^3.6.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^4.0.0"
+  }
+}
