@@ -11,11 +11,28 @@ const child = spawn(
     stdio: 'inherit',
     env: { ...process.env, DATA_DIR: resolve(root, process.env.DATA_DIR || 'data') },
     shell: process.platform === 'win32',
+    detached: process.platform !== 'win32',
   },
 );
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => child.kill(signal));
+  process.on(signal, () => {
+    if (process.platform === 'win32') {
+      child.kill(signal);
+      return;
+    }
+
+    // pnpm launches shells and watchers; stop the isolated process group, not just its parent.
+    if (child.pid) {
+      try {
+        process.kill(-child.pid, signal);
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+          throw error;
+        }
+      }
+    }
+  });
 }
 
 child.on('error', (error) => {
