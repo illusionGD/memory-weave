@@ -21,6 +21,7 @@ description: >-
 ## 保持的约束
 
 - 用户使用 Node 22；最低 22.20.0，推荐版本见 `.nvmrc`。运行时、Node 类型、Docker 和 CI 保持一致；CI 验证最低版本与推荐版本。
+- 公共契约字段使用中文 JSDoc，说明语义、枚举与空值含义；通过具名 shape 和 `z.ZodObject<typeof shape>` 保留声明文件的字段提示，类型继续从 schema 推导，不重复维护规则。
 - 默认 API 需要认证，公开路由显式声明；前端路由判断不能代替后端控制。
 - API 路径大小写与 Express 匹配保持一致；静态资源 fallback 不返回 API 的 HTML 页面。
 - HTTP 入口不自动升级资源到 HTTPS；HTTPS 入口必须使用 Secure Cookie。
