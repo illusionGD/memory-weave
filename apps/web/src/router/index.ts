@@ -12,6 +12,12 @@ export const router = createRouter({
       component: () => import('@/views/system/SystemView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('@/views/settings/SettingsView.vue'),
+      meta: { requiresAuth: true },
+    },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

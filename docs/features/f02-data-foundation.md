@@ -10,6 +10,8 @@
 
 当前接口由已登录的部署管理者操作。管理者可以查看所属实例，也可以代理指定伴侣发言或接收，以验证数据流；伴侣发言的来源明确记录为 `admin_companion_input`。此处尚无自主模型发言或独立终端身份凭据。
 
+用户资料包含可修改的 `displayName`，默认“用户”，可在 `/settings` 的个人设置页维护。修改名称不改变 owner ID、登录密码、会话成员或历史原文；伴侣对用户的个别称呼不由这个全局名称字段替代。现有数据库通过新增 `0001_owner_display_name` 迁移补上默认名称，保留原 owner 和关联数据。
+
 ## 数据如何分开
 
 | 对象       | 保存内容与约束                                                                 |
@@ -33,19 +35,20 @@
 
 以下均以 `/api` 为前缀并要求登录 Cookie。创建命令使用 UUID `requestId`：同作用域同键同载荷重试复用结果，异载荷返回 409。
 
-| 接口                                                                  | 用途                                   |
-| --------------------------------------------------------------------- | -------------------------------------- |
-| `GET /workspace`                                                      | 当前持久 owner 与基础 schema 版本      |
-| `POST /companions`；`GET /companions`；`GET /companions/:id`          | 创建、分页、读取实例及初始/当前人格    |
-| `POST /conversations`；`GET /conversations`；`GET /conversations/:id` | 创建、分页、读取会话及成员授权         |
-| `POST /conversations/:id/messages`                                    | 保存草稿，不分配发布序号               |
-| `POST /conversations/:id/messages/:messageId/publish`                 | 校验预期版本，发布并登记各实例待整理项 |
-| `GET /conversations/:id/messages`                                     | 管理者查询已发布原文                   |
-| `GET /conversations/:id/messages/:messageId`                          | 管理者查询详情，允许查看草稿           |
-| `GET /companions/:companionId/conversations/:id/messages`             | 按指定实例权限查询已发布消息           |
-| `GET /companions/:companionId/sources/:messageId`                     | 按指定实例权限回查确切内容版本         |
-| `POST /companions/:companionId/conversations/:id/receive`             | 接收确切批次并记录实际取得范围         |
-| `GET /companions/:companionId/conversations/:id/progress`             | 查询逐消息读取记录、待整理和交付状态   |
+| 接口                                                                  | 用途                                       |
+| --------------------------------------------------------------------- | ------------------------------------------ |
+| `GET /workspace`                                                      | 当前持久 owner、显示名称与基础 schema 版本 |
+| `PATCH /workspace`                                                    | 修改当前用户的显示名称，返回完整工作区资料 |
+| `POST /companions`；`GET /companions`；`GET /companions/:id`          | 创建、分页、读取实例及初始/当前人格        |
+| `POST /conversations`；`GET /conversations`；`GET /conversations/:id` | 创建、分页、读取会话及成员授权             |
+| `POST /conversations/:id/messages`                                    | 保存草稿，不分配发布序号                   |
+| `POST /conversations/:id/messages/:messageId/publish`                 | 校验预期版本，发布并登记各实例待整理项     |
+| `GET /conversations/:id/messages`                                     | 管理者查询已发布原文                       |
+| `GET /conversations/:id/messages/:messageId`                          | 管理者查询详情，允许查看草稿               |
+| `GET /companions/:companionId/conversations/:id/messages`             | 按指定实例权限查询已发布消息               |
+| `GET /companions/:companionId/sources/:messageId`                     | 按指定实例权限回查确切内容版本             |
+| `POST /companions/:companionId/conversations/:id/receive`             | 接收确切批次并记录实际取得范围             |
+| `GET /companions/:companionId/conversations/:id/progress`             | 查询逐消息读取记录、待整理和交付状态       |
 
 伴侣查询必须带 `runtimeEpoch`；来源查询还需 `contentVersion`。接收命令需 `expectedPermissionVersion`。保存草稿需 `expectedConversationVersion`；发布还需 `expectedRevision`。陈旧代次或版本拒绝执行，服务端不会自动替调用方换成最新值。
 
@@ -54,6 +57,8 @@
 名称和会话标题最多 80 字符；初始文本与消息正文最多 4000 字符；每条消息最多 10 个来源引用。时间为 UTC ISO 字符串。私聊恰好两名参与者，群聊创建时为 3～20 名参与者。完整字段、默认值和空值语义以公共 schema 为准。
 
 参数错误 400，未登录 401，不存在或不可见 404，幂等/版本冲突 409，数据库或迁移未就绪 503。响应不返回连接串、SQL 或请求指纹。
+
+资料修改只接收 `{ "displayName": "新名称" }`，去掉首尾空白后校验 1～80 字符；空白、超长及额外身份字段返回 400。该操作更新当前名称，不需要创建命令的 `requestId`；重复提交同一名称不会产生新身份。消息继续使用稳定 `userId`，展示时通过工作区资料取得当前名称，不改写原文中的旧称呼。
 
 ## 数据库迁移与部署
 

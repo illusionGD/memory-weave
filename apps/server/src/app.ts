@@ -17,15 +17,14 @@ import { SystemController } from './modules/system/system.controller';
 import { SystemService } from './modules/system/system.service';
 import { attachWebAssets } from './web-assets';
 import { DatabaseService } from './database/database.service';
-import {
-  CompanionsController,
-  WorkspaceController,
-} from './modules/companions/companions.controller';
+import { CompanionsController } from './modules/companions/companions.controller';
 import { CompanionsService } from './modules/companions/companions.service';
 import { ConversationsController } from './modules/conversations/conversations.controller';
 import { ConversationsService } from './modules/conversations/conversations.service';
 import { ReceivingController } from './modules/conversations/receiving.controller';
 import { ReceivingService } from './modules/conversations/receiving.service';
+import { WorkspaceController } from './modules/workspace/workspace.controller';
+import { WorkspaceService } from './modules/workspace/workspace.service';
 
 @Module({})
 class ApplicationModule {
@@ -51,6 +50,7 @@ class ApplicationModule {
         CompanionsService,
         ConversationsService,
         ReceivingService,
+        WorkspaceService,
       ],
     };
   }

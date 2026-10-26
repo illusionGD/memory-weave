@@ -1,24 +1,8 @@
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import { createCompanionRequestSchema, idPaginationQuerySchema } from '@memory-weave/contracts';
-import type {
-  CompanionDetail,
-  CompanionListResponse,
-  WorkspaceResponse,
-} from '@memory-weave/contracts';
+import type { CompanionDetail, CompanionListResponse } from '@memory-weave/contracts';
 import { parseId, parseInput } from '../shared/http';
 import { CompanionsService } from './companions.service';
-
-/** 返回当前已认证部署的持久管理者身份。 */
-@Controller('workspace')
-export class WorkspaceController {
-  constructor(@Inject(CompanionsService) private readonly companions: CompanionsService) {}
-
-  /** 管理者由部署身份确定，不接收调用方指定的 ownerId。 */
-  @Get()
-  get(): Promise<WorkspaceResponse> {
-    return this.companions.workspace();
-  }
-}
 
 /** 管理当前部署的伴侣实例，沿用默认登录认证。 */
 @Controller('companions')

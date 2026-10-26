@@ -81,6 +81,8 @@ export const sourceLookupQuerySchema: z.ZodObject<typeof sourceLookupQueryShape,
 const workspaceResponseShape = {
   /** 当前部署的持久 owner 标识，只能由服务端确定，不能由写入请求指定。 */
   ownerId: uuidSchema,
+  /** 当前用户的可修改显示名称，长度 1～80，默认“用户”；不作为登录凭据或消息身份。 */
+  displayName: z.string().min(1).max(80),
   /** 工作区公共结构版本，当前固定为 1。 */
   schemaVersion: z.literal(1),
 };
@@ -88,6 +90,20 @@ const workspaceResponseShape = {
 /** 当前已认证管理者所属部署的工作区信息。 */
 export const workspaceResponseSchema: z.ZodObject<typeof workspaceResponseShape> =
   z.object(workspaceResponseShape);
+
+const updateWorkspaceRequestShape = {
+  /** 新的用户显示名称，先去掉首尾空白再校验 1～80 字符；不改变稳定用户 ID。 */
+  displayName: z.string().trim().min(1).max(80),
+};
+
+/** 修改当前登录用户的显示名称，不接受指定或更换 ownerId。 */
+export const updateWorkspaceRequestSchema: z.ZodObject<
+  typeof updateWorkspaceRequestShape,
+  z.core.$strict
+> = z.object(updateWorkspaceRequestShape).strict();
+
+/** 当前用户资料修改请求。 */
+export type UpdateWorkspaceRequest = z.infer<typeof updateWorkspaceRequestSchema>;
 
 /** UUID 游标分页参数。 */
 export type IdPaginationQuery = z.infer<typeof idPaginationQuerySchema>;

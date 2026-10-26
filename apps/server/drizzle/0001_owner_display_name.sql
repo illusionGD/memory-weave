@@ -1,0 +1,2 @@
+ALTER TABLE "owners" ADD COLUMN "display_name" text DEFAULT '用户' NOT NULL;--> statement-breakpoint
+ALTER TABLE "owners" ADD CONSTRAINT "owners_display_name_length" CHECK (char_length(btrim("owners"."display_name")) BETWEEN 1 AND 80);

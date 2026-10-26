@@ -5,7 +5,6 @@ import type {
   CompanionListResponse,
   IdPaginationQuery,
   CreateCompanionRequest,
-  WorkspaceResponse,
 } from '@memory-weave/contracts';
 import { and, asc, eq, gt } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
@@ -17,11 +16,6 @@ import { fingerprint } from '../shared/http';
 @Injectable()
 export class CompanionsService {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
-
-  /** 返回由部署迁移持久化的管理者身份。 */
-  workspace(): Promise<WorkspaceResponse> {
-    return this.database.withOwner(async (ownerId) => ({ ownerId, schemaVersion: 1 }));
-  }
 
   /** 将初始文本直接保存到独立快照和当前版本，不调用模型。 */
   create(input: CreateCompanionRequest): Promise<CompanionDetail> {

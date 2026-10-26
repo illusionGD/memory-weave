@@ -50,7 +50,11 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     const workspace = await agent.get('/api/workspace').expect(200);
-    expect(workspace.body).toEqual({ ownerId: expect.any(String), schemaVersion: 1 });
+    expect(workspace.body).toEqual({
+      ownerId: expect.any(String),
+      schemaVersion: 1,
+      displayName: '用户',
+    });
     const created = await agent
       .post('/api/companions')
       .send({

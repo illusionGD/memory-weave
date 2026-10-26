@@ -31,11 +31,22 @@ export interface ReceivedMessageVersion {
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 
 /** 当前部署唯一的管理者；迁移生成身份，请求不能指定部署身份。 */
-export const owners = pgTable('owners', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  deploymentKey: text('deployment_key').notNull().unique().default('local'),
-  createdAt: createdAt(),
-});
+export const owners = pgTable(
+  'owners',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    deploymentKey: text('deployment_key').notNull().unique().default('local'),
+    /** 供界面展示的当前名称；改名不改变身份或覆盖历史发言。 */
+    displayName: text('display_name').notNull().default('用户'),
+    createdAt: createdAt(),
+  },
+  (table): PgTableExtraConfigValue[] => [
+    check(
+      'owners_display_name_length',
+      sql`char_length(btrim(${table.displayName})) BETWEEN 1 AND 80`,
+    ),
+  ],
+);
 
 /** 稳定实例及其当前运行代次；共同会话原文不级联归属于实例。 */
 export const companions = pgTable(

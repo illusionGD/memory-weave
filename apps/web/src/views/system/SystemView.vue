@@ -2,15 +2,18 @@
   <main class="workspace">
     <header class="workspace__header">
       <BrandMark />
-      <button
-        class="button button--quiet"
-        type="button"
-        :disabled="auth.loggingOut"
-        :aria-busy="auth.loggingOut"
-        @click="handleLogout"
-      >
-        {{ auth.loggingOut ? '正在退出…' : '退出登录' }}
-      </button>
+      <nav class="workspace__navigation" aria-label="个人空间">
+        <RouterLink class="button button--quiet" :to="{ name: 'settings' }">个人设置</RouterLink>
+        <button
+          class="button button--quiet"
+          type="button"
+          :disabled="auth.loggingOut"
+          :aria-busy="auth.loggingOut"
+          @click="handleLogout"
+        >
+          {{ auth.loggingOut ? '正在退出…' : '退出登录' }}
+        </button>
+      </nav>
     </header>
 
     <div class="workspace__content">
@@ -95,7 +98,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import BrandMark from '@/components/BrandMark.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useSystemStore } from '@/stores/system';
@@ -201,6 +204,14 @@ async function handleLogout(): Promise<void> {
     flex: 1;
     margin: 0 auto;
     padding: var(--space-16) 0;
+  }
+
+  &__navigation {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-left: auto;
   }
 
   &__footer {
