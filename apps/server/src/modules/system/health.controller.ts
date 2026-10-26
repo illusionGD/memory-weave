@@ -2,14 +2,14 @@ import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/co
 import { PublicRoute } from '../auth/public-route';
 import { SystemService } from './system.service';
 
-/** Public health responses disclose availability without configuration details. */
+/** 公开健康检查仅返回可用状态，不泄露具体配置。 */
 @Controller('health')
 export class HealthController {
   constructor(@Inject(SystemService) private readonly system: SystemService) {}
 
   /**
-   * Reports that the HTTP process is alive, independently of backing services.
-   * @returns Minimal liveness response.
+   * 报告 HTTP 服务进程是否存活，不依赖数据库等外部服务的状态。
+   * @returns 仅包含存活状态的响应。
    */
   @PublicRoute()
   @Get('live')
@@ -18,8 +18,8 @@ export class HealthController {
   }
 
   /**
-   * Requires PostgreSQL, pgvector and writable data storage before reporting ready.
-   * @returns Minimal readiness response.
+   * 仅当 PostgreSQL、pgvector 和可写存储目录均可用时报告服务就绪。
+   * @returns 仅包含就绪状态的响应。
    */
   @PublicRoute()
   @Get('ready')

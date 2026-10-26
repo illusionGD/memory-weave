@@ -19,7 +19,7 @@ import { AuthService, SESSION_LIFETIME_MS } from './auth.service';
 import { PublicRoute } from './public-route';
 import { readSessionCookie, SESSION_COOKIE_NAME, sessionCookieOptions } from './session-cookie';
 
-/** HTTP authentication boundary; the default guard protects every unmarked route. */
+/** 提供 HTTP 认证接口，未显式标记公开的路由均受默认守卫保护。 */
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -28,11 +28,11 @@ export class AuthController {
   ) {}
 
   /**
-   * Exchanges the deployment password for a server-owned browser session.
-   * @param body Untrusted JSON request body.
-   * @param request Request carrying the socket-derived client address.
-   * @param response HTTP response used only for setting the session cookie.
-   * @returns A session acknowledgement without credential material.
+   * 验证部署密码，为浏览器建立由服务端管理的会话。
+   * @param body 尚未校验的 JSON 请求体。
+   * @param request 包含底层连接来源地址的请求。
+   * @param response 用于设置会话 Cookie 的 HTTP 响应。
+   * @returns 不包含凭据的会话确认信息。
    */
   @PublicRoute()
   @Post('login')
@@ -57,8 +57,8 @@ export class AuthController {
   }
 
   /**
-   * Confirms that the global guard accepted the current session.
-   * @returns Authenticated session state.
+   * 确认当前会话已通过全局认证守卫的校验。
+   * @returns 已认证的会话状态。
    */
   @Get('session')
   session(): SessionResponse {
@@ -66,9 +66,9 @@ export class AuthController {
   }
 
   /**
-   * Revokes server state before clearing the browser's cookie.
-   * @param request Authenticated request carrying the session cookie.
-   * @param response HTTP response used to clear the cookie.
+   * 先撤销服务端会话，再清除浏览器中的 Cookie。
+   * @param request 携带会话 Cookie 且已通过认证的请求。
+   * @param response 用于清除 Cookie 的 HTTP 响应。
    */
   @Post('logout')
   @HttpCode(204)

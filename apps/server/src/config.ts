@@ -1,38 +1,38 @@
 import { resolve } from 'node:path';
 
-/** Application settings are supplied by the deployment environment. */
+/** 由部署环境提供的服务端配置。 */
 export interface ServerConfig {
-  /** Listener address; localhost is the development default. */
+  /** 服务监听地址；开发环境默认仅监听本机回环地址。 */
   host: string;
-  /** HTTP listening port. */
+  /** HTTP 服务监听端口。 */
   port: number;
-  /** Private PostgreSQL connection string; never exposed by status endpoints. */
+  /** PostgreSQL 连接串，包含私有凭据，不通过状态接口返回。 */
   databaseUrl: string;
-  /** Bootstrap password; never exposed by HTTP endpoints or logs. */
+  /** 部署时设置的登录密码，不通过 HTTP 接口或日志输出。 */
   adminPassword: string;
-  /** Browser origin allowed to send state-changing requests. */
+  /** 允许发送状态变更请求的浏览器来源，包含协议、主机和端口。 */
   appOrigin: string;
-  /** Whether cookies require an HTTPS connection. */
+  /** 是否仅允许通过 HTTPS 传输会话 Cookie。 */
   cookieSecure: boolean;
-  /** Persistent attachment directory. */
+  /** 附件等文件的持久存储目录。 */
   dataDir: string;
-  /** Optional compiled web asset directory. */
+  /** 前端构建产物目录；为 null 时不启用静态页面托管。 */
   webDistDir: string | null;
 }
 
-/** Runtime consumers do not need the plaintext bootstrap password. */
+/** 运行时各模块使用的配置，排除无需继续持有的明文登录密码。 */
 export type RuntimeConfig = Omit<ServerConfig, 'adminPassword'>;
 
-/** Dependency injection key for validated, non-password runtime configuration. */
+/** 已校验且不含登录密码的运行时配置所使用的依赖注入标识。 */
 export const SERVER_CONFIG = Symbol('SERVER_CONFIG');
 
-/** A configuration error names the field without exposing its secret value. */
+/** 配置错误仅指出有问题的字段，不暴露其中的敏感值。 */
 export class ConfigurationError extends Error {}
 
 /**
- * Reads bootstrap settings and rejects unsafe or ambiguous values before listening.
- * @param environment Environment values; secrets stay inside the process.
- * @returns Validated server settings.
+ * 读取启动配置，在监听端口前拒绝不安全或含义不明确的配置值。
+ * @param environment 环境变量；其中的敏感信息仅在服务端进程内部使用。
+ * @returns 经过校验的服务端配置。
  */
 export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   const adminPassword = environment.ADMIN_PASSWORD ?? '';

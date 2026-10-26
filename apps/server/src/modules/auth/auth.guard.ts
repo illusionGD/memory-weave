@@ -6,7 +6,7 @@ import { AuthService } from './auth.service';
 import { PUBLIC_ROUTE } from './public-route';
 import { readSessionCookie } from './session-cookie';
 
-/** Routes are private unless explicitly declared public. */
+/** 路由默认需要认证，只有显式标记为公开时才允许直接访问。 */
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
@@ -15,9 +15,9 @@ export class AuthGuard implements CanActivate {
   ) {}
 
   /**
-   * Rejects requests without a server-verified session.
-   * @param context Route metadata and request context.
-   * @returns Whether the request can access the route.
+   * 校验受保护路由的服务端会话，无有效会话时拒绝请求。
+   * @param context 路由元数据与请求上下文。
+   * @returns 请求是否可以访问目标路由。
    */
   canActivate(context: ExecutionContext): boolean {
     const isPublic = this.reflector.getAllAndOverride<boolean>(PUBLIC_ROUTE, [

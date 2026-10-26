@@ -35,9 +35,9 @@ class ApplicationModule {
 }
 
 /**
- * Creates an application without binding a production port, for HTTP acceptance tests.
- * @param config Deployment settings.
- * @returns Initialized Nest HTTP application.
+ * 创建并初始化应用，由调用方控制端口监听，便于通过 HTTP 接口进行验收测试。
+ * @param config 部署环境配置。
+ * @returns 已初始化的 Nest HTTP 应用。
  */
 export async function createApplication(config: ServerConfig): Promise<INestApplication> {
   const app = await NestFactory.create(ApplicationModule.register(config), {

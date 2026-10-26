@@ -6,9 +6,9 @@ import type { INestApplication } from '@nestjs/common';
 import { ConfigurationError } from './config';
 
 /**
- * Serves compiled browser assets without converting unknown API routes to HTML.
- * @param app Initialized HTTP adapter awaiting route registration.
- * @param directory Absolute build output directory.
+ * 托管前端构建产物，未知 API 路由仍交由后端处理，避免错误返回 HTML 页面。
+ * @param app 已创建、等待注册路由的 HTTP 应用。
+ * @param directory 前端构建产物目录的绝对路径。
  */
 export async function attachWebAssets(app: INestApplication, directory: string): Promise<void> {
   const entry = join(directory, 'index.html');

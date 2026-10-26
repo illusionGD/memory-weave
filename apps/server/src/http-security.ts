@@ -2,9 +2,9 @@ import type { NextFunction, Request, Response } from 'express';
 import type { RequestHandler } from 'express';
 
 /**
- * Protects cookie-based writes from a different browser origin.
- * @param allowedOrigin Configured browser origin, including its port.
- * @returns Express middleware for API requests.
+ * 校验写请求的浏览器来源，防止其他站点借用会话发起操作。
+ * @param allowedOrigin 配置中允许访问的浏览器来源，包含端口。
+ * @returns 处理 API 请求的 Express 中间件。
  */
 export function createOriginCheck(allowedOrigin: string): RequestHandler {
   return function checkOrigin(request: Request, response: Response, next: NextFunction): void {
@@ -24,11 +24,11 @@ export function createOriginCheck(allowedOrigin: string): RequestHandler {
 }
 
 /**
- * Sanitizes parser errors so malformed credentials are not echoed back to clients.
- * @param error Body-parser failure or an error from earlier middleware.
- * @param _request Request context, intentionally not logged.
- * @param response HTTP error response.
- * @param next Forwarder for unrelated failures.
+ * 对请求体解析错误进行脱敏，避免将格式错误的凭据原文返回客户端。
+ * @param error 请求体解析器或前置中间件产生的错误。
+ * @param _request 请求上下文，不写入日志。
+ * @param response 用于返回错误信息的 HTTP 响应。
+ * @param next 将不属于本中间件处理范围的错误继续传递。
  */
 export function handleBodyError(
   error: unknown,

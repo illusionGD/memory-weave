@@ -21,6 +21,7 @@ description: >-
 ## 保持的约束
 
 - 用户使用 Node 22；最低 22.20.0，推荐版本见 `.nvmrc`。运行时、Node 类型、Docker 和 CI 保持一致；CI 验证最低版本与推荐版本。
+- server 的说明性注释统一使用中文，包括 JSDoc、参数和返回值说明、行内注释；保留代码标识符、协议名称及 JSDoc 标签。
 - 公共契约字段使用中文 JSDoc，说明语义、枚举与空值含义；通过具名 shape 和 `z.ZodObject<typeof shape>` 保留声明文件的字段提示，类型继续从 schema 推导，不重复维护规则。
 - 后端 TypeScript 的相对 import / export 省略文件后缀。类型检查使用 ESNext / Bundler 与 node 条件；生产构建必须执行 `tsc` 后的 `tsc-alias` 路径补全，再由 Node 直接运行 dist。修改导入方式时同时验证 tsx 开发启动和编译产物运行。
 - 默认 API 需要认证，公开路由显式声明；前端路由判断不能代替后端控制。

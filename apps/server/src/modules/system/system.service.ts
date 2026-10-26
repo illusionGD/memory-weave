@@ -13,7 +13,7 @@ const PACKAGE_INFO = JSON.parse(
   readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
 ) as { version: string };
 
-/** Probes backing services through actual connections and filesystem writes. */
+/** 通过实际连接和文件写入检查依赖服务是否可用。 */
 @Injectable()
 export class SystemService implements OnModuleDestroy {
   private readonly pool: Pool;
@@ -26,13 +26,13 @@ export class SystemService implements OnModuleDestroy {
       idleTimeoutMillis: 10_000,
       query_timeout: 1000,
     });
-    // An idle connection can disappear while PostgreSQL restarts; the next probe reports availability.
+    // PostgreSQL 重启可能导致空闲连接断开；由下一次探测确认当前可用状态。
     this.pool.on('error', () => undefined);
   }
 
   /**
-   * Returns sanitized state suitable for the authenticated deployment screen.
-   * @returns Service, PostgreSQL extension and writable storage availability.
+   * 为登录后的运行状态页面提供已脱敏的检查结果。
+   * @returns 应用、PostgreSQL 扩展和可写存储目录的可用状态。
    */
   async getStatus(): Promise<SystemStatus> {
     const [database, storage] = await Promise.all([this.probeDatabase(), this.probeStorage()]);
@@ -45,7 +45,7 @@ export class SystemService implements OnModuleDestroy {
     };
   }
 
-  /** Closes all PostgreSQL clients when the application shuts down. */
+  /** 应用关闭时释放全部 PostgreSQL 连接。 */
   async onModuleDestroy(): Promise<void> {
     await this.pool.end();
   }
@@ -59,7 +59,7 @@ export class SystemService implements OnModuleDestroy {
       if (!version) return { status: 'unavailable', vectorVersion: null };
       return { status: 'connected', vectorVersion: version };
     } catch {
-      // Credentials, connection strings and driver exceptions stay off the wire.
+      // 不向客户端返回凭据、连接串或数据库驱动的异常详情。
       return { status: 'unavailable', vectorVersion: null };
     }
   }
