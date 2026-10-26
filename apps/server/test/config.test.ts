@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadServerConfig } from '../src/config.js';
+import { loadServerConfig } from '../src/config';
 
 const BASE_ENV = {
   ADMIN_PASSWORD: 'test-password-for-foundation',

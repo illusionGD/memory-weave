@@ -1,6 +1,6 @@
 import { Controller, Get, Inject } from '@nestjs/common';
 import type { SystemStatus } from '@memory-weave/contracts';
-import { SystemService } from './system.service.js';
+import { SystemService } from './system.service';
 
 /** Private administrative state; the global guard enforces ownership. */
 @Controller('system')

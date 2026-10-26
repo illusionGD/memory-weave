@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApplication } from '../src/app.js';
+import { createApplication } from '../src/app';
 
 describe('production web delivery', () => {
   let app: INestApplication;

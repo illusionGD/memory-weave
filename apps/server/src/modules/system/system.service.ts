@@ -6,8 +6,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
 import type { SystemStatus } from '@memory-weave/contracts';
-import { SERVER_CONFIG } from '../../config.js';
-import type { RuntimeConfig } from '../../config.js';
+import { SERVER_CONFIG } from '../../config';
+import type { RuntimeConfig } from '../../config';
 
 const PACKAGE_INFO = JSON.parse(
   readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),

@@ -3,19 +3,19 @@ import { Module } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
-import type { ServerConfig } from './config.js';
-import { SERVER_CONFIG } from './config.js';
-import { AuthGuard } from './modules/auth/auth.guard.js';
-import { AuthController } from './modules/auth/auth.controller.js';
-import { AuthService } from './modules/auth/auth.service.js';
+import type { ServerConfig } from './config';
+import { SERVER_CONFIG } from './config';
+import { AuthGuard } from './modules/auth/auth.guard';
+import { AuthController } from './modules/auth/auth.controller';
+import { AuthService } from './modules/auth/auth.service';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
-import { createOriginCheck, handleBodyError } from './http-security.js';
+import { createOriginCheck, handleBodyError } from './http-security';
 import express from 'express';
-import { HealthController } from './modules/system/health.controller.js';
-import { SystemController } from './modules/system/system.controller.js';
-import { SystemService } from './modules/system/system.service.js';
-import { attachWebAssets } from './web-assets.js';
+import { HealthController } from './modules/system/health.controller';
+import { SystemController } from './modules/system/system.controller';
+import { SystemService } from './modules/system/system.service';
+import { attachWebAssets } from './web-assets';
 
 @Module({})
 class ApplicationModule {

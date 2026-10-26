@@ -13,11 +13,11 @@ import {
 import type { Request, Response } from 'express';
 import { loginRequestSchema } from '@memory-weave/contracts';
 import type { SessionResponse } from '@memory-weave/contracts';
-import { SERVER_CONFIG } from '../../config.js';
-import type { RuntimeConfig } from '../../config.js';
-import { AuthService, SESSION_LIFETIME_MS } from './auth.service.js';
-import { PublicRoute } from './public-route.js';
-import { readSessionCookie, SESSION_COOKIE_NAME, sessionCookieOptions } from './session-cookie.js';
+import { SERVER_CONFIG } from '../../config';
+import type { RuntimeConfig } from '../../config';
+import { AuthService, SESSION_LIFETIME_MS } from './auth.service';
+import { PublicRoute } from './public-route';
+import { readSessionCookie, SESSION_COOKIE_NAME, sessionCookieOptions } from './session-cookie';
 
 /** HTTP authentication boundary; the default guard protects every unmarked route. */
 @Controller('auth')

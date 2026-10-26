@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createApplication } from '../src/app.js';
-import type { ServerConfig } from '../src/config.js';
+import { createApplication } from '../src/app';
+import type { ServerConfig } from '../src/config';
 
 describe('single-owner HTTP access', () => {
   let app: INestApplication;

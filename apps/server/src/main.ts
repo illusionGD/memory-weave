@@ -1,5 +1,5 @@
-import { createApplication } from './app.js';
-import { ConfigurationError, loadServerConfig } from './config.js';
+import { createApplication } from './app';
+import { ConfigurationError, loadServerConfig } from './config';
 
 /** Starts the production HTTP listener using deployment-supplied environment settings. */
 async function bootstrap(): Promise<void> {

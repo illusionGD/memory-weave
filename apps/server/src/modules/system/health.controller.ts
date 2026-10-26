@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
-import { PublicRoute } from '../auth/public-route.js';
-import { SystemService } from './system.service.js';
+import { PublicRoute } from '../auth/public-route';
+import { SystemService } from './system.service';
 
 /** Public health responses disclose availability without configuration details. */
 @Controller('health')

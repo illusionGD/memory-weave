@@ -3,7 +3,7 @@ import { extname, join } from 'node:path';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { INestApplication } from '@nestjs/common';
-import { ConfigurationError } from './config.js';
+import { ConfigurationError } from './config';
 
 /**
  * Serves compiled browser assets without converting unknown API routes to HTML.

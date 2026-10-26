@@ -16,6 +16,14 @@ Node 22 与 pnpm 11 的具体补丁版本记录在工程配置中；Node 最低�
 
 F01 为单服务内存会话：登录密码经 scrypt 比较，登录后发放随机 Cookie，会话在服务端校验和撤销，最多保留 10 个、有效期 12 小时。后端重启时会话失效，页面需要重新登录；这不是业务状态或后台任务的持久化机制。登录按直接连接来源限制为每分钟 5 次，暂不信任反向代理提供的来源 IP。
 
+### 后端导入路径
+
+后端 TypeScript 源码与测试的相对导入统一省略文件后缀，例如 `import { createApplication } from './app'`。TypeScript 使用 ESNext / Bundler 解析模式，并启用 node 条件以匹配服务端包导出；开发时由 `tsx` 解析源码路径。
+
+生产构建通过 `tsc` 保留逐文件产物、装饰器元数据和 source map，再由开发依赖 [tsc-alias](https://github.com/justkey007/tsc-alias) 1.9.9（MIT）补齐产物中的相对路径，例如 `./app.js`。使用 `pnpm build` 完成这两个步骤，之后仍由 Node 直接运行 `dist/main.js`；Docker 沿用同一构建命令。构建工具不随生产依赖部署。
+
+路径补全不重算 source map，被改写导入行的列定位可能有偏差。构建工具也不能代替运行验证；检查仍覆盖编译产物启动与 Docker 登录流程。
+
 ## 公共 HTTP 接口
 
 | 接口                     | 访问条件             | 作用                                                |
