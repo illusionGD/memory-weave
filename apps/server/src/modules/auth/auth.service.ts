@@ -1,3 +1,4 @@
+import { ApiErrorCode } from '@memory-weave/contracts';
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { Injectable } from '@nestjs/common';
@@ -60,13 +61,13 @@ export class AuthService implements OnModuleDestroy {
     const entry = this.loginAttempts.get(source);
     if (entry) {
       if (entry.count >= MAX_LOGIN_ATTEMPTS) {
-        throw new ApiException('RATE_LIMITED');
+        throw new ApiException(ApiErrorCode.RATE_LIMITED);
       }
       entry.count += 1;
       return;
     }
     if (this.loginAttempts.size >= MAX_LOGIN_SOURCES) {
-      throw new ApiException('RATE_LIMITED');
+      throw new ApiException(ApiErrorCode.RATE_LIMITED);
     }
     this.loginAttempts.set(source, { count: 1, expiresAt: now + LOGIN_WINDOW_MS });
   }

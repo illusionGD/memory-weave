@@ -1,3 +1,4 @@
+import { ApiErrorCode } from '@memory-weave/contracts';
 import { Controller, Get, Inject } from '@nestjs/common';
 import { PublicRoute } from '../auth/public-route';
 import { SystemService } from './system.service';
@@ -31,7 +32,7 @@ export class HealthController {
       status.storage.status !== 'ready' ||
       status.schema.status !== 'ready'
     ) {
-      throw new ApiException('DEPENDENCIES_UNAVAILABLE');
+      throw new ApiException(ApiErrorCode.DEPENDENCIES_UNAVAILABLE);
     }
     return { status: 'ok' };
   }

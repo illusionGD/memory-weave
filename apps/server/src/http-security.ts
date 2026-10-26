@@ -1,3 +1,4 @@
+import { ApiErrorCode } from '@memory-weave/contracts';
 import type { NextFunction, Request, Response } from 'express';
 import type { RequestHandler } from 'express';
 import { sendApiError } from './http/error-response';
@@ -15,7 +16,7 @@ export function createOriginCheck(allowedOrigin: string): RequestHandler {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
         const origin = request.get('origin');
         if (origin !== undefined && origin !== allowedOrigin) {
-          sendApiError(response, 'ORIGIN_NOT_ALLOWED');
+          sendApiError(response, ApiErrorCode.ORIGIN_NOT_ALLOWED);
           return;
         }
       }
@@ -39,19 +40,19 @@ export function handleBodyError(
 ): void {
   const status = error && typeof error === 'object' && 'status' in error ? error.status : null;
   if (status === 413) {
-    sendApiError(response, 'REQUEST_BODY_TOO_LARGE');
+    sendApiError(response, ApiErrorCode.REQUEST_BODY_TOO_LARGE);
     return;
   }
   if (status === 415) {
-    sendApiError(response, 'UNSUPPORTED_MEDIA_TYPE');
+    sendApiError(response, ApiErrorCode.UNSUPPORTED_MEDIA_TYPE);
     return;
   }
   if (error instanceof SyntaxError) {
-    sendApiError(response, 'INVALID_JSON');
+    sendApiError(response, ApiErrorCode.INVALID_JSON);
     return;
   }
   if (status === 400) {
-    sendApiError(response, 'INVALID_REQUEST');
+    sendApiError(response, ApiErrorCode.INVALID_REQUEST);
     return;
   }
   next(error);

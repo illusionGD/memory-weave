@@ -23,7 +23,7 @@ description: >-
 - 用户使用 Node 22；最低 22.20.0，推荐版本见 `.nvmrc`。运行时、Node 类型、Docker 和 CI 保持一致；CI 验证最低版本与推荐版本。
 - server 的说明性注释统一使用中文，包括 JSDoc、参数和返回值说明、行内注释；保留代码标识符、协议名称及 JSDoc 标签。
 - 公共契约字段使用中文 JSDoc，说明语义、枚举与空值含义；通过具名 shape 和 `z.ZodObject<typeof shape>` 保留声明文件的字段提示，类型继续从 schema 推导，不重复维护规则。
-- 所有终端共用 [HTTP API 约定](../../../docs/api-conventions.md)。业务错误先在 contracts 的 `API_ERRORS` 登记状态和中文提示，再抛出 `ApiException(code)`；中间件共用 `sendApiError`，禁止单独拼装失败正文。未知异常由全局过滤器返回安全 500。成功响应保持领域对象和真实 HTTP 状态，204 不写正文。
+- 所有终端共用 [HTTP API 约定](../../../docs/api-conventions.md)。业务错误先在 contracts 的 `ApiErrorCode` 常量登记协议值，并在 `API_ERRORS` 补上状态和中文提示；通过 `ApiException(ApiErrorCode.名称)` 或常量比较引用，禁止散落错误码字符串。中间件共用 `sendApiError`，禁止单独拼装失败正文。未知异常由全局过滤器返回安全 500。成功响应保持领域对象和真实 HTTP 状态，204 不写正文。
 - HTTP 追踪 `requestId` 与业务幂等键独立；响应头和错误正文一致，日志仅记录受控分类与编号。终端允许未来新增错误码，并按 HTTP 状态降级未知/旧格式响应，不能直接展示任意异常文本或自动重试写操作。
 - 后端 TypeScript 的相对 import / export 省略文件后缀。类型检查使用 ESNext / Bundler 与 node 条件；生产构建必须执行 `tsc` 后的 `tsc-alias` 路径补全，再由 Node 直接运行 dist。修改导入方式时同时验证 tsx 开发启动和编译产物运行。
 - 默认 API 需要认证，公开路由显式声明；前端路由判断不能代替后端控制。

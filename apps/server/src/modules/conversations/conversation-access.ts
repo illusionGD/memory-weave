@@ -1,3 +1,4 @@
+import { ApiErrorCode } from '@memory-weave/contracts';
 import type { Conversation, ConversationMember, Message } from '@memory-weave/contracts';
 import { and, asc, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
@@ -27,7 +28,7 @@ export async function requireConversation(
     .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, conversationId)))
     .limit(1);
   const [row] = await (lock ? query.for('update') : query);
-  if (!row) throw new ApiException('RESOURCE_NOT_FOUND');
+  if (!row) throw new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND);
   return row;
 }
 
@@ -43,8 +44,9 @@ export async function requireCompanion(
     .from(companions)
     .where(and(eq(companions.ownerId, ownerId), eq(companions.id, companionId)))
     .limit(1);
-  if (!row) throw new ApiException('RESOURCE_NOT_FOUND');
-  if (row.runtimeEpoch !== runtimeEpoch) throw new ApiException('RUNTIME_EPOCH_MISMATCH');
+  if (!row) throw new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND);
+  if (row.runtimeEpoch !== runtimeEpoch)
+    throw new ApiException(ApiErrorCode.RUNTIME_EPOCH_MISMATCH);
   return row;
 }
 
@@ -70,7 +72,7 @@ export async function requireCompanionMember(
       ),
     )
     .limit(1);
-  if (!member) throw new ApiException('RESOURCE_NOT_FOUND');
+  if (!member) throw new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND);
   return member;
 }
 
@@ -98,7 +100,7 @@ export async function assertVisible(
       (sequence >= member.joinedSequence &&
         (member.leftSequence === null || sequence <= member.leftSequence)),
   );
-  if (!visible) throw new ApiException('RESOURCE_NOT_FOUND');
+  if (!visible) throw new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND);
 }
 
 /** 映射会话公共信息，内部幂等字段不进入响应。 */
@@ -136,7 +138,7 @@ export function toMember(row: typeof conversationMembers.$inferSelect): Conversa
       runtimeEpoch: row.runtimeEpoch,
     };
   }
-  throw new ApiException('DATA_UNAVAILABLE');
+  throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
 }
 
 /** 映射单份原文及来源，读取此方法不登记实际取得或整理状态。 */
@@ -155,7 +157,7 @@ export async function toMessage(
       ),
     )
     .limit(1);
-  if (!speakerRow) throw new ApiException('DATA_UNAVAILABLE');
+  if (!speakerRow) throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
   const member = toMember(speakerRow);
   const sourceRows = await db
     .select()
@@ -195,7 +197,8 @@ export async function toMessage(
   };
   if (row.state === 'draft')
     return { ...common, state: 'draft', sequence: null, publishedAt: null };
-  if (row.sequence === null || row.publishedAt === null) throw new ApiException('DATA_UNAVAILABLE');
+  if (row.sequence === null || row.publishedAt === null)
+    throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
   return {
     ...common,
     state: 'published',

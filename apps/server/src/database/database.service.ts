@@ -1,3 +1,4 @@
+import { ApiErrorCode } from '@memory-weave/contracts';
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
@@ -52,23 +53,23 @@ export class DatabaseService implements OnModuleDestroy {
     try {
       const status = await this.getSchemaStatus();
       if (status.status !== 'ready') {
-        throw new ApiException('DATA_UNAVAILABLE');
+        throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
       }
       const [owner] = await this.db
         .select({ id: schema.owners.id })
         .from(schema.owners)
         .where(eq(schema.owners.deploymentKey, 'local'))
         .limit(1);
-      if (!owner) throw new ApiException('DATA_UNAVAILABLE');
+      if (!owner) throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
       return await operation(owner.id, this.db);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       const code = databaseErrorCode(error);
-      if (code === '23505') throw new ApiException('CONFLICT');
+      if (code === '23505') throw new ApiException(ApiErrorCode.CONFLICT);
       if (['23503', '23514', '23502', '22P02'].includes(code ?? '')) {
-        throw new ApiException('DATA_CONSTRAINT_VIOLATION');
+        throw new ApiException(ApiErrorCode.DATA_CONSTRAINT_VIOLATION);
       }
-      if (code) throw new ApiException('DATA_UNAVAILABLE');
+      if (code) throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
       // 无法识别为数据库错误的异常交给全局 500 处理，避免掩盖业务代码缺陷。
       throw error;
     }
