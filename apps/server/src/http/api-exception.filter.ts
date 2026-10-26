@@ -1,7 +1,7 @@
 import { Catch, HttpException } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import type { Response } from 'express';
-import { ApiErrorCode, defaultApiErrorCode } from '@memory-weave/contracts';
+import { API_ERROR_CODES, defaultApiErrorCode } from '@memory-weave/contracts';
 import { ApiException } from './api-exception';
 import { sendApiError } from './error-response';
 
@@ -19,7 +19,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
         ? exception.code
         : exception instanceof HttpException
           ? defaultApiErrorCode(exception.getStatus())
-          : ApiErrorCode.INTERNAL_ERROR;
+          : API_ERROR_CODES.INTERNAL_ERROR;
     sendApiError(host.switchToHttp().getResponse<Response>(), code);
   }
 }

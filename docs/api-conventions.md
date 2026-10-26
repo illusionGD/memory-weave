@@ -4,16 +4,17 @@
 
 ## 唯一维护入口
 
-| 内容                     | 维护位置                                                  |
-| ------------------------ | --------------------------------------------------------- |
-| 业务请求、成功响应及分页 | `packages/contracts/src` 各领域 schema                    |
-| HTTP 状态与中文默认提示  | `packages/contracts/src/errors.ts` 的 `API_ERRORS`        |
-| 错误响应校验与类型       | `apiErrorResponseSchema`、`ApiErrorResponse`              |
-| 当前已知错误码           | `ApiErrorCode` 同名常量与类型、`apiErrorCodeSchema`       |
-| 追踪响应头名称           | `REQUEST_ID_HEADER`，值为 `X-Request-Id`                  |
-| server 业务异常          | `apps/server/src/http/api-exception.ts`                   |
-| server 统一响应出口      | `apps/server/src/http/error-response.ts` 与全局异常过滤器 |
-| Web 请求适配             | `apps/web/src/services/http.ts`                           |
+| 内容                      | 维护位置                                                          |
+| ------------------------- | ----------------------------------------------------------------- |
+| 业务请求、成功响应及分页  | `packages/contracts/src` 各领域 schema                            |
+| HTTP 状态与中文默认提示   | `packages/contracts/src/errors.ts` 的 `API_ERRORS`                |
+| 错误响应校验与类型        | `apiErrorResponseSchema`、`ApiErrorResponse`                      |
+| 当前已知错误码            | `API_ERROR_CODES` 常量、`ApiErrorCode` 类型、`apiErrorCodeSchema` |
+| HTTP 状态对应的默认错误码 | `HTTP_STATUS_TO_ERROR_CODE` 数字键映射、`defaultApiErrorCode`     |
+| 追踪响应头名称            | `REQUEST_ID_HEADER`，值为 `X-Request-Id`                          |
+| server 业务异常           | `apps/server/src/http/api-exception.ts`                           |
+| server 统一响应出口       | `apps/server/src/http/error-response.ts` 与全局异常过滤器         |
+| Web 请求适配              | `apps/web/src/services/http.ts`                                   |
 
 TypeScript 终端从 `@memory-weave/contracts` 导入，不另抄一套接口类型或错误文案。其他语言按本协议实现 HTTP 适配，字段及错误码以共享目录为准。业务代码不能自行拼装另一种失败格式。
 
@@ -63,7 +64,7 @@ TypeScript 终端从 `@memory-weave/contracts` 导入，不另抄一套接口类
 | `DATA_UNAVAILABLE`            | 503  | 数据服务、结构或必要记录尚未就绪         |
 | `INTERNAL_ERROR`              | 500  | 未被业务层分类的内部异常，只返回安全提示 |
 
-完整错误码在 `ApiErrorCode` 常量中定义，`API_ERRORS` 通过常量维护对应 HTTP 状态与文案，并由类型检查保证每个错误码都有定义。数据库入口将约束错误转为 400、唯一约束冲突转为 409、可识别的其他数据库错误转为 503；不带数据库错误码的未知异常继续交给全局 500 处理。框架 `HttpException` 按状态降级为共享通用错误，忽略其原始正文；未登记的框架状态降级为 500。
+完整错误码在 `API_ERROR_CODES` 常量中定义，`API_ERRORS` 通过常量维护对应 HTTP 状态与文案，并由类型检查保证每个错误码都有定义。数据库入口将约束错误转为 400、唯一约束冲突转为 409、可识别的其他数据库错误转为 503；不带数据库错误码的未知异常继续交给全局 500 处理。框架 `HttpException` 按状态降级为共享通用错误，忽略其原始正文；未登记的框架状态降级为 500。
 
 ## 请求追踪与幂等
 
@@ -75,7 +76,7 @@ TypeScript 终端从 `@memory-weave/contracts` 导入，不另抄一套接口类
 
 ## 旧终端与异常响应
 
-服务端只抛出 `ApiErrorCode` 已登记的值，但跨版本响应的 `code` 字段允许新增值。因此终端读取错误时使用 `apiErrorResponseSchema`，不能用当前版本的错误码枚举拒绝整个响应。
+服务端只抛出 `API_ERROR_CODES` 已登记的值，但跨版本响应的 `code` 字段允许新增值。因此终端读取错误时使用 `apiErrorResponseSchema`，不能用当前版本的错误码枚举拒绝整个响应。
 
 Web 当前按以下顺序处理，其他终端应保持相同行为：
 
@@ -89,17 +90,30 @@ Web 当前按以下顺序处理，其他终端应保持相同行为：
 
 ## 新功能如何接入
 
-先在 `ApiErrorCode` 增加名称到协议 code 的常量映射，再在 `API_ERRORS` 使用计算属性补上 HTTP 状态和默认中文提示。业务代码通过常量引用，不手写错误字符串：
+先在 `API_ERROR_CODES` 增加名称到协议 code 的常量映射，再在 `API_ERRORS` 使用计算属性补上 HTTP 状态和默认中文提示。业务代码通过常量引用，不手写错误字符串：
 
 ```ts
-import { ApiErrorCode } from '@memory-weave/contracts';
+import { API_ERROR_CODES } from '@memory-weave/contracts';
 
-throw new ApiException(ApiErrorCode.VERSION_CONFLICT);
+throw new ApiException(API_ERROR_CODES.VERSION_CONFLICT);
 ```
 
-`ApiErrorCode.VERSION_CONFLICT` 的值仍为字符串 `VERSION_CONFLICT`；同名的 `ApiErrorCode` 类型从常量值推导，原有 `import type` 调用保持兼容。各终端也可以用 `error.code === ApiErrorCode.VERSION_CONFLICT` 判断错误。
+`API_ERROR_CODES.VERSION_CONFLICT` 的值为字符串 `VERSION_CONFLICT`；`ApiErrorCode` 类型从常量值推导。各终端也可以用 `error.code === API_ERROR_CODES.VERSION_CONFLICT` 判断错误。原来的运行时常量 `ApiErrorCode` 已改名为 `API_ERROR_CODES`，原有 `import type { ApiErrorCode }` 保持兼容。
 
-按 HTTP 状态取得通用错误码时使用 `defaultApiErrorCode(400)`，结果为 `ApiErrorCode.INVALID_REQUEST`。同一 HTTP 状态可对应多个业务错误，例如 409 同时对应版本、幂等和权限冲突，不能只用数字键表示全部业务原因。调整内部常量的引用不影响协议；已交付的 code 字符串仍需保持稳定。
+按 HTTP 状态查询默认错误码时，直接使用共享的数字键映射：
+
+```ts
+import { HTTP_STATUS_TO_ERROR_CODE, defaultApiErrorCode } from '@memory-weave/contracts';
+
+HTTP_STATUS_TO_ERROR_CODE[400]; // 'INVALID_REQUEST'
+HTTP_STATUS_TO_ERROR_CODE[409]; // 'CONFLICT'
+HTTP_STATUS_TO_ERROR_CODE[499]; // undefined，尚未登记
+defaultApiErrorCode(499); // 'INTERNAL_ERROR'，统一兜底
+```
+
+`HTTP_STATUS_TO_ERROR_CODE` 的类型为 `Readonly<Partial<Record<number, ApiErrorCode>>>`，键是数字，值是已登记的错误码字符串。`Partial` 表示并非所有数字都存在；`defaultApiErrorCode` 直接复用该映射，并在找不到时返回 `INTERNAL_ERROR`。新增通用状态时在这里集中维护。
+
+同一 HTTP 状态可以有多个业务原因，例如 409 的默认码是 `CONFLICT`，具体版本冲突仍使用 `API_ERROR_CODES.VERSION_CONFLICT`。本次常量更名与映射导出不改变响应中的 code、状态和提示；已交付的 code 字符串保持稳定。
 
 中间件使用同一个 `sendApiError` 出口。终端通过共享 schema 校验，并只为需要特殊动作的业务码增加处理，其余使用共享提示。补充对应公开 HTTP/Web 行为测试，不在每个 controller 重复写 try/catch 或错误格式。
 

@@ -18,7 +18,7 @@ description: 维护 F02 实例、人格版本、共享会话、原文来源、�
 
 所有领域查询限制当前 owner。管理者可管理所属实例；伴侣视角查询还必须校验当前代次、成员及可见区间。不能把管理者能力当成伴侣获得其他私聊的授权。
 
-领域错误通过 contracts 的 `ApiErrorCode` 常量和 `ApiException` 引用，不手写 code 字符串。不存在与不可见均用 `RESOURCE_NOT_FOUND`；幂等、版本、代次和权限冲突分别分类，不能依赖提示文字。HTTP 追踪编号不替代创建/发布/接收命令的幂等键，详见 [公共 API 约定](../../../docs/api-conventions.md)。
+领域错误通过 contracts 的 `API_ERROR_CODES` 常量和 `ApiException` 引用，不手写 code 字符串。不存在与不可见均用 `RESOURCE_NOT_FOUND`；幂等、版本、代次和权限冲突分别分类，不能依赖提示文字。HTTP 追踪编号不替代创建/发布/接收命令的幂等键，详见 [公共 API 约定](../../../docs/api-conventions.md)。
 
 显示名称属于 owner 资料，不是登录凭据，也不代替每个伴侣自己的关系称呼。默认“用户”，首尾去空白后为 1～80 字符；修改不得更换 ownerId 或改写历史消息。个人设置页面对名称使用纯文本渲染，沿用真实 API 和权限判断。
 

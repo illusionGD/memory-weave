@@ -1,4 +1,4 @@
-import { ApiErrorCode } from '@memory-weave/contracts';
+import { API_ERROR_CODES } from '@memory-weave/contracts';
 import { createHash } from 'node:crypto';
 import { ApiException } from '../../http/api-exception';
 import { z } from 'zod';
@@ -11,7 +11,7 @@ import { z } from 'zod';
  */
 export function parseInput<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);
-  if (!result.success) throw new ApiException(ApiErrorCode.INVALID_REQUEST);
+  if (!result.success) throw new ApiException(API_ERROR_CODES.INVALID_REQUEST);
   return result.data;
 }
 

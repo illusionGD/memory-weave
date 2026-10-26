@@ -1,4 +1,4 @@
-import { ApiErrorCode } from '@memory-weave/contracts';
+import { API_ERROR_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import type { UpdateWorkspaceRequest, WorkspaceResponse } from '@memory-weave/contracts';
 import { eq } from 'drizzle-orm';
@@ -19,7 +19,7 @@ export class WorkspaceService {
         .from(owners)
         .where(eq(owners.id, ownerId))
         .limit(1);
-      if (!owner) throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
+      if (!owner) throw new ApiException(API_ERROR_CODES.DATA_UNAVAILABLE);
       return { ...owner, schemaVersion: 1 };
     });
   }
@@ -32,7 +32,7 @@ export class WorkspaceService {
         .set({ displayName: input.displayName })
         .where(eq(owners.id, ownerId))
         .returning({ ownerId: owners.id, displayName: owners.displayName });
-      if (!owner) throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
+      if (!owner) throw new ApiException(API_ERROR_CODES.DATA_UNAVAILABLE);
       return { ...owner, schemaVersion: 1 };
     });
   }

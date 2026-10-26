@@ -1,4 +1,4 @@
-import { ApiErrorCode } from '@memory-weave/contracts';
+import { API_ERROR_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
   CompanionSequenceQuery,
@@ -81,7 +81,7 @@ export class ReceivingService {
         )
         .limit(1);
       if (!row || row.sequence === null) {
-        throw new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND);
+        throw new ApiException(API_ERROR_CODES.RESOURCE_NOT_FOUND);
       }
       const member = await requireCompanionMember(
         ownerId,
@@ -149,13 +149,13 @@ export class ReceivingService {
           processing.startSequence !== row.sequence ||
           processing.endSequence !== row.sequence
         ) {
-          throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
+          throw new ApiException(API_ERROR_CODES.DATA_UNAVAILABLE);
         }
         const receipt = receipts.find(
           (entry) => entry.messageId === row.id && entry.contentVersion === row.contentVersion,
         );
         if (receipt && (receipt.startOffset !== 0 || receipt.endOffset !== row.text.length)) {
-          throw new ApiException(ApiErrorCode.DATA_UNAVAILABLE);
+          throw new ApiException(API_ERROR_CODES.DATA_UNAVAILABLE);
         }
         return {
           messageId: row.id,
@@ -204,7 +204,7 @@ export class ReceivingService {
           tx,
         );
         if (member.permissionVersion !== input.expectedPermissionVersion) {
-          throw new ApiException(ApiErrorCode.PERMISSION_VERSION_CONFLICT);
+          throw new ApiException(API_ERROR_CODES.PERMISSION_VERSION_CONFLICT);
         }
         const requestFingerprint = fingerprint({
           runtimeEpoch: input.runtimeEpoch,
@@ -227,7 +227,7 @@ export class ReceivingService {
           .limit(1);
         if (existing) {
           if (existing.fingerprint !== requestFingerprint) {
-            throw new ApiException(ApiErrorCode.IDEMPOTENCY_CONFLICT);
+            throw new ApiException(API_ERROR_CODES.IDEMPOTENCY_CONFLICT);
           }
           const rows: (typeof messages.$inferSelect)[] = [];
           for (const reference of existing.messages) {
@@ -245,7 +245,7 @@ export class ReceivingService {
               )
               .limit(1);
             if (!row || row.sequence === null) {
-              throw new ApiException(ApiErrorCode.RESOURCE_NOT_FOUND);
+              throw new ApiException(API_ERROR_CODES.RESOURCE_NOT_FOUND);
             }
             await assertVisible(member, row.sequence, tx);
             rows.push(row);

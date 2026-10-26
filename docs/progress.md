@@ -15,6 +15,7 @@
 - 协议验证：Node 22.23.4 下格式、lint、全工程 typecheck/build 通过；10 个后端测试文件共 64 条通过，桌面/移动浏览器 4 条通过。覆盖入口错误、不同 409 原因、401/404/503、未预期 500、追踪编号独立性、正文/日志脱敏以及错误恢复后的实际保存。`pnpm deploy --prod` 生产包由 Node 直接启动，14 步 F02 HTTP 验收及实际 401/404/就绪检查通过。契约声明文件保留中文字段注释；远程 CI 以此次提交的 Actions 为准。本轮停在 F02 供 review。
 - 错误码常量补充：导出仅包含 code 值的 `ApiErrorCode` 对象，并从其值推导同名类型和枚举 schema；`API_ERRORS` 按常量配置元数据，类型检查覆盖遗漏项。server 的异常、比较和中间件已全部改用常量引用，对外协议值、状态与提示保持一致。现有 64 条后端、4 条浏览器测试及格式/lint/typecheck/build 通过，构建后的类型声明保留常量字段中文注释。无迁移或依赖变更；比较基线 `23cb162`。
 - 导入路径统一：清理 contracts 中剩余 8 处指向 TS 文件的 `.js` 导入/导出，项目源码统一使用无后缀路径。contracts 改用 ESNext / Bundler，复用已有版本的开发依赖 `tsc-alias@1.9.9` 补齐编译后 JavaScript 和类型声明路径；真正指向构建产物的 exports 和启动脚本保留 `.js`。冻结安装、格式/lint/typecheck/build、64 条后端及 4 条浏览器测试通过；原生 ESM 包入口和严格 NodeNext 消费方检查通过；`pnpm dev` 实际登录与状态查询正常。Docker 构建含生产依赖打包通过，容器健康、登录/查询/退出正常，已有数据卷迁移 `applied=0`，运行镜像未安装构建工具。比较基线 `c128beb`；拉取后先执行 `pnpm install --frozen-lockfile`，无新增数据库迁移。
+- HTTP 默认错误码映射：按用户补充，导出数字键的 `HTTP_STATUS_TO_ERROR_CODE`，类型为 `Readonly<Partial<Record<number, ApiErrorCode>>>`；`defaultApiErrorCode` 直接复用它，未知状态仍兜底 `INTERNAL_ERROR`。业务名称常量改名为 `API_ERROR_CODES`，`ApiErrorCode` 仅保留联合类型，13 个后端调用文件与接入文档已同步。对外 code、HTTP 状态及提示不变；Node 22.23.4 下格式/lint/typecheck/build、64 条后端及 4 条浏览器测试通过，构建后的公共入口可直接查询数字键与未知状态兜底。无依赖或迁移变更；比较基线 `79462f5`。
 - 交付说明：[F02 接口、迁移与验收](features/f02-data-foundation.md)。比较基线：`af55db5`，固定版本以本功能 Git 提交号为准。GitHub Actions 的远程状态另行核对。
 - 当前边界：HTTP 管理接口代理伴侣发言/接收，明确保留管理操作来源；尚无模型生成、自主运行、人格成长、完整聊天页面、成员变更和记忆提取。F03–F24 未开始，停在 F02 供 review。
 
