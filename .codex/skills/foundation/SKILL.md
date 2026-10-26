@@ -25,7 +25,7 @@ description: >-
 - 公共契约字段使用中文 JSDoc，说明语义、枚举与空值含义；通过具名 shape 和 `z.ZodObject<typeof shape>` 保留声明文件的字段提示，类型继续从 schema 推导，不重复维护规则。
 - 所有终端共用 [HTTP API 约定](../../../docs/api-conventions.md)。业务错误先在 contracts 的 `ApiErrorCode` 常量登记协议值，并在 `API_ERRORS` 补上状态和中文提示；通过 `ApiException(ApiErrorCode.名称)` 或常量比较引用，禁止散落错误码字符串。中间件共用 `sendApiError`，禁止单独拼装失败正文。未知异常由全局过滤器返回安全 500。成功响应保持领域对象和真实 HTTP 状态，204 不写正文。
 - HTTP 追踪 `requestId` 与业务幂等键独立；响应头和错误正文一致，日志仅记录受控分类与编号。终端允许未来新增错误码，并按 HTTP 状态降级未知/旧格式响应，不能直接展示任意异常文本或自动重试写操作。
-- 后端 TypeScript 的相对 import / export 省略文件后缀。类型检查使用 ESNext / Bundler 与 node 条件；生产构建必须执行 `tsc` 后的 `tsc-alias` 路径补全，再由 Node 直接运行 dist。修改导入方式时同时验证 tsx 开发启动和编译产物运行。
+- 项目源码中指向 TypeScript 文件的相对 import / export 统一省略文件后缀，包含 server、contracts 与 Web；Vue 和静态资源保留各自扩展名。server 与 contracts 使用 ESNext / Bundler，server 另启用 node 条件；构建必须执行 `tsc` 后的 `tsc-alias` 路径补全，确保 JavaScript 与类型声明都可供 ESM 使用。指向真实构建产物的入口与运行脚本继续使用 `.js`。修改导入方式时验证源码解析、编译运行和 NodeNext 消费方的类型检查。
 - 默认 API 需要认证，公开路由显式声明；前端路由判断不能代替后端控制。
 - API 路径大小写与 Express 匹配保持一致；静态资源 fallback 不返回 API 的 HTML 页面。
 - HTTP 入口不自动升级资源到 HTTPS；HTTPS 入口必须使用 Secure Cookie。

@@ -4,7 +4,7 @@ import {
   positiveIntegerSchema,
   utcDateTimeSchema,
   uuidSchema,
-} from './common.js';
+} from './common';
 
 const userSpeakerRequestShape = {
   /** 以已认证部署的用户身份保存消息，用户标识由服务端决定。 */

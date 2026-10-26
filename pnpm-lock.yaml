@@ -149,6 +149,10 @@ importers:
       zod:
         specifier: ^4.1.0
         version: 4.6.7
+    devDependencies:
+      tsc-alias:
+        specifier: 1.9.9
+        version: 1.9.9
 
 packages:
 

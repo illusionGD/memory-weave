@@ -4,7 +4,7 @@ import {
   positiveIntegerSchema,
   utcDateTimeSchema,
   uuidSchema,
-} from './common.js';
+} from './common';
 
 const companionParticipantShape = {
   /** 作为初始成员加入会话的稳定实例标识。 */

@@ -53,6 +53,7 @@ alwaysApply: true
 ## 3. TypeScript
 
 - 对外 API、函数入参和返回值显式声明类型；外部输入使用 `unknown` 后再收窄。
+- 源码中指向 TypeScript 模块的 import / export 省略扩展名，不写成 `.js`；Vue 组件与其他真实资源保留其扩展名。
 - 少用 `any`，统一空值策略，不混用 `null` 和 `undefined`。
 - 顶层函数使用 `function` 声明；回调、局部函数和工厂内部函数可使用箭头函数。
 - 公共类型放在 `src/types`，声明文件使用 `.d.ts`。

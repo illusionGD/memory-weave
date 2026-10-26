@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { positiveIntegerSchema, utcDateTimeSchema, uuidSchema } from './common.js';
+import { positiveIntegerSchema, utcDateTimeSchema, uuidSchema } from './common';
 
 const createCompanionRequestShape = {
   /** 创建命令的 UUID 幂等键；同键同载荷重放，同键异载荷返回冲突。 */

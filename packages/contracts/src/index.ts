@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-export * from './common.js';
-export * from './errors.js';
-export * from './companions.js';
-export * from './conversations.js';
-export * from './messages.js';
+export * from './common';
+export * from './errors';
+export * from './companions';
+export * from './conversations';
+export * from './messages';
 
 // 具名字段定义与 typeof 标注使 JSDoc 保留到生成的 .d.ts，供调用方查看提示。
 const loginRequestShape = {
