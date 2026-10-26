@@ -17,6 +17,7 @@ import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+import { expectApiError } from './support/http';
 
 describe('伴侣视角的原文查询与独立接收', () => {
   let app: INestApplication;
@@ -116,11 +117,13 @@ describe('伴侣视角的原文查询与独立接收', () => {
       items: [],
       nextAfterSequence: null,
     });
-    await agent.get(path).query({ runtimeEpoch: 2 }).expect(409);
-    await agent
+    const stale = await agent.get(path).query({ runtimeEpoch: 2 }).expect(409);
+    expectApiError(stale, 409, 'RUNTIME_EPOCH_MISMATCH');
+    const denied = await agent
       .get(`/api/companions/${b.id}/conversations/${conversation.id}/messages`)
       .query({ runtimeEpoch: 1 })
       .expect(404);
+    expectApiError(denied, 404, 'RESOURCE_NOT_FOUND');
   });
 
   it('空接收批次也持久保存并幂等重放，同键改变参数不能替换原批次', async () => {
@@ -146,10 +149,11 @@ describe('伴侣视角的原文查询与独立接收', () => {
       .post(path)
       .send({ ...command, runtimeEpoch: 2 })
       .expect(409);
-    await agent
+    const changedPermission = await agent
       .post(path)
       .send({ ...command, expectedPermissionVersion: 2 })
       .expect(409);
+    expectApiError(changedPermission, 409, 'PERMISSION_VERSION_CONFLICT');
   });
   it('普通查看不记已读，A 与 B 分别取得同一原文且整理和交付保持独立状态', async () => {
     const a = await createCompanion('独立取得 A');

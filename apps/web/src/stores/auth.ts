@@ -72,12 +72,7 @@ export const useAuthStore = defineStore('auth', () => {
       return true;
     } catch (cause: unknown) {
       authenticated.value = false;
-      error.value =
-        cause instanceof ApiError
-          ? cause.status === 401
-            ? '密码不正确，请重试。'
-            : cause.message
-          : '登录信息有误，请检查后重试。';
+      error.value = cause instanceof ApiError ? cause.message : '登录信息有误，请检查后重试。';
       return false;
     } finally {
       loggingIn.value = false;

@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  HttpException,
-  Inject,
-  Injectable,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { HttpException, Inject, Injectable } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -15,6 +8,7 @@ import { SERVER_CONFIG } from '../config';
 import type { RuntimeConfig } from '../config';
 import { querySchemaStatus } from './migrations';
 import * as schema from './schema';
+import { ApiException } from '../http/api-exception';
 
 /** 领域服务共享的类型化数据库入口。 */
 export type Database = NodePgDatabase<typeof schema>;
@@ -58,23 +52,25 @@ export class DatabaseService implements OnModuleDestroy {
     try {
       const status = await this.getSchemaStatus();
       if (status.status !== 'ready') {
-        throw new ServiceUnavailableException('数据服务或数据库结构尚未就绪。');
+        throw new ApiException('DATA_UNAVAILABLE');
       }
       const [owner] = await this.db
         .select({ id: schema.owners.id })
         .from(schema.owners)
         .where(eq(schema.owners.deploymentKey, 'local'))
         .limit(1);
-      if (!owner) throw new ServiceUnavailableException('部署身份尚未就绪。');
+      if (!owner) throw new ApiException('DATA_UNAVAILABLE');
       return await operation(owner.id, this.db);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       const code = databaseErrorCode(error);
-      if (code === '23505') throw new ConflictException('命令与已有数据冲突。');
+      if (code === '23505') throw new ApiException('CONFLICT');
       if (['23503', '23514', '23502', '22P02'].includes(code ?? '')) {
-        throw new BadRequestException('关联数据或字段不符合约束。');
+        throw new ApiException('DATA_CONSTRAINT_VIOLATION');
       }
-      throw new ServiceUnavailableException('数据服务或数据库结构尚未就绪。');
+      if (code) throw new ApiException('DATA_UNAVAILABLE');
+      // 无法识别为数据库错误的异常交给全局 500 处理，避免掩盖业务代码缺陷。
+      throw error;
     }
   }
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export * from './common.js';
+export * from './errors.js';
 export * from './companions.js';
 export * from './conversations.js';
 export * from './messages.js';

@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+import { expectApiError } from './support/http';
 
 describe('会话与原文 HTTP 契约', () => {
   let app: INestApplication;
@@ -451,19 +452,21 @@ describe('会话与原文 HTTP 契约', () => {
     expect(saved.map((response) => response.status)).toEqual([201, 201]);
     expect(saved[0]?.body).toEqual(saved[1]?.body);
     const originalId = saved[0]?.body.id as string;
-    await agent
+    const changedContent = await agent
       .post(`/api/conversations/${id}/messages`)
       .send({ ...messageCommand, text: '变更原文' })
       .expect(409);
+    expectApiError(changedContent, 409, 'IDEMPOTENCY_CONFLICT');
     const publishCommand = {
       requestId: randomUUID(),
       expectedRevision: 1,
       expectedConversationVersion: 1,
     };
-    await agent
+    const staleRevision = await agent
       .post(`/api/conversations/${id}/messages/${originalId}/publish`)
       .send({ ...publishCommand, expectedRevision: 2 })
       .expect(409);
+    expectApiError(staleRevision, 409, 'VERSION_CONFLICT');
     await agent
       .post(`/api/conversations/${id}/messages/${originalId}/publish`)
       .send(publishCommand)

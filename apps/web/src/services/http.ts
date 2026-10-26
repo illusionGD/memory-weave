@@ -1,17 +1,39 @@
-/** 对外请求错误；只向界面暴露可处理的状态，不展示服务端原始响应。 */
+import {
+  API_ERRORS,
+  REQUEST_ID_HEADER,
+  apiErrorResponseSchema,
+  defaultApiErrorCode,
+  getApiErrorDefinition,
+  uuidSchema,
+} from '@memory-weave/contracts';
+
+/** 对外请求错误；业务错误码与提示复用共享契约，不展示未经验证的远端内容。 */
 export class ApiError extends Error {
   /** HTTP 状态；连接失败或超时没有 HTTP 状态。 */
   readonly status: number | null;
+  /** 服务端的稳定业务错误码；网络失败或不符合契约的响应为 null。 */
+  readonly code: string | null;
+  /** 服务端 HTTP 请求追踪编号；未收到有效编号时为 null，不是幂等键。 */
+  readonly requestId: string | null;
 
   /**
    * 创建可供页面区分认证失败和服务不可用的错误。
    * @param message 适合展示给使用者的错误说明。
    * @param status HTTP 响应状态，连接失败时为 null。
+   * @param code 经过契约验证的业务错误码，可包含未来版本增加的值。
+   * @param requestId 经过 UUID 校验的服务端追踪编号。
    */
-  constructor(message: string, status: number | null = null) {
+  constructor(
+    message: string,
+    status: number | null = null,
+    code: string | null = null,
+    requestId: string | null = null,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
+    this.requestId = requestId;
   }
 }
 
@@ -21,6 +43,40 @@ interface ResponseSchema<T> {
 }
 
 const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * 校验统一错误；未知码、旧格式或代理 HTML 按实际 HTTP 状态降级，禁止猜测业务原因。
+ * @param response 已收到的失败响应，正文读取仍受整次请求的超时限制。
+ * @returns 含安全提示、原始状态、可用业务码和追踪编号的错误。
+ */
+async function readApiError(response: Response): Promise<ApiError> {
+  const headerId = uuidSchema.safeParse(response.headers.get(REQUEST_ID_HEADER));
+  const requestId = headerId.success ? headerId.data : null;
+  const fallback = API_ERRORS[defaultApiErrorCode(response.status)];
+  let value: unknown;
+  try {
+    value = await response.json();
+  } catch {
+    return new ApiError(fallback.message, response.status, null, requestId);
+  }
+  const parsed = apiErrorResponseSchema.safeParse(value);
+  if (parsed.success && parsed.data.statusCode === response.status) {
+    const body = parsed.data;
+    const definition = getApiErrorDefinition(body.code);
+    if (
+      (!definition || definition.statusCode === response.status) &&
+      (!requestId || requestId === body.requestId)
+    ) {
+      return new ApiError(
+        definition?.message ?? fallback.message,
+        response.status,
+        body.code,
+        body.requestId,
+      );
+    }
+  }
+  return new ApiError(fallback.message, response.status, null, requestId);
+}
 
 /**
  * 请求与响应读取共用时限，避免服务仅发出响应头后页面永久等待。
@@ -47,15 +103,7 @@ async function executeRequest<T>(
     });
 
     if (!response.ok) {
-      if (response.status === 401) {
-        throw new ApiError('请登录后继续。', response.status);
-      }
-
-      if (response.status === 429) {
-        throw new ApiError('尝试次数过多，请稍后再试。', response.status);
-      }
-
-      throw new ApiError('服务暂时不可用，请稍后重试。', response.status);
+      throw await readApiError(response);
     }
 
     return await readResponse(response);

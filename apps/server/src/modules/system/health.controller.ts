@@ -1,6 +1,7 @@
-import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import { PublicRoute } from '../auth/public-route';
 import { SystemService } from './system.service';
+import { ApiException } from '../../http/api-exception';
 
 /** 公开健康检查仅返回可用状态，不泄露具体配置。 */
 @Controller('health')
@@ -30,7 +31,7 @@ export class HealthController {
       status.storage.status !== 'ready' ||
       status.schema.status !== 'ready'
     ) {
-      throw new ServiceUnavailableException('依赖服务或数据库结构尚未就绪。');
+      throw new ApiException('DEPENDENCIES_UNAVAILABLE');
     }
     return { status: 'ok' };
   }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   CompanionDetail,
   CompanionListResponse,
@@ -11,6 +11,7 @@ import { DatabaseService } from '../../database/database.service';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
 import { companions, personaVersions } from '../../database/schema';
 import { fingerprint } from '../shared/http';
+import { ApiException } from '../../http/api-exception';
 
 /** 保存部署管理者的实例身份、不可变初始快照及当前人格版本。 */
 @Injectable()
@@ -58,7 +59,7 @@ export class CompanionsService {
             .where(and(eq(companions.ownerId, ownerId), eq(companions.requestId, input.requestId)))
             .limit(1);
           if (!existing || existing.fingerprint !== requestFingerprint) {
-            throw new ConflictException('创建请求标识已用于不同内容。');
+            throw new ApiException('IDEMPOTENCY_CONFLICT');
           }
           return this.detail(tx, ownerId, existing.id);
         }
@@ -134,7 +135,7 @@ export class CompanionsService {
       )
       .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)))
       .limit(1);
-    if (!row) throw new NotFoundException('实例不存在。');
+    if (!row) throw new ApiException('RESOURCE_NOT_FOUND');
     return this.toDetail(row);
   }
 

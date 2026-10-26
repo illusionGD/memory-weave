@@ -1,10 +1,4 @@
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   CompanionSequenceQuery,
   ConversationProgressResponse,
@@ -33,6 +27,7 @@ import {
   toMessage,
 } from './conversation-access';
 import type { QueryDatabase } from './conversation-access';
+import { ApiException } from '../../http/api-exception';
 
 /** 按伴侣当前代次和成员范围提供原文查询，普通查询不登记实际取得。 */
 @Injectable()
@@ -85,7 +80,7 @@ export class ReceivingService {
         )
         .limit(1);
       if (!row || row.sequence === null) {
-        throw new NotFoundException('原文不存在或不可访问。');
+        throw new ApiException('RESOURCE_NOT_FOUND');
       }
       const member = await requireCompanionMember(
         ownerId,
@@ -153,13 +148,13 @@ export class ReceivingService {
           processing.startSequence !== row.sequence ||
           processing.endSequence !== row.sequence
         ) {
-          throw new ServiceUnavailableException('原文处理登记尚未就绪。');
+          throw new ApiException('DATA_UNAVAILABLE');
         }
         const receipt = receipts.find(
           (entry) => entry.messageId === row.id && entry.contentVersion === row.contentVersion,
         );
         if (receipt && (receipt.startOffset !== 0 || receipt.endOffset !== row.text.length)) {
-          throw new ServiceUnavailableException('原文读取范围尚未就绪。');
+          throw new ApiException('DATA_UNAVAILABLE');
         }
         return {
           messageId: row.id,
@@ -208,7 +203,7 @@ export class ReceivingService {
           tx,
         );
         if (member.permissionVersion !== input.expectedPermissionVersion) {
-          throw new ConflictException('成员权限版本已变化。');
+          throw new ApiException('PERMISSION_VERSION_CONFLICT');
         }
         const requestFingerprint = fingerprint({
           runtimeEpoch: input.runtimeEpoch,
@@ -231,7 +226,7 @@ export class ReceivingService {
           .limit(1);
         if (existing) {
           if (existing.fingerprint !== requestFingerprint) {
-            throw new ConflictException('接收请求标识已用于不同内容。');
+            throw new ApiException('IDEMPOTENCY_CONFLICT');
           }
           const rows: (typeof messages.$inferSelect)[] = [];
           for (const reference of existing.messages) {
@@ -249,7 +244,7 @@ export class ReceivingService {
               )
               .limit(1);
             if (!row || row.sequence === null) {
-              throw new NotFoundException('原文不存在或不可访问。');
+              throw new ApiException('RESOURCE_NOT_FOUND');
             }
             await assertVisible(member, row.sequence, tx);
             rows.push(row);

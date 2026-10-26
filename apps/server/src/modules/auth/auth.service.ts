@@ -1,6 +1,7 @@
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { ApiException } from '../../http/api-exception';
 import type { OnModuleDestroy } from '@nestjs/common';
 
 const deriveKey = promisify(scrypt);
@@ -59,16 +60,13 @@ export class AuthService implements OnModuleDestroy {
     const entry = this.loginAttempts.get(source);
     if (entry) {
       if (entry.count >= MAX_LOGIN_ATTEMPTS) {
-        throw new HttpException(
-          'Too many login attempts. Try again in one minute.',
-          HttpStatus.TOO_MANY_REQUESTS,
-        );
+        throw new ApiException('RATE_LIMITED');
       }
       entry.count += 1;
       return;
     }
     if (this.loginAttempts.size >= MAX_LOGIN_SOURCES) {
-      throw new HttpException('Login is temporarily busy.', HttpStatus.TOO_MANY_REQUESTS);
+      throw new ApiException('RATE_LIMITED');
     }
     this.loginAttempts.set(source, { count: 1, expiresAt: now + LOGIN_WINDOW_MS });
   }

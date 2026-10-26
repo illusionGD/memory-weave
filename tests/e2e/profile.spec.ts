@@ -17,6 +17,51 @@ test('显示名称可修改并在刷新和重新登录后保留', async ({ page 
     await name.fill('   ');
     await page.getByRole('button', { name: '保存名称', exact: true }).click();
     await expect(page.getByRole('alert')).toHaveText('请输入 1～80 个字符的显示名称。');
+    // 在 HTTP 边界模拟各版本终端可能遇到的响应，不替换页面、store 或请求层。
+    const traceId = 'e4f34b29-3f5d-4f37-9266-4764bbd61cee';
+    for (const failure of [
+      {
+        status: 409,
+        code: 'VERSION_CONFLICT',
+        statusCode: 409,
+        expected: '数据版本已变化，请刷新后核对。',
+      },
+      {
+        status: 409,
+        code: 'FUTURE_CONFLICT',
+        statusCode: 409,
+        expected: '操作与当前状态冲突，请刷新后核对。',
+      },
+      {
+        status: 400,
+        code: 'VERSION_CONFLICT',
+        statusCode: 409,
+        expected: '请求参数不符合接口约定。',
+      },
+      { status: 503, code: null, statusCode: 503, expected: '服务暂时不可用，请稍后重试。' },
+    ]) {
+      await page.route('**/api/workspace', async (route) => {
+        if (route.request().method() !== 'PATCH') return route.continue();
+        await route.fulfill({
+          status: failure.status,
+          headers: { 'X-Request-Id': traceId },
+          contentType: failure.code ? 'application/json' : 'text/html',
+          body: failure.code
+            ? JSON.stringify({
+                statusCode: failure.statusCode,
+                code: failure.code,
+                message: '不应展示的远端原始诊断信息',
+                requestId: traceId,
+              })
+            : '<html>不应展示的代理错误页面</html>',
+        });
+      });
+      await name.fill(changedName);
+      await page.getByRole('button', { name: '保存名称', exact: true }).click();
+      await expect(page.getByRole('alert')).toHaveText(failure.expected);
+      await expect(name).toHaveValue(changedName);
+      await page.unroute('**/api/workspace');
+    }
     await name.fill(`  ${changedName}  `);
     await page.getByRole('button', { name: '保存名称', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('显示名称已保存。');
@@ -34,6 +79,7 @@ test('显示名称可修改并在刷新和重新登录后保留', async ({ page 
     }
     flowCompleted = true;
   } finally {
+    await page.unroute('**/api/workspace');
     const restored = await page.request.patch('/api/workspace', {
       data: { displayName: originalName },
     });

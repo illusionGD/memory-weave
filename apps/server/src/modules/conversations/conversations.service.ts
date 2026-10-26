@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   ConversationDetail,
   ConversationListResponse,
@@ -34,6 +34,7 @@ import {
   toMember,
 } from './conversation-access';
 import type { QueryDatabase } from './conversation-access';
+import { ApiException } from '../../http/api-exception';
 
 /** 管理共享会话与单份原文，所有写入以部署归属及事务保护。 */
 @Injectable()
@@ -74,7 +75,7 @@ export class ConversationsService {
             )
             .limit(1);
           if (!existing || existing.fingerprint !== requestFingerprint)
-            throw new ConflictException('幂等键已用于不同会话内容。');
+            throw new ApiException('IDEMPOTENCY_CONFLICT');
           return this.detail(ownerId, existing.id, tx);
         }
         const members: (typeof conversationMembers.$inferInsert)[] = input.companions.map(
@@ -180,11 +181,11 @@ export class ConversationsService {
           .limit(1);
         if (existing) {
           if (existing.fingerprint !== requestFingerprint)
-            throw new ConflictException('幂等键已用于不同消息内容。');
+            throw new ApiException('IDEMPOTENCY_CONFLICT');
           return toMessage(existing, tx);
         }
         if (conversation.version !== input.expectedConversationVersion)
-          throw new ConflictException('会话版本已变化。');
+          throw new ApiException('VERSION_CONFLICT');
         const receivedAt = new Date();
         const [row] = await tx
           .insert(messages)
@@ -205,7 +206,7 @@ export class ConversationsService {
             replyToMessageId: input.replyToMessageId ?? null,
           })
           .returning();
-        if (!row) throw new ConflictException('消息保存未完成。');
+        if (!row) throw new ApiException('CONFLICT');
         if (input.sources.length > 0)
           await tx.insert(messageSources).values(
             input.sources.map((source) => ({
@@ -236,7 +237,7 @@ export class ConversationsService {
           ),
         )
         .limit(1);
-      if (!row) throw new NotFoundException('消息不存在或不可访问。');
+      if (!row) throw new ApiException('RESOURCE_NOT_FOUND');
       return toMessage(row, db);
     });
   }
@@ -261,7 +262,7 @@ export class ConversationsService {
             ),
           )
           .limit(1);
-        if (!row) throw new NotFoundException('消息不存在或不可访问。');
+        if (!row) throw new ApiException('RESOURCE_NOT_FOUND');
         const original = await toMessage(row, tx);
         const member = await this.speaker(ownerId, conversationId, original.speaker, tx);
         await this.validateReferences(
@@ -281,7 +282,7 @@ export class ConversationsService {
             row.publishRequestId !== input.requestId.toLowerCase() ||
             row.publishFingerprint !== requestFingerprint
           ) {
-            throw new ConflictException('消息已经通过其他发布命令发布。');
+            throw new ApiException('MESSAGE_ALREADY_PUBLISHED');
           }
           return original;
         }
@@ -289,14 +290,14 @@ export class ConversationsService {
           row.revision !== input.expectedRevision ||
           conversation.version !== input.expectedConversationVersion
         ) {
-          throw new ConflictException('消息或会话版本已变化。');
+          throw new ApiException('VERSION_CONFLICT');
         }
         if (
           conversation.lastSequence >= 2_147_483_647 ||
           conversation.version >= 2_147_483_647 ||
           row.revision >= 2_147_483_647
         ) {
-          throw new ConflictException('会话或消息版本已达到当前存储上限。');
+          throw new ApiException('VERSION_LIMIT_REACHED');
         }
         const sequence = conversation.lastSequence + 1;
         await assertVisible(member, sequence, tx);
@@ -313,7 +314,7 @@ export class ConversationsService {
           })
           .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)))
           .returning();
-        if (!published) throw new ConflictException('消息发布未完成。');
+        if (!published) throw new ApiException('CONFLICT');
         await tx
           .update(conversations)
           .set({ lastSequence: sequence, version: conversation.version + 1 })
@@ -340,7 +341,7 @@ export class ConversationsService {
           try {
             await assertVisible(recipient, sequence, tx);
           } catch (error) {
-            if (error instanceof NotFoundException) continue;
+            if (error instanceof ApiException && error.code === 'RESOURCE_NOT_FOUND') continue;
             throw error;
           }
           if (recipient.companionId === null || recipient.runtimeEpoch === null) continue;
@@ -405,7 +406,7 @@ export class ConversationsService {
         conversationId,
         db,
       );
-      if (member.leftSequence !== null) throw new ConflictException('发言者已离开会话。');
+      if (member.leftSequence !== null) throw new ApiException('MEMBER_LEFT');
       return member;
     }
     const [member] = await db
@@ -420,8 +421,7 @@ export class ConversationsService {
         ),
       )
       .limit(1);
-    if (!member || member.leftSequence !== null)
-      throw new NotFoundException('发言者不在当前会话。');
+    if (!member || member.leftSequence !== null) throw new ApiException('RESOURCE_NOT_FOUND');
     return member;
   }
 
@@ -452,7 +452,7 @@ export class ConversationsService {
           ),
         )
         .limit(1);
-      if (!row || row.sequence === null) throw new NotFoundException('引用原文不存在或不可访问。');
+      if (!row || row.sequence === null) throw new ApiException('RESOURCE_NOT_FOUND');
       await assertVisible(member, row.sequence, db);
     }
   }

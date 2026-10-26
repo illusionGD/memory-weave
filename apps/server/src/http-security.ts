@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { RequestHandler } from 'express';
+import { sendApiError } from './http/error-response';
 
 /**
  * 校验写请求的浏览器来源，防止其他站点借用会话发起操作。
@@ -14,7 +15,7 @@ export function createOriginCheck(allowedOrigin: string): RequestHandler {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
         const origin = request.get('origin');
         if (origin !== undefined && origin !== allowedOrigin) {
-          response.status(403).json({ statusCode: 403, message: 'Request origin is not allowed.' });
+          sendApiError(response, 'ORIGIN_NOT_ALLOWED');
           return;
         }
       }
@@ -36,14 +37,21 @@ export function handleBodyError(
   response: Response,
   next: NextFunction,
 ): void {
-  const isTooLarge =
-    !!error && typeof error === 'object' && 'status' in error && error.status === 413;
-  if (isTooLarge || error instanceof SyntaxError) {
-    const statusCode = isTooLarge ? 413 : 400;
-    response.status(statusCode).json({
-      statusCode,
-      message: isTooLarge ? 'Request body is too large.' : 'Invalid JSON request.',
-    });
+  const status = error && typeof error === 'object' && 'status' in error ? error.status : null;
+  if (status === 413) {
+    sendApiError(response, 'REQUEST_BODY_TOO_LARGE');
+    return;
+  }
+  if (status === 415) {
+    sendApiError(response, 'UNSUPPORTED_MEDIA_TYPE');
+    return;
+  }
+  if (error instanceof SyntaxError) {
+    sendApiError(response, 'INVALID_JSON');
+    return;
+  }
+  if (status === 400) {
+    sendApiError(response, 'INVALID_REQUEST');
     return;
   }
   next(error);

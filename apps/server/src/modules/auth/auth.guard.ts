@@ -1,10 +1,11 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { PUBLIC_ROUTE } from './public-route';
 import { readSessionCookie } from './session-cookie';
+import { ApiException } from '../../http/api-exception';
 
 /** 路由默认需要认证，只有显式标记为公开时才允许直接访问。 */
 @Injectable()
@@ -27,6 +28,6 @@ export class AuthGuard implements CanActivate {
     if (isPublic) return true;
     const request = context.switchToHttp().getRequest<Request>();
     if (this.auth.hasSession(readSessionCookie(request))) return true;
-    throw new UnauthorizedException('Authentication required.');
+    throw new ApiException('AUTH_REQUIRED');
   }
 }

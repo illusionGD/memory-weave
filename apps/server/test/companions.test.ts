@@ -10,6 +10,7 @@ import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+import { expectApiError } from './support/http';
 
 describe('部署管理者通过 HTTP 管理伴侣实例', () => {
   let app: INestApplication;
@@ -105,10 +106,13 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
       .post('/api/companions')
       .send({ ...command, requestId: command.requestId.toUpperCase() })
       .expect(201, responses[0]!.body);
-    await agent
+    const conflict = await agent
       .post('/api/companions')
       .send({ ...command, initialProfile: '不能覆盖最初创建的原文。' })
       .expect(409);
+    expectApiError(conflict, 409, 'IDEMPOTENCY_CONFLICT');
+    expect(conflict.body.requestId).not.toBe(command.requestId);
+    expect(new Set(responses.map((response) => response.headers['x-request-id'])).size).toBe(4);
     await agent.get(`/api/companions/${responses[0]!.body.id}`).expect(200, responses[0]!.body);
   });
 
@@ -205,7 +209,8 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
       await agent.get('/api/companions').query(query).expect(400);
     }
     await agent.get('/api/companions/不是UUID').expect(400);
-    await agent.get(`/api/companions/${randomUUID()}`).expect(404);
+    const missing = await agent.get(`/api/companions/${randomUUID()}`).expect(404);
+    expectApiError(missing, 404, 'RESOURCE_NOT_FOUND');
     const created = await agent.post('/api/companions').send(command).expect(201);
     const workspace = await agent.get('/api/workspace').expect(200);
     expect(created.body.ownerId).toBe(workspace.body.ownerId);

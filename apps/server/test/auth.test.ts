@@ -34,8 +34,17 @@ describe('single-owner HTTP access', () => {
   });
 
   it('requires authentication before returning the current session', async () => {
-    const response = await request(app.getHttpServer()).get('/api/auth/session');
+    const response = await request(app.getHttpServer())
+      .get('/api/auth/session')
+      .set('X-Request-Id', 'client-provided-value');
     expect(response.status).toBe(401);
+    expect(response.body).toEqual({
+      statusCode: 401,
+      code: 'AUTH_REQUIRED',
+      message: '请登录后继续。',
+      requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
+    expect(response.headers['x-request-id']).toBe(response.body.requestId);
   });
 
   it('signs in with the configured password and reuses an HttpOnly session cookie', async () => {
@@ -45,12 +54,15 @@ describe('single-owner HTTP access', () => {
       .send({ password: 'test-password-for-foundation' });
     expect(login.status).toBe(200);
     expect(login.body).toEqual({ authenticated: true });
+    expect(login.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
     expect(login.headers['set-cookie']).toEqual([
       expect.stringMatching(/memory_weave_session=.*HttpOnly.*SameSite=Strict/),
     ]);
     const session = await agent.get('/api/auth/session');
     expect(session.status).toBe(200);
     expect(session.body).toEqual({ authenticated: true });
+    expect(session.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(session.headers['x-request-id']).not.toBe(login.headers['x-request-id']);
   });
 
   it('revokes the server session on logout, including replay of the previous cookie', async () => {
@@ -62,6 +74,8 @@ describe('single-owner HTTP access', () => {
       .post('/api/auth/logout')
       .set('Cookie', cookie);
     expect(logout.status).toBe(204);
+    expect(logout.text).toBe('');
+    expect(logout.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
     const replay = await request(app.getHttpServer())
       .get('/api/auth/session')
       .set('Cookie', cookie);
@@ -74,6 +88,12 @@ describe('single-owner HTTP access', () => {
       .set('Origin', 'https://unrelated.example')
       .send({ password: 'test-password-for-foundation' });
     expect(response.status).toBe(403);
+    expect(response.body).toEqual({
+      statusCode: 403,
+      code: 'ORIGIN_NOT_ALLOWED',
+      message: '请求来源不被允许。',
+      requestId: response.headers['x-request-id'],
+    });
     expect(response.headers['set-cookie']).toBeUndefined();
   });
 
@@ -101,6 +121,7 @@ describe('single-owner HTTP access', () => {
       .post('/api/auth/login')
       .send({ password: 'wrong-password' });
     expect(limited.status).toBe(429);
+    expect(limited.body.code).toBe('RATE_LIMITED');
     expect(limited.headers['set-cookie']).toBeUndefined();
   });
 
@@ -109,6 +130,7 @@ describe('single-owner HTTP access', () => {
       .post('/api/auth/login')
       .send({ password: 'x'.repeat(20_000) });
     expect(response.status).toBe(413);
+    expect(response.body.code).toBe('REQUEST_BODY_TOO_LARGE');
     expect(response.headers['set-cookie']).toBeUndefined();
   });
 
@@ -118,7 +140,12 @@ describe('single-owner HTTP access', () => {
       .set('Content-Type', 'application/json')
       .send('PRIVATE');
     expect(response.status).toBe(400);
-    expect(response.body).toEqual({ statusCode: 400, message: 'Invalid JSON request.' });
+    expect(response.body).toEqual({
+      statusCode: 400,
+      code: 'INVALID_JSON',
+      message: '请求正文不是有效的 JSON。',
+      requestId: response.headers['x-request-id'],
+    });
   });
 
   it('rejects malformed login fields without creating a session', async () => {
@@ -126,7 +153,35 @@ describe('single-owner HTTP access', () => {
       .post('/api/auth/login')
       .send({ password: 12345 });
     expect(response.status).toBe(400);
+    expect(response.body.code).toBe('INVALID_REQUEST');
     expect(response.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('returns a distinct error for incorrect credentials without echoing the password', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: 'private-wrong-password' })
+      .expect(401);
+    expect(response.body).toEqual({
+      statusCode: 401,
+      code: 'INVALID_CREDENTIALS',
+      message: '密码不正确，请重试。',
+      requestId: response.headers['x-request-id'],
+    });
+  });
+
+  it('normalizes unsupported body encodings without exposing parser errors', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json; charset=not-supported')
+      .send('{"password":"private"}')
+      .expect(415);
+    expect(response.body).toEqual({
+      statusCode: 415,
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+      message: '请求内容格式或编码不受支持。',
+      requestId: response.headers['x-request-id'],
+    });
   });
 
   it('rejects a session after its twelve-hour lifetime', async () => {

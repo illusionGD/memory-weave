@@ -9,6 +9,7 @@ import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+import { expectApiError } from './support/http';
 import { runMigrations } from '../src/database/migrations';
 
 describe('observable service health', () => {
@@ -86,7 +87,8 @@ describe('observable service health', () => {
       expect(status.body.schema).toEqual({ status: 'pending', version: null });
       await request(legacyApp.getHttpServer()).get('/api/health/live').expect(200);
       await request(legacyApp.getHttpServer()).get('/api/health/ready').expect(503);
-      await agent.get('/api/workspace').expect(503);
+      const unavailable = await agent.get('/api/workspace').expect(503);
+      expectApiError(unavailable, 503, 'DATA_UNAVAILABLE');
       await runMigrations(legacy.databaseUrl);
       await request(legacyApp.getHttpServer()).get('/api/health/ready').expect(200);
       await agent.get('/api/workspace').expect(200);
@@ -108,7 +110,8 @@ describe('observable service health', () => {
     const status = await agent.get('/api/system/status').expect(200);
     expect(status.body.database).toEqual({ status: 'unavailable', vectorVersion: null });
     expect(JSON.stringify(status.body)).not.toContain('do-not-echo');
-    await request(app.getHttpServer()).get('/api/health/ready').expect(503);
+    const notReady = await request(app.getHttpServer()).get('/api/health/ready').expect(503);
+    expectApiError(notReady, 503, 'DEPENDENCIES_UNAVAILABLE');
     await request(app.getHttpServer()).get('/api/health/live').expect(200);
   });
 });

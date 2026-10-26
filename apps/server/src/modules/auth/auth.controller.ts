@@ -1,14 +1,13 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
   HttpCode,
+  HttpStatus,
   Inject,
   Post,
   Req,
   Res,
-  UnauthorizedException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { loginRequestSchema } from '@memory-weave/contracts';
@@ -18,6 +17,8 @@ import type { RuntimeConfig } from '../../config';
 import { AuthService, SESSION_LIFETIME_MS } from './auth.service';
 import { PublicRoute } from './public-route';
 import { readSessionCookie, SESSION_COOKIE_NAME, sessionCookieOptions } from './session-cookie';
+import { ApiException } from '../../http/api-exception';
+import { parseInput } from '../shared/http';
 
 /** 提供 HTTP 认证接口，未显式标记公开的路由均受默认守卫保护。 */
 @Controller('auth')
@@ -36,17 +37,16 @@ export class AuthController {
    */
   @PublicRoute()
   @Post('login')
-  @HttpCode(200)
+  @HttpCode(HttpStatus.OK)
   async login(
     @Body() body: unknown,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionResponse> {
-    const parsed = loginRequestSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException('Invalid login request.');
+    const input = parseInput(loginRequestSchema, body);
     this.auth.checkLoginRate(request.ip ?? 'unknown');
-    if (!(await this.auth.verifyPassword(parsed.data.password))) {
-      throw new UnauthorizedException('Invalid credentials.');
+    if (!(await this.auth.verifyPassword(input.password))) {
+      throw new ApiException('INVALID_CREDENTIALS');
     }
     const token = this.auth.createSession();
     response.cookie(SESSION_COOKIE_NAME, token, {
@@ -71,7 +71,7 @@ export class AuthController {
    * @param response 用于清除 Cookie 的 HTTP 响应。
    */
   @Post('logout')
-  @HttpCode(204)
+  @HttpCode(HttpStatus.NO_CONTENT)
   logout(@Req() request: Request, @Res({ passthrough: true }) response: Response): void {
     this.auth.revokeSession(readSessionCookie(request));
     response.clearCookie(SESSION_COOKIE_NAME, sessionCookieOptions(this.config.cookieSecure));

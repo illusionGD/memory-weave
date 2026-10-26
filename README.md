@@ -9,6 +9,7 @@
 - [开发进度](docs/progress.md)
 - [F01 验收与实现说明](docs/features/f01-foundation.md)
 - [F02 接口、迁移与验收说明](docs/features/f02-data-foundation.md)
+- [各终端共用的 HTTP 响应与错误约定](docs/api-conventions.md)
 
 ## 拉取与开发启动
 
