@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+export * from './common.js';
+export * from './companions.js';
+export * from './conversations.js';
+export * from './messages.js';
+
 // 具名字段定义与 typeof 标注使 JSDoc 保留到生成的 .d.ts，供调用方查看提示。
 const loginRequestShape = {
   /** 本次登录提交的部署密码，长度为 1～256；是否匹配由服务端验证，不在响应中返回。 */
@@ -36,6 +41,15 @@ const storageStatusShape = {
 
 const storageStatusSchema: z.ZodObject<typeof storageStatusShape> = z.object(storageStatusShape);
 
+const schemaStatusShape = {
+  /** ready 表示迁移历史与当前发布包一致；pending 表示待升级；不可查询或历史不兼容时为 unavailable。 */
+  status: z.enum(['ready', 'pending', 'unavailable']),
+  /** 已应用的最新迁移名称；尚未迁移或无法确认时为 null。 */
+  version: z.string().nullable(),
+};
+
+const schemaStatusSchema: z.ZodObject<typeof schemaStatusShape> = z.object(schemaStatusShape);
+
 const systemStatusShape = {
   /** 服务标识，固定为 memory-weave，用于识别响应所属的应用。 */
   service: z.literal('memory-weave'),
@@ -47,6 +61,8 @@ const systemStatusShape = {
   database: databaseStatusSchema,
   /** 配置的持久文件目录的可用性探测结果，不向客户端暴露实际路径。 */
   storage: storageStatusSchema,
+  /** 数据库结构与当前服务版本的兼容状态，连接成功不代表结构已就绪。 */
+  schema: schemaStatusSchema,
 };
 
 /** 管理入口的可观察基础状态，不包含连接串、密码或用户内容。 */

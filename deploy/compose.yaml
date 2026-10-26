@@ -12,7 +12,6 @@ services:
       - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - database-data:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-vector.sql:ro
     healthcheck:
       test:
         - CMD-SHELL
@@ -20,12 +19,27 @@ services:
           test "$$(PGPASSWORD="$$POSTGRES_PASSWORD" PGCONNECT_TIMEOUT=2
           psql -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
           -X -w -v ON_ERROR_STOP=1 -Atqc
-          "SELECT 1 FROM pg_extension WHERE extname = 'vector'")" = 1
-          || { echo 'Database is not ready: connection or vector extension check failed.' >&2; exit 1; }
+          "SELECT 1")" = 1
+          || { echo 'Database is not ready: connection check failed.' >&2; exit 1; }
       interval: 5s
       timeout: 3s
       retries: 12
       start_period: 10s
+
+  migrate:
+    image: memory-weave:local
+    restart: 'no'
+    init: true
+    command: [node, deploy/docker-entrypoint.mjs, migrate]
+    depends_on:
+      database:
+        condition: service_healthy
+    environment: &database-environment
+      PGHOST: database
+      PGPORT: '5432'
+      PGDATABASE: memory_weave
+      PGUSER: memory_weave
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}
 
   app:
     image: memory-weave:local
@@ -35,18 +49,13 @@ services:
     restart: unless-stopped
     init: true
     depends_on:
-      database:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
+      <<: *database-environment
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: '3000'
-      # The entrypoint builds DATABASE_URL with encoded credentials.
-      PGHOST: database
-      PGPORT: '5432'
-      PGDATABASE: memory_weave
-      PGUSER: memory_weave
-      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set an ADMIN_PASSWORD of at least 12 characters}
       APP_ORIGIN: ${DEPLOY_APP_ORIGIN:-http://localhost:8080}
       COOKIE_SECURE: ${DEPLOY_COOKIE_SECURE:-false}

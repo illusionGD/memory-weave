@@ -60,6 +60,13 @@
 
           <article class="status-item">
             <span class="status-item__index" aria-hidden="true">03</span>
+            <h3 class="status-item__title">数据结构</h3>
+            <p class="status-item__value" :class="schemaClass">{{ schemaLabel }}</p>
+            <p class="status-item__detail">{{ schemaDetail }}</p>
+          </article>
+
+          <article class="status-item">
+            <span class="status-item__index" aria-hidden="true">04</span>
             <h3 class="status-item__title">附件目录</h3>
             <p class="status-item__value" :class="storageClass">{{ storageLabel }}</p>
             <p class="status-item__detail">{{ storageDetail }}</p>
@@ -99,7 +106,8 @@ const router = useRouter();
 
 const databaseReady = computed(() => system.status?.database.status === 'connected');
 const storageReady = computed(() => system.status?.storage.status === 'ready');
-const allReady = computed(() => databaseReady.value && storageReady.value);
+const schemaReady = computed(() => system.status?.schema.status === 'ready');
+const allReady = computed(() => databaseReady.value && storageReady.value && schemaReady.value);
 const statusLabel = computed(() => {
   if (system.loading) return '正在检查服务';
   if (!system.status) return '状态尚未确认';
@@ -126,6 +134,17 @@ const storageClass = computed(() => ({ 'is-warning': !storageReady.value }));
 const storageDetail = computed(() =>
   storageReady.value ? '持久目录已准备好' : '请检查目录权限与磁盘空间',
 );
+const schemaClass = computed(() => ({ 'is-warning': !schemaReady.value }));
+const schemaLabel = computed(() => {
+  if (schemaReady.value) return '已就绪';
+  return system.status?.schema.status === 'pending' ? '待升级' : '暂不可用';
+});
+const schemaDetail = computed(() => {
+  if (schemaReady.value) return '与当前服务版本一致';
+  return system.status?.schema.status === 'pending'
+    ? '请按启动文档完成数据库升级'
+    : '请检查数据库连接与升级记录';
+});
 const placeholderLabel = computed(() =>
   system.loading ? '正在读取当前服务状态…' : '暂时没有可用的检查结果，请点击“刷新状态”重试。',
 );
@@ -266,7 +285,7 @@ async function handleLogout(): Promise<void> {
 
   &__grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   &__placeholder {

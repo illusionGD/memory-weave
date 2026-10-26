@@ -16,6 +16,16 @@ import { HealthController } from './modules/system/health.controller';
 import { SystemController } from './modules/system/system.controller';
 import { SystemService } from './modules/system/system.service';
 import { attachWebAssets } from './web-assets';
+import { DatabaseService } from './database/database.service';
+import {
+  CompanionsController,
+  WorkspaceController,
+} from './modules/companions/companions.controller';
+import { CompanionsService } from './modules/companions/companions.service';
+import { ConversationsController } from './modules/conversations/conversations.controller';
+import { ConversationsService } from './modules/conversations/conversations.service';
+import { ReceivingController } from './modules/conversations/receiving.controller';
+import { ReceivingService } from './modules/conversations/receiving.service';
 
 @Module({})
 class ApplicationModule {
@@ -23,12 +33,24 @@ class ApplicationModule {
     const { adminPassword, ...runtimeConfig } = config;
     return {
       module: ApplicationModule,
-      controllers: [AuthController, HealthController, SystemController],
+      controllers: [
+        AuthController,
+        HealthController,
+        SystemController,
+        WorkspaceController,
+        CompanionsController,
+        ConversationsController,
+        ReceivingController,
+      ],
       providers: [
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
         { provide: AuthService, useFactory: () => AuthService.create(adminPassword) },
         { provide: APP_GUARD, useClass: AuthGuard },
         SystemService,
+        DatabaseService,
+        CompanionsService,
+        ConversationsService,
+        ReceivingService,
       ],
     };
   }

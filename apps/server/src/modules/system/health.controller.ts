@@ -18,15 +18,19 @@ export class HealthController {
   }
 
   /**
-   * 仅当 PostgreSQL、pgvector 和可写存储目录均可用时报告服务就绪。
+   * 仅当 PostgreSQL、pgvector、数据库结构和可写存储目录均可用时报告服务就绪。
    * @returns 仅包含就绪状态的响应。
    */
   @PublicRoute()
   @Get('ready')
   async ready(): Promise<{ status: 'ok' }> {
     const status = await this.system.getStatus();
-    if (status.database.status !== 'connected' || status.storage.status !== 'ready') {
-      throw new ServiceUnavailableException('Backing services are not ready.');
+    if (
+      status.database.status !== 'connected' ||
+      status.storage.status !== 'ready' ||
+      status.schema.status !== 'ready'
+    ) {
+      throw new ServiceUnavailableException('依赖服务或数据库结构尚未就绪。');
     }
     return { status: 'ok' };
   }

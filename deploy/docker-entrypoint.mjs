@@ -25,4 +25,12 @@ function configureDatabaseUrl() {
 }
 
 configureDatabaseUrl();
-await import('../dist/main.js');
+const command = process.argv[2];
+if (command === 'migrate' || command === 'status') {
+  await import('../dist/database/migrate-cli.js');
+} else if (command === undefined) {
+  await import('../dist/main.js');
+} else {
+  console.error('不支持的容器启动命令。');
+  process.exitCode = 1;
+}

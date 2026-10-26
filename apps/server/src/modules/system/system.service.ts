@@ -8,6 +8,7 @@ import { Pool } from 'pg';
 import type { SystemStatus } from '@memory-weave/contracts';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
+import { DatabaseService } from '../../database/database.service';
 
 const PACKAGE_INFO = JSON.parse(
   readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
@@ -18,7 +19,10 @@ const PACKAGE_INFO = JSON.parse(
 export class SystemService implements OnModuleDestroy {
   private readonly pool: Pool;
 
-  constructor(@Inject(SERVER_CONFIG) private readonly config: RuntimeConfig) {
+  constructor(
+    @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+  ) {
     this.pool = new Pool({
       connectionString: config.databaseUrl,
       max: 3,
@@ -35,13 +39,18 @@ export class SystemService implements OnModuleDestroy {
    * @returns 应用、PostgreSQL 扩展和可写存储目录的可用状态。
    */
   async getStatus(): Promise<SystemStatus> {
-    const [database, storage] = await Promise.all([this.probeDatabase(), this.probeStorage()]);
+    const [database, storage, schema] = await Promise.all([
+      this.probeDatabase(),
+      this.probeStorage(),
+      this.database.getSchemaStatus(),
+    ]);
     return {
       service: 'memory-weave',
       version: PACKAGE_INFO.version,
       stage: 'foundation',
       database,
       storage,
+      schema,
     };
   }
 

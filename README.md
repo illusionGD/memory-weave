@@ -2,12 +2,13 @@
 
 维护持续身份、记忆与成长的 AI 伴侣系统。后端保存状态，浏览器提供使用入口。
 
-**当前交付：F01 工程基础。** 已提供单用户登录、运行状态页面、开发与容器启动方式；伴侣创建、聊天、记忆和模型调用尚未实现。本版本不需要大模型 API 密钥。
+**当前功能：F02 数据与会话基础。** 已提供登录、运行检查、版本化数据库迁移，以及实例、会话、原文发布和独立接收的 HTTP 接口。伴侣创建页面、模型聊天、自动成长和记忆整理按后续阶段加入；本版本不需要大模型 API 密钥。
 
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
 - [开发进度](docs/progress.md)
 - [F01 验收与实现说明](docs/features/f01-foundation.md)
+- [F02 接口、迁移与验收说明](docs/features/f02-data-foundation.md)
 
 ## 拉取与开发启动
 
@@ -19,11 +20,14 @@ git switch dev
 git pull --ff-only origin dev
 pnpm install --frozen-lockfile
 pnpm run setup
-docker compose --env-file .env -f deploy/compose.yaml up -d database
+docker compose --env-file .env -f deploy/compose.yaml up -d --wait database
+pnpm db:migrate
 pnpm dev
 ```
 
 打开 **http://localhost:5173**。在本地生成的 `.env` 中查看 `ADMIN_PASSWORD`，将它填入登录页的“部署密码”。`pnpm run setup` 生成随机数据库密码和登录密码，不输出到日志，也不覆盖已有 `.env`。
+
+已有 F01 数据卷可直接执行 `pnpm db:migrate` 升级，无需删除数据卷。每次拉取涉及数据结构的新版本后，先停止旧应用、运行迁移，再启动新应用。`pnpm db:status` 可只读检查；迁移命令可重复运行，不会重新创建已有实例。
 
 开发模式由 Vite 将 `/api` 转发到 `127.0.0.1:3000`，后端与数据库默认仅监听本机。若修改数据库端口，需同时更新 `.env` 中的 `POSTGRES_PORT` 和 `DATABASE_URL`；首次初始化后，数据库卷中的密码不会随环境变量自动改变。
 
@@ -36,7 +40,7 @@ docker compose --env-file .env -f deploy/compose.yaml up -d --build
 docker compose --env-file .env -f deploy/compose.yaml ps
 ```
 
-打开 **http://localhost:8080**。后端镜像同时提供构建后的 Web 页面，因此运行时不需要单独的 Vite 服务。
+打开 **http://localhost:8080**。Compose 会先等待数据库可连接，再执行一次性 `migrate` 服务，成功后启动应用；迁移失败时应用不会按就绪状态启动。查看升级结果使用 `docker compose --env-file .env -f deploy/compose.yaml logs migrate`。后端镜像同时提供构建后的 Web 页面，因此运行时不需要单独的 Vite 服务。
 
 服务器只有 Docker 时，可先复制 `.env.example` 为 `.env`，填写独立随机的 `POSTGRES_PASSWORD` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器数据库连接串，不依赖宿主配置中的 `DATABASE_URL`；在该方式下可以将其留空。其他环境变量仍按示例设置。
 
@@ -86,7 +90,17 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-HTTP 测试验证实际 NestJS 服务的公开接口；提供 `TEST_DATABASE_URL` 时增加真实 PostgreSQL / pgvector 验证。浏览器测试启动独立的测试服务，使用测试登录密码，覆盖桌面和移动视口。数据库测试配置及各项实际结果见 F01 验收说明。
+HTTP 测试验证真实 NestJS 接口和 PostgreSQL。运行 `pnpm test` 前，必须设置指向独立测试 PostgreSQL 的 `TEST_DATABASE_URL`；该角色需要创建/删除临时数据库及创建 vector 扩展的权限。测试只在随机命名的临时数据库内写入业务数据，并清理自己创建的库；不提供测试连接会明确失败。浏览器测试启动独立服务，覆盖桌面和移动视口。
+
+服务启动后，另开一个位于仓库根目录的终端执行 `pnpm verify:f02`，通过 HTTP 验收 F02。脚本读取 `.env` 的登录密码，默认访问 `APP_ORIGIN`，可用 `VERIFY_BASE_URL` 指定其他入口。它会永久创建带“F02 验收”名称的实例和会话；重复执行会创建新的验收数据，不会删除或修改已有实例。
+
+如果使用 Docker 的 8080 入口，PowerShell 中先指定验收地址：
+
+```powershell
+$env:VERIFY_BASE_URL = 'http://localhost:8080'
+pnpm verify:f02
+Remove-Item Env:VERIFY_BASE_URL
+```
 
 本地构建后也可不使用应用容器运行：
 
@@ -102,7 +116,7 @@ APP_ORIGIN=http://localhost:3000 pnpm start
 - 单用户部署密码来自服务端环境，浏览器使用 HttpOnly Cookie；不把会话密钥放入 localStorage。
 - 后端默认要求 API 登录，公开例外为登录及基础健康检查；运行检查详情需要登录。
 - 登录有频率限制；写操作核对浏览器 Origin。服务只接受配置的页面来源。
-- F01 的会话存于单后端进程，最多 10 个会话，有效期 12 小时；退出会立即撤销，后端重启后需要重新登录。业务数据与后台任务持久化由后续功能实现。
+- F01 的会话存于单后端进程，最多 10 个会话，有效期 12 小时；退出会立即撤销，后端重启后需要重新登录。实例、会话和消息已持久化；后台任务由后续功能实现。
 - 登录限制为每个直接连接来源每分钟 5 次，当前不信任转发的来源 IP；使用反向代理时，同一代理后的请求共享该基础额度。
 - `.env`、凭据、数据库文件、附件和浏览器测试产物不进入 Git。
 

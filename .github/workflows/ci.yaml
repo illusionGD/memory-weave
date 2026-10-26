@@ -75,11 +75,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Enable pgvector in the test database
-        run: >-
-          docker exec "${{ job.services.database.id }}"
-          psql -U memory_weave -d memory_weave -v ON_ERROR_STOP=1
-          -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+      - name: Migrate the test database
+        run: pnpm db:migrate
 
       - name: Check formatting
         run: pnpm format:check
