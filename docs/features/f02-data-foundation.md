@@ -4,13 +4,13 @@
 
 ## 技术与边界
 
-沿用 Node 22、NestJS、PostgreSQL 17 / pgvector，使用 Drizzle ORM 0.45.4（Apache-2.0）和 drizzle-kit 0.31.11（MIT）。公共请求与响应放在 `packages/contracts`，Zod 校验与 TypeScript 类型共用定义，字段保留中文提示。
+当前使用 Node 22、NestJS、MySQL 8.4.9 与 Qdrant 1.18.3，数据库访问采用 Drizzle ORM 0.45.4（Apache-2.0）、mysql2 3.24.6（MIT）和 drizzle-kit 0.31.11（MIT）。Qdrant 已接入部署、密钥和状态探测，本功能尚未建立记忆向量集合。公共请求与响应放在 `packages/contracts`，Zod 校验与 TypeScript 类型共用定义，字段保留中文提示。
 
 本轮可以通过 HTTP 创建基础实例、用户与伴侣私聊、伴侣之间私聊及多人群聊，保存和发布原文，按伴侣视角查询、接收和回查来源。初始人生暂存为文本，不调用模型解析或自动发展；完整创建页面、聊天生成、任务调度、记忆提取及成员变更属于后续功能。
 
 当前接口由已登录的部署管理者操作。管理者可以查看所属实例，也可以代理指定伴侣发言或接收，以验证数据流；伴侣发言的来源明确记录为 `admin_companion_input`。此处尚无自主模型发言或独立终端身份凭据。
 
-用户资料包含可修改的 `displayName`，默认“用户”，可在 `/settings` 的个人设置页维护。修改名称不改变 owner ID、登录密码、会话成员或历史原文；伴侣对用户的个别称呼不由这个全局名称字段替代。现有数据库通过新增 `0001_owner_display_name` 迁移补上默认名称，保留原 owner 和关联数据。
+用户资料包含可修改的 `displayName`，默认“用户”，可在 `/settings` 的个人设置页维护。修改名称不改变 owner ID、登录密码、会话成员或历史原文；伴侣对用户的个别称呼不由这个全局名称字段替代。MySQL 的初始结构包含显示名称字段。早期 PostgreSQL 版本使用 `0001_owner_display_name`，该历史文件留档，不参与当前迁移。
 
 ## 数据如何分开
 
@@ -66,15 +66,19 @@
 
 开发环境先启动数据库，再运行 `pnpm db:migrate`，最后 `pnpm dev`；Windows 和 Linux 使用相同命令。`pnpm db:status` 只读检查。命令只依赖 `DATABASE_URL`，不需要登录密码或模型密钥。
 
-生产镜像包含编译后的维护 CLI 与 `drizzle` SQL/journal。Compose 按“数据库可连接 → migrate 成功退出 → app 启动”执行。已有 F01 数据卷直接升级；数据库探活只检查可连接，避免首次安装 vector 之前就阻塞迁移。
+生产镜像包含编译后的维护 CLI 与 `drizzle-mysql` SQL/journal。Compose 按“MySQL 可连接 → migrate 成功退出，且 Qdrant 健康 → app 启动”执行。按用户对开发阶段的要求直接建立新的 MySQL 数据库，不提供 PostgreSQL 数据导入工具；旧 `drizzle` 文件和旧数据卷保留，当前代码不会读取它们。
 
-迁移使用独立数据库连接上的 advisory lock，使并发部署串行；执行前后校验数据库历史是当前发布包的严格前缀，包括顺序、时间和 SQL hash。历史被改写、缺失、跳过或超出当前代码版本时拒绝继续。SQL 文件统一 LF，避免 Windows 换行造成 hash 不一致。待执行 SQL 在事务中执行，失败回滚，不提供自动降级。
+迁移使用独立 MySQL 连接上的 `GET_LOCK`，锁名按数据库区分，连接关闭会释放；读取历史前加锁，使同库的并发部署串行。执行前后校验数据库历史是当前发布包的严格前缀，包括序号、时间和 SQL hash。历史被改写、缺失、跳过或超出代码版本时拒绝继续。SQL 文件统一 LF，避免 Windows 换行造成 hash 不一致。
 
-新增结构时编辑 `apps/server/src/database/schema.ts`，运行 `pnpm --filter @memory-weave/server db:generate`，审查并提交新 SQL、snapshot 和 journal。**已交付的迁移文件不能改写**；后续修正必须增加迁移。不能通过清空历史绕过校验。
+**MySQL DDL 会隐式提交，不承诺整批回滚。** 执行每份迁移前持久记录 `applying`，全部语句完成后改为 `applied`。失败或进程中断后，状态查询显示 unavailable，重复执行拒绝自动跳过；先保留现场并恢复迁移前的数据库备份，再使用修正的发布版本迁移。开发环境若明确不保留数据，可自行建立新的空 MySQL 库重新执行。不要通过清空历史、改成 applied 或只重跑后半段来绕过校验。
 
-`/api/health/live` 不依赖数据库；`/api/health/ready` 要求数据库、vector、结构版本和附件目录同时就绪。登录后的状态页显示结构“已就绪 / 待升级 / 暂不可用”，健康检查本身不执行迁移。
+新增结构时编辑 `apps/server/src/database/schema.ts`，运行 `pnpm --filter @memory-weave/server db:generate`，审查并提交 `drizzle-mysql` 中的新 SQL、snapshot 和 journal。**已交付的 MySQL 迁移文件不能改写**；后续修正必须新增迁移。初始 owner 在 SQL 迁移中创建；普通服务启动和健康检查均不执行 DDL。
 
-迁移设计参考 [Drizzle migrations](https://orm.drizzle.team/docs/migrations)、[Drizzle migrate](https://orm.drizzle.team/docs/drizzle-kit-migrate) 和 [PostgreSQL advisory locks](https://www.postgresql.org/docs/17/explicit-locking.html#ADVISORY-LOCKS)。Drizzle 原生执行器之外增加了并发与历史一致性保护。
+领域事务显式使用 READ COMMITTED；发布和接收仍锁定会话行。MySQL 不支持 PostgreSQL 的 RETURNING / ON CONFLICT，创建通过唯一键、无内容覆盖的重复键处理和锁定读取保持幂等；回读持久记录后返回公共结构。UUID 使用 ASCII 不区分大小写索引并在驱动边界规范为小写，时间以 UTC 毫秒精度保存。
+
+`/api/health/live` 不依赖外部服务；`/api/health/ready` 要求 MySQL、结构版本、可写附件目录以及已就绪且密钥可访问的 Qdrant 同时可用。状态页分别显示 MySQL 与 Qdrant 的实际版本，Qdrant 不可用或密钥错误会显示暂不可用，但不会阻止 HTTP 存活检查和基础管理接口。连接正常不表示记忆提取或索引功能已经实现。
+
+迁移设计参考 [MySQL 隐式提交](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html)、[MySQL 命名锁](https://dev.mysql.com/doc/refman/8.4/en/locking-functions.html) 与 [Drizzle migrations](https://orm.drizzle.team/docs/migrations)。
 
 ## 本地验收
 
@@ -88,4 +92,4 @@ pnpm verify:f02
 
 验收覆盖创建、草稿不可见、发布、引用来源、各实例独立读取、幂等接收及非成员访问被拒绝。浏览器本轮仍以运行状态为主，完整伴侣和聊天界面按后续功能推进。
 
-自动 HTTP 测试必须显式配置独立 `TEST_DATABASE_URL`，测试角色需有创建临时数据库和 vector 扩展的权限。各测试套件创建随机命名库并清理自己创建的库，不向业务库灌表。迁移测试通过维护命令验证重复执行、并发、历史校验和失败回滚；领域行为通过认证 HTTP 验证。
+自动 HTTP 测试必须显式配置独立 MySQL 的 `TEST_DATABASE_URL`（测试角色需有创建/删除临时数据库权限），以及 `TEST_QDRANT_URL`、`TEST_QDRANT_API_KEY`。各测试套件创建随机命名库并清理自己创建的库，不向业务库灌表。迁移测试通过维护命令验证重复执行、并发、历史校验和 DDL 失败后的阻断；领域行为通过认证 HTTP 验证。

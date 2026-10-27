@@ -13,7 +13,7 @@ import type {
   SequencePaginationQuery,
   SpeakerRequest,
 } from '@memory-weave/contracts';
-import { and, asc, eq, gt } from 'drizzle-orm';
+import { and, asc, eq, gt, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
 import {
   companions,
@@ -45,70 +45,75 @@ export class ConversationsService {
   /** 一次建立初始成员和独立可见授权，不开放邀请及成员变更。 */
   create(input: CreateConversationRequest): Promise<ConversationDetail> {
     return this.database.withOwner((ownerId, db) =>
-      db.transaction(async (tx) => {
-        for (const member of input.companions)
-          await requireCompanion(ownerId, member.companionId, member.runtimeEpoch, tx);
-        const requestFingerprint = fingerprint({
-          ...input,
-          requestId: undefined,
-          companions: input.companions.map((member) => ({
-            ...member,
-            companionId: member.companionId.toLowerCase(),
-          })),
-        });
-        const [inserted] = await tx
-          .insert(conversations)
-          .values({
-            ownerId,
-            kind: input.kind,
-            title: input.title,
-            requestId: input.requestId,
-            fingerprint: requestFingerprint,
-          })
-          .onConflictDoNothing({ target: [conversations.ownerId, conversations.requestId] })
-          .returning();
-        if (!inserted) {
-          const [existing] = await tx
+      db.transaction(
+        async (tx) => {
+          for (const member of input.companions)
+            await requireCompanion(ownerId, member.companionId, member.runtimeEpoch, tx);
+          const requestFingerprint = fingerprint({
+            ...input,
+            requestId: undefined,
+            companions: input.companions.map((member) => ({
+              ...member,
+              companionId: member.companionId.toLowerCase(),
+            })),
+          });
+          const id = randomUUID();
+          await tx
+            .insert(conversations)
+            .values({
+              id,
+              ownerId,
+              kind: input.kind,
+              title: input.title,
+              requestId: input.requestId,
+              fingerprint: requestFingerprint,
+            })
+            .onDuplicateKeyUpdate({ set: { id: sql`${conversations.id}` } });
+          const [inserted] = await tx
             .select()
             .from(conversations)
             .where(
               and(eq(conversations.ownerId, ownerId), eq(conversations.requestId, input.requestId)),
             )
-            .limit(1);
-          if (!existing || existing.fingerprint !== requestFingerprint)
-            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-          return this.detail(ownerId, existing.id, tx);
-        }
-        const members: (typeof conversationMembers.$inferInsert)[] = input.companions.map(
-          (member) => ({
-            id: randomUUID(),
-            ownerId,
-            conversationId: inserted.id,
-            kind: 'companion',
-            companionId: member.companionId,
-            runtimeEpoch: member.runtimeEpoch,
-          }),
-        );
-        if (input.includeUser)
-          members.push({
-            id: randomUUID(),
-            ownerId,
-            conversationId: inserted.id,
-            kind: 'user',
-            userId: ownerId,
-          });
-        const storedMembers = await tx.insert(conversationMembers).values(members).returning();
-        await tx.insert(visibilityGrants).values(
-          storedMembers.map((member) => ({
-            ownerId,
-            membershipId: member.id,
-            startSequence: 1,
-            kind: 'membership' as const,
-            permissionVersion: 1,
-          })),
-        );
-        return this.detail(ownerId, inserted.id, tx);
-      }),
+            .limit(1)
+            .for('update');
+          if (!inserted) throw new ApiException(API_CODES.CONFLICT);
+          if (inserted.id !== id) {
+            if (inserted.fingerprint !== requestFingerprint)
+              throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
+            return this.detail(ownerId, inserted.id, tx);
+          }
+          const members: (typeof conversationMembers.$inferInsert & { id: string })[] =
+            input.companions.map((member) => ({
+              id: randomUUID(),
+              ownerId,
+              conversationId: inserted.id,
+              kind: 'companion',
+              companionId: member.companionId,
+              runtimeEpoch: member.runtimeEpoch,
+            }));
+          if (input.includeUser)
+            members.push({
+              id: randomUUID(),
+              ownerId,
+              conversationId: inserted.id,
+              kind: 'user',
+              userId: ownerId,
+            });
+          await tx.insert(conversationMembers).values(members);
+          await tx.insert(visibilityGrants).values(
+            members.map((member) => ({
+              ownerId,
+              membershipId: member.id,
+              startSequence: 1,
+              kind: 'membership' as const,
+              permissionVersion: 1,
+            })),
+          );
+          return this.detail(ownerId, inserted.id, tx);
+        },
+        { isolationLevel: 'read committed' },
+      ),
     );
   }
 
@@ -142,55 +147,56 @@ export class ConversationsService {
   /** 只保存单份草稿；验证真实成员及来源后再允许进入共享存储。 */
   save(conversationId: string, input: SaveMessageRequest): Promise<Message> {
     return this.database.withOwner((ownerId, db) =>
-      db.transaction(async (tx) => {
-        const conversation = await requireConversation(ownerId, conversationId, tx, true);
-        const member = await this.speaker(ownerId, conversationId, input.speaker, tx);
-        const requestFingerprint = fingerprint({
-          ...input,
-          requestId: undefined,
-          speaker:
-            input.speaker.kind === 'companion'
-              ? { ...input.speaker, companionId: input.speaker.companionId.toLowerCase() }
-              : input.speaker,
-          validFrom: input.validFrom ?? null,
-          validUntil: input.validUntil ?? null,
-          occurredAt: input.occurredAt ?? null,
-          replyToMessageId: input.replyToMessageId?.toLowerCase() ?? null,
-          sources: input.sources.map((source) => ({
-            ...source,
-            messageId: source.messageId.toLowerCase(),
-          })),
-        });
-        await this.validateReferences(
-          ownerId,
-          conversationId,
-          member,
-          input.replyToMessageId ?? null,
-          input.sources,
-          tx,
-        );
-        const [existing] = await tx
-          .select()
-          .from(messages)
-          .where(
-            and(
-              eq(messages.ownerId, ownerId),
-              eq(messages.conversationId, conversationId),
-              eq(messages.requestId, input.requestId),
-            ),
-          )
-          .limit(1);
-        if (existing) {
-          if (existing.fingerprint !== requestFingerprint)
-            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-          return toMessage(existing, tx);
-        }
-        if (conversation.version !== input.expectedConversationVersion)
-          throw new ApiException(API_CODES.VERSION_CONFLICT);
-        const receivedAt = new Date();
-        const [row] = await tx
-          .insert(messages)
-          .values({
+      db.transaction(
+        async (tx) => {
+          const conversation = await requireConversation(ownerId, conversationId, tx, true);
+          const member = await this.speaker(ownerId, conversationId, input.speaker, tx);
+          const requestFingerprint = fingerprint({
+            ...input,
+            requestId: undefined,
+            speaker:
+              input.speaker.kind === 'companion'
+                ? { ...input.speaker, companionId: input.speaker.companionId.toLowerCase() }
+                : input.speaker,
+            validFrom: input.validFrom ?? null,
+            validUntil: input.validUntil ?? null,
+            occurredAt: input.occurredAt ?? null,
+            replyToMessageId: input.replyToMessageId?.toLowerCase() ?? null,
+            sources: input.sources.map((source) => ({
+              ...source,
+              messageId: source.messageId.toLowerCase(),
+            })),
+          });
+          await this.validateReferences(
+            ownerId,
+            conversationId,
+            member,
+            input.replyToMessageId ?? null,
+            input.sources,
+            tx,
+          );
+          const [existing] = await tx
+            .select()
+            .from(messages)
+            .where(
+              and(
+                eq(messages.ownerId, ownerId),
+                eq(messages.conversationId, conversationId),
+                eq(messages.requestId, input.requestId),
+              ),
+            )
+            .limit(1);
+          if (existing) {
+            if (existing.fingerprint !== requestFingerprint)
+              throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
+            return toMessage(existing, tx);
+          }
+          if (conversation.version !== input.expectedConversationVersion)
+            throw new ApiException(API_CODES.VERSION_CONFLICT);
+          const receivedAt = new Date();
+          const messageId = randomUUID();
+          await tx.insert(messages).values({
+            id: messageId,
             ownerId,
             conversationId,
             speakerMembershipId: member.id,
@@ -205,21 +211,27 @@ export class ConversationsService {
             reality: input.reality,
             sourceKind: member.kind === 'user' ? 'user_input' : 'admin_companion_input',
             replyToMessageId: input.replyToMessageId ?? null,
-          })
-          .returning();
-        if (!row) throw new ApiException(API_CODES.CONFLICT);
-        if (input.sources.length > 0)
-          await tx.insert(messageSources).values(
-            input.sources.map((source) => ({
-              ownerId,
-              messageId: row.id,
-              sourceMessageId: source.messageId,
-              sourceContentVersion: source.contentVersion,
-              relation: source.relation,
-            })),
-          );
-        return toMessage(row, tx);
-      }),
+          });
+          const [row] = await tx
+            .select()
+            .from(messages)
+            .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)))
+            .limit(1);
+          if (!row) throw new ApiException(API_CODES.CONFLICT);
+          if (input.sources.length > 0)
+            await tx.insert(messageSources).values(
+              input.sources.map((source) => ({
+                ownerId,
+                messageId: row.id,
+                sourceMessageId: source.messageId,
+                sourceContentVersion: source.contentVersion,
+                relation: source.relation,
+              })),
+            );
+          return toMessage(row, tx);
+        },
+        { isolationLevel: 'read committed' },
+      ),
     );
   }
 
@@ -250,117 +262,124 @@ export class ConversationsService {
     input: PublishMessageRequest,
   ): Promise<Message> {
     return this.database.withOwner((ownerId, db) =>
-      db.transaction(async (tx) => {
-        const conversation = await requireConversation(ownerId, conversationId, tx, true);
-        const [row] = await tx
-          .select()
-          .from(messages)
-          .where(
-            and(
-              eq(messages.ownerId, ownerId),
-              eq(messages.conversationId, conversationId),
-              eq(messages.id, messageId),
-            ),
-          )
-          .limit(1);
-        if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-        const original = await toMessage(row, tx);
-        const member = await this.speaker(ownerId, conversationId, original.speaker, tx);
-        await this.validateReferences(
-          ownerId,
-          conversationId,
-          member,
-          row.replyToMessageId,
-          original.sources,
-          tx,
-        );
-        const requestFingerprint = fingerprint({
-          expectedRevision: input.expectedRevision,
-          expectedConversationVersion: input.expectedConversationVersion,
-        });
-        if (row.state === 'published') {
-          if (
-            row.publishRequestId !== input.requestId.toLowerCase() ||
-            row.publishFingerprint !== requestFingerprint
-          ) {
-            throw new ApiException(API_CODES.MESSAGE_ALREADY_PUBLISHED);
-          }
-          return original;
-        }
-        if (
-          row.revision !== input.expectedRevision ||
-          conversation.version !== input.expectedConversationVersion
-        ) {
-          throw new ApiException(API_CODES.VERSION_CONFLICT);
-        }
-        if (
-          conversation.lastSequence >= 2_147_483_647 ||
-          conversation.version >= 2_147_483_647 ||
-          row.revision >= 2_147_483_647
-        ) {
-          throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
-        }
-        const sequence = conversation.lastSequence + 1;
-        await assertVisible(member, sequence, tx);
-        const publishedAt = new Date();
-        const [published] = await tx
-          .update(messages)
-          .set({
-            state: 'published',
-            sequence,
-            publishedAt,
-            revision: row.revision + 1,
-            publishRequestId: input.requestId,
-            publishFingerprint: requestFingerprint,
-          })
-          .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)))
-          .returning();
-        if (!published) throw new ApiException(API_CODES.CONFLICT);
-        await tx
-          .update(conversations)
-          .set({ lastSequence: sequence, version: conversation.version + 1 })
-          .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, conversationId)));
-        const recipients = await tx
-          .select({ member: conversationMembers })
-          .from(conversationMembers)
-          .innerJoin(
-            companions,
-            and(
-              eq(companions.ownerId, conversationMembers.ownerId),
-              eq(companions.id, conversationMembers.companionId),
-              eq(companions.runtimeEpoch, conversationMembers.runtimeEpoch),
-            ),
-          )
-          .where(
-            and(
-              eq(conversationMembers.ownerId, ownerId),
-              eq(conversationMembers.conversationId, conversationId),
-              eq(conversationMembers.kind, 'companion'),
-            ),
-          );
-        for (const { member: recipient } of recipients) {
-          try {
-            await assertVisible(recipient, sequence, tx);
-          } catch (error) {
-            if (error instanceof ApiException && error.code === API_CODES.RESOURCE_NOT_FOUND)
-              continue;
-            throw error;
-          }
-          if (recipient.companionId === null || recipient.runtimeEpoch === null) continue;
-          await tx.insert(processingRanges).values({
+      db.transaction(
+        async (tx) => {
+          const conversation = await requireConversation(ownerId, conversationId, tx, true);
+          const [row] = await tx
+            .select()
+            .from(messages)
+            .where(
+              and(
+                eq(messages.ownerId, ownerId),
+                eq(messages.conversationId, conversationId),
+                eq(messages.id, messageId),
+              ),
+            )
+            .limit(1);
+          if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+          const original = await toMessage(row, tx);
+          const member = await this.speaker(ownerId, conversationId, original.speaker, tx);
+          await this.validateReferences(
             ownerId,
-            companionId: recipient.companionId,
-            runtimeEpoch: recipient.runtimeEpoch,
             conversationId,
-            messageId,
-            contentVersion: row.contentVersion,
-            startSequence: sequence,
-            endSequence: sequence,
-            createdAt: publishedAt,
+            member,
+            row.replyToMessageId,
+            original.sources,
+            tx,
+          );
+          const requestFingerprint = fingerprint({
+            expectedRevision: input.expectedRevision,
+            expectedConversationVersion: input.expectedConversationVersion,
           });
-        }
-        return toMessage(published, tx);
-      }),
+          if (row.state === 'published') {
+            if (
+              row.publishRequestId !== input.requestId.toLowerCase() ||
+              row.publishFingerprint !== requestFingerprint
+            ) {
+              throw new ApiException(API_CODES.MESSAGE_ALREADY_PUBLISHED);
+            }
+            return original;
+          }
+          if (
+            row.revision !== input.expectedRevision ||
+            conversation.version !== input.expectedConversationVersion
+          ) {
+            throw new ApiException(API_CODES.VERSION_CONFLICT);
+          }
+          if (
+            conversation.lastSequence >= 2_147_483_647 ||
+            conversation.version >= 2_147_483_647 ||
+            row.revision >= 2_147_483_647
+          ) {
+            throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
+          }
+          const sequence = conversation.lastSequence + 1;
+          await assertVisible(member, sequence, tx);
+          const publishedAt = new Date();
+          await tx
+            .update(messages)
+            .set({
+              state: 'published',
+              sequence,
+              publishedAt,
+              revision: row.revision + 1,
+              publishRequestId: input.requestId,
+              publishFingerprint: requestFingerprint,
+            })
+            .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)));
+          const [published] = await tx
+            .select()
+            .from(messages)
+            .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)))
+            .limit(1);
+          if (!published) throw new ApiException(API_CODES.CONFLICT);
+          await tx
+            .update(conversations)
+            .set({ lastSequence: sequence, version: conversation.version + 1 })
+            .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, conversationId)));
+          const recipients = await tx
+            .select({ member: conversationMembers })
+            .from(conversationMembers)
+            .innerJoin(
+              companions,
+              and(
+                eq(companions.ownerId, conversationMembers.ownerId),
+                eq(companions.id, conversationMembers.companionId),
+                eq(companions.runtimeEpoch, conversationMembers.runtimeEpoch),
+              ),
+            )
+            .where(
+              and(
+                eq(conversationMembers.ownerId, ownerId),
+                eq(conversationMembers.conversationId, conversationId),
+                eq(conversationMembers.kind, 'companion'),
+              ),
+            );
+          for (const { member: recipient } of recipients) {
+            try {
+              await assertVisible(recipient, sequence, tx);
+            } catch (error) {
+              if (error instanceof ApiException && error.code === API_CODES.RESOURCE_NOT_FOUND)
+                continue;
+              throw error;
+            }
+            if (recipient.companionId === null || recipient.runtimeEpoch === null) continue;
+            await tx.insert(processingRanges).values({
+              ownerId,
+              companionId: recipient.companionId,
+              runtimeEpoch: recipient.runtimeEpoch,
+              conversationId,
+              messageId,
+              contentVersion: row.contentVersion,
+              startSequence: sequence,
+              endSequence: sequence,
+              createdAt: publishedAt,
+            });
+          }
+          return toMessage(published, tx);
+        },
+        { isolationLevel: 'read committed' },
+      ),
     );
   }
 

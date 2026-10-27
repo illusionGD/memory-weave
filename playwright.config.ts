@@ -35,6 +35,8 @@ export default defineConfig({
     timeout: 30_000,
     env: {
       NODE_ENV: 'test',
+      QDRANT_URL: process.env.TEST_QDRANT_URL ?? process.env.QDRANT_URL ?? 'http://127.0.0.1:6333',
+      QDRANT_API_KEY: process.env.TEST_QDRANT_API_KEY ?? process.env.QDRANT_API_KEY ?? '',
       HOST: '127.0.0.1',
       PORT: String(PORT),
       ADMIN_PASSWORD: TEST_PASSWORD,
@@ -45,7 +47,7 @@ export default defineConfig({
       DATABASE_URL:
         process.env.TEST_DATABASE_URL ??
         process.env.DATABASE_URL ??
-        'postgresql://memory_weave:memory_weave_test@127.0.0.1:5432/memory_weave_test',
+        'mysql://memory_weave:memory_weave_test@127.0.0.1:3306/memory_weave_test',
     },
   },
 });

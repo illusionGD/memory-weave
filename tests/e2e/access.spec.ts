@@ -6,6 +6,9 @@ test('部署者登录后能查看运行状态，退出后需要重新登录', as
   await page.getByLabel('部署密码').fill('Memory-Weave-E2E-Only-2026');
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(page.getByRole('heading', { name: '运行状态', exact: true })).toBeVisible();
+  await expect(page.getByText(/^MySQL 8\.4\./)).toBeVisible();
+  await expect(page.getByText(/^Qdrant 1\.18\./)).toBeVisible();
+  await expect(page.getByRole('heading', { name: '服务已就绪', exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole('heading', { name: '运行状态', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '退出登录', exact: true }).click();

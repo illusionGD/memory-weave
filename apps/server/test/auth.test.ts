@@ -15,9 +15,11 @@ describe('single-owner HTTP access', () => {
   beforeEach(async () => {
     dataDir = await mkdtemp(join(tmpdir(), 'memory-weave-auth-'));
     config = {
+      qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
+      qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
       host: '127.0.0.1',
       port: 0,
-      databaseUrl: process.env.TEST_DATABASE_URL ?? 'postgres://unused:unused@127.0.0.1:1/unused',
+      databaseUrl: process.env.TEST_DATABASE_URL ?? 'mysql://unused:unused@127.0.0.1:1/unused',
       adminPassword: 'test-password-for-foundation',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,

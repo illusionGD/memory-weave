@@ -6,8 +6,12 @@ export interface ServerConfig {
   host: string;
   /** HTTP 服务监听端口。 */
   port: number;
-  /** PostgreSQL 连接串，包含私有凭据，不通过状态接口返回。 */
+  /** MySQL 连接串，包含私有凭据，不通过状态接口返回。 */
   databaseUrl: string;
+  /** Qdrant HTTP 入口，仅在后端使用。 */
+  qdrantUrl: string;
+  /** Qdrant 访问密钥，不向浏览器或日志输出。 */
+  qdrantApiKey: string;
   /** 部署时设置的登录密码，不通过 HTTP 接口或日志输出。 */
   adminPassword: string;
   /** 允许发送状态变更请求的浏览器来源，包含协议、主机和端口。 */
@@ -43,12 +47,42 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   const databaseUrl = environment.DATABASE_URL ?? '';
   try {
     const parsed = new URL(databaseUrl);
-    if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname) {
+    if (
+      parsed.protocol !== 'mysql:' ||
+      !parsed.hostname ||
+      parsed.pathname.length < 2 ||
+      parsed.search ||
+      parsed.hash
+    ) {
       throw new Error('Invalid database URL');
     }
   } catch {
-    throw new ConfigurationError('DATABASE_URL must be a valid PostgreSQL connection URL.');
+    throw new ConfigurationError(
+      'DATABASE_URL must be a valid MySQL connection URL with a database name.',
+    );
   }
+
+  let qdrantUrl: string;
+  try {
+    const parsed = new URL(environment.QDRANT_URL ?? 'http://127.0.0.1:6333');
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== '/' ||
+      parsed.search ||
+      parsed.hash
+    )
+      throw new Error();
+    qdrantUrl = parsed.origin;
+  } catch {
+    throw new ConfigurationError(
+      'QDRANT_URL must be an HTTP(S) origin without credentials or a path.',
+    );
+  }
+  const qdrantApiKey = environment.QDRANT_API_KEY ?? '';
+  if (!/^[\x21-\x7e]{12,256}$/.test(qdrantApiKey))
+    throw new ConfigurationError('QDRANT_API_KEY must contain 12 to 256 visible ASCII characters.');
 
   let appOrigin: string;
   try {
@@ -92,5 +126,16 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   const dataDir = resolve(environment.DATA_DIR ?? './data');
   const webDistDir = environment.WEB_DIST_DIR ? resolve(environment.WEB_DIST_DIR) : null;
 
-  return { host, port, databaseUrl, adminPassword, appOrigin, cookieSecure, dataDir, webDistDir };
+  return {
+    host,
+    port,
+    databaseUrl,
+    qdrantUrl,
+    qdrantApiKey,
+    adminPassword,
+    appOrigin,
+    cookieSecure,
+    dataDir,
+    webDistDir,
+  };
 }

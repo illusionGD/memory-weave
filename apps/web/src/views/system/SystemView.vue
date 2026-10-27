@@ -58,7 +58,7 @@
             <span class="status-item__index" aria-hidden="true">02</span>
             <h3 class="status-item__title">数据库</h3>
             <p class="status-item__value" :class="databaseClass">{{ databaseLabel }}</p>
-            <p class="status-item__detail">{{ vectorLabel }}</p>
+            <p class="status-item__detail">{{ databaseDetail }}</p>
           </article>
 
           <article class="status-item">
@@ -70,6 +70,13 @@
 
           <article class="status-item">
             <span class="status-item__index" aria-hidden="true">04</span>
+            <h3 class="status-item__title">向量服务</h3>
+            <p class="status-item__value" :class="vectorClass">{{ vectorLabel }}</p>
+            <p class="status-item__detail">{{ vectorDetail }}</p>
+          </article>
+
+          <article class="status-item">
+            <span class="status-item__index" aria-hidden="true">05</span>
             <h3 class="status-item__title">附件目录</h3>
             <p class="status-item__value" :class="storageClass">{{ storageLabel }}</p>
             <p class="status-item__detail">{{ storageDetail }}</p>
@@ -110,7 +117,10 @@ const router = useRouter();
 const databaseReady = computed(() => system.status?.database.status === 'connected');
 const storageReady = computed(() => system.status?.storage.status === 'ready');
 const schemaReady = computed(() => system.status?.schema.status === 'ready');
-const allReady = computed(() => databaseReady.value && storageReady.value && schemaReady.value);
+const vectorReady = computed(() => system.status?.vectorStore.status === 'connected');
+const allReady = computed(
+  () => databaseReady.value && vectorReady.value && storageReady.value && schemaReady.value,
+);
 const statusLabel = computed(() => {
   if (system.loading) return '正在检查服务';
   if (!system.status) return '状态尚未确认';
@@ -127,10 +137,15 @@ const checkedAtLabel = computed(() =>
 );
 const databaseLabel = computed(() => (databaseReady.value ? '已连接' : '暂不可用'));
 const databaseClass = computed(() => ({ 'is-warning': !databaseReady.value }));
-const vectorLabel = computed(() =>
-  system.status?.database.vectorVersion
-    ? `pgvector ${system.status.database.vectorVersion}`
-    : '请检查数据库连接与向量扩展',
+const databaseDetail = computed(() =>
+  system.status?.database.version ? `MySQL ${system.status.database.version}` : '请检查数据库连接',
+);
+const vectorLabel = computed(() => (vectorReady.value ? '已连接' : '暂不可用'));
+const vectorClass = computed(() => ({ 'is-warning': !vectorReady.value }));
+const vectorDetail = computed(() =>
+  system.status?.vectorStore.version
+    ? `Qdrant ${system.status.vectorStore.version}`
+    : '请检查向量服务连接与访问密钥',
 );
 const storageLabel = computed(() => (storageReady.value ? '可读写' : '暂不可用'));
 const storageClass = computed(() => ({ 'is-warning': !storageReady.value }));
@@ -296,7 +311,7 @@ async function handleLogout(): Promise<void> {
 
   &__grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   &__placeholder {

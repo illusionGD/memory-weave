@@ -1,13 +1,19 @@
 /**
- * Convert Compose's discrete database settings into the server's DATABASE_URL.
- * Encoding each credential once preserves passwords containing URI delimiters.
+ * 将 Compose 的 MySQL 配置转换为服务使用的 DATABASE_URL。
+ * 凭据只编码一次，保留密码中的 URI 特殊字符。
  */
 function configureDatabaseUrl() {
   if (process.env.DATABASE_URL) {
     return;
   }
 
-  const requiredKeys = ['PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER', 'PGPASSWORD'];
+  const requiredKeys = [
+    'MYSQL_HOST',
+    'MYSQL_PORT',
+    'MYSQL_DATABASE',
+    'MYSQL_USER',
+    'MYSQL_PASSWORD',
+  ];
 
   for (const key of requiredKeys) {
     if (!process.env[key]) {
@@ -15,12 +21,12 @@ function configureDatabaseUrl() {
     }
   }
 
-  const databaseUrl = new URL('postgresql://localhost');
-  databaseUrl.hostname = process.env.PGHOST;
-  databaseUrl.port = process.env.PGPORT;
-  databaseUrl.pathname = `/${encodeURIComponent(process.env.PGDATABASE)}`;
-  databaseUrl.username = encodeURIComponent(process.env.PGUSER);
-  databaseUrl.password = encodeURIComponent(process.env.PGPASSWORD);
+  const databaseUrl = new URL('mysql://localhost');
+  databaseUrl.hostname = process.env.MYSQL_HOST;
+  databaseUrl.port = process.env.MYSQL_PORT;
+  databaseUrl.pathname = `/${encodeURIComponent(process.env.MYSQL_DATABASE)}`;
+  databaseUrl.username = encodeURIComponent(process.env.MYSQL_USER);
+  databaseUrl.password = encodeURIComponent(process.env.MYSQL_PASSWORD);
   process.env.DATABASE_URL = databaseUrl.toString();
 }
 

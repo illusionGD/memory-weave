@@ -37,6 +37,8 @@ describe('伴侣视角的原文查询与独立接收', () => {
   beforeEach(async () => {
     dataDir = await mkdtemp(join(tmpdir(), 'memory-weave-receiving-'));
     config = {
+      qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
+      qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,

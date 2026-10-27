@@ -7,7 +7,7 @@ import type {
   IdPaginationQuery,
   CreateCompanionRequest,
 } from '@memory-weave/contracts';
-import { and, asc, eq, gt } from 'drizzle-orm';
+import { and, asc, eq, gt, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
 import { companions, personaVersions } from '../../database/schema';
@@ -22,63 +22,66 @@ export class CompanionsService {
   /** 将初始文本直接保存到独立快照和当前版本，不调用模型。 */
   create(input: CreateCompanionRequest): Promise<CompanionDetail> {
     return this.database.withOwner((ownerId, db) =>
-      db.transaction(async (tx) => {
-        const id = randomUUID();
-        const personaId = randomUUID();
-        const createdAt = new Date();
-        const requestFingerprint = fingerprint({
-          name: input.name,
-          initialProfile: input.initialProfile,
-        });
-        const inserted = await tx
-          .insert(companions)
-          .values({
-            id,
-            ownerId,
+      db.transaction(
+        async (tx) => {
+          const id = randomUUID();
+          const personaId = randomUUID();
+          const createdAt = new Date();
+          const requestFingerprint = fingerprint({
             name: input.name,
-            runtimeEpoch: 1,
-            version: 1,
-            initialSnapshot: {
-              id: randomUUID(),
-              schemaVersion: 1,
-              profileText: input.initialProfile,
-              sourceKind: 'initial_setting',
-              createdAt: createdAt.toISOString(),
-            },
-            currentPersonaVersionId: null,
-            requestId: input.requestId,
-            fingerprint: requestFingerprint,
-            createdAt,
-          })
-          .onConflictDoNothing({ target: [companions.ownerId, companions.requestId] })
-          .returning({ id: companions.id });
-        // 唯一键等待并发创建提交后，当前事务再读取已保存结果，避免生成第二份人格。
-        if (inserted.length === 0) {
-          const [existing] = await tx
+            initialProfile: input.initialProfile,
+          });
+          await tx
+            .insert(companions)
+            .values({
+              id,
+              ownerId,
+              name: input.name,
+              runtimeEpoch: 1,
+              version: 1,
+              initialSnapshot: {
+                id: randomUUID(),
+                schemaVersion: 1,
+                profileText: input.initialProfile,
+                sourceKind: 'initial_setting',
+                createdAt: createdAt.toISOString(),
+              },
+              currentPersonaVersionId: null,
+              requestId: input.requestId,
+              fingerprint: requestFingerprint,
+              createdAt,
+            })
+            .onDuplicateKeyUpdate({ set: { id: sql`${companions.id}` } });
+          const [stored] = await tx
             .select({ id: companions.id, fingerprint: companions.fingerprint })
             .from(companions)
             .where(and(eq(companions.ownerId, ownerId), eq(companions.requestId, input.requestId)))
-            .limit(1);
-          if (!existing || existing.fingerprint !== requestFingerprint) {
-            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
+            .limit(1)
+            .for('update');
+          if (!stored) throw new ApiException(API_CODES.CONFLICT);
+          // 唯一键等待并发创建提交后，当前事务再读取已保存结果，避免生成第二份人格。
+          if (stored.id !== id) {
+            if (stored.fingerprint !== requestFingerprint)
+              throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
+            return this.detail(tx, ownerId, stored.id);
           }
-          return this.detail(tx, ownerId, existing.id);
-        }
-        await tx.insert(personaVersions).values({
-          id: personaId,
-          ownerId,
-          companionId: id,
-          runtimeEpoch: 1,
-          version: 1,
-          profileText: input.initialProfile,
-          createdAt,
-        });
-        await tx
-          .update(companions)
-          .set({ currentPersonaVersionId: personaId })
-          .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)));
-        return this.detail(tx, ownerId, id);
-      }),
+          await tx.insert(personaVersions).values({
+            id: personaId,
+            ownerId,
+            companionId: id,
+            runtimeEpoch: 1,
+            version: 1,
+            profileText: input.initialProfile,
+            createdAt,
+          });
+          await tx
+            .update(companions)
+            .set({ currentPersonaVersionId: personaId })
+            .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)));
+          return this.detail(tx, ownerId, id);
+        },
+        { isolationLevel: 'read committed' },
+      ),
     );
   }
 

@@ -9,7 +9,7 @@ description: 维护 F02 实例、人格版本、共享会话、原文来源、�
 
 ## 入口与边界
 
-- `apps/server/src/database` 与 `drizzle`：类型化结构、持久 owner、维护 CLI、迁移历史。
+- `apps/server/src/database` 与 `drizzle-mysql`：类型化结构、持久 owner、维护 CLI、迁移历史。
 - `modules/companions`：实例身份、独立初始快照/当前人格与 UUID 分页。
 - `modules/workspace`：当前用户资料，显示名称可改，持久 owner 和历史身份关联不变。
 - `modules/conversations`：共享会话、消息保存/发布、来源与每实例接收。
@@ -28,8 +28,10 @@ HTTP 响应统一为 `{ code, data, message }`，数字常用码通过 contracts
 
 ## 迁移与验证
 
-已交付 SQL/journal 不可改写；新增结构生成新迁移。保留 LF、独立连接锁、严格历史前缀/hash 校验与事务回滚。CLI 只依赖数据库连接；HTTP 启动和健康检查不能自动执行 DDL。更新结构后核对生产包含 SQL、Compose 先迁移后启动，以及旧数据卷升级。
+当前持久库是 MySQL 8.4.9，向量服务是 Qdrant 1.18.3。按用户明确要求不迁移开发阶段 PostgreSQL 数据；旧 drizzle 文件留档，新迁移只读 drizzle-mysql。已交付 MySQL SQL/journal 不可改写，新增结构生成新迁移并保留 LF。维护连接用数据库范围的 GET_LOCK 串行执行并校验历史前缀/hash；DDL 执行前持久写 applying、全部完成后写 applied，失败后拒绝重试和就绪，不能宣称事务回滚。领域事务使用 READ COMMITTED 与会话行锁；重复键不能覆盖已有业务内容。CLI 只依赖 MySQL；HTTP 启动和健康检查不能自动执行 DDL。更新结构后核对生产包含 SQL、Compose 先迁移后启动，以及已有 MySQL 卷的重启持久化。
 
-真实测试必须显式提供独立 `TEST_DATABASE_URL`，使用 `test/support/database.ts` 创建并仅清理自己的临时数据库。领域测试经 HTTP 观察行为；迁移测试经维护命令验证。不可在未运行数据库用例时宣称通过。按已确认 seam 逐行为红绿验证，无需重新请求用户确认。
+用户于 2026-10-27 明确允许清理旧开发数据和重建开发库；必要的清理可在已确认的项目开发环境内直接执行，无须重复确认。
+
+真实测试必须显式提供独立 MySQL 的 `TEST_DATABASE_URL`、`TEST_QDRANT_URL` 与 `TEST_QDRANT_API_KEY`，使用 `test/support/database.ts` 创建并仅清理自己的临时数据库。领域测试经 HTTP 观察行为；迁移测试经维护命令验证。不可在未运行数据库用例时宣称通过。按已确认 seam 逐行为红绿验证，无需重新请求用户确认。
 
 完成后运行相关格式、lint、类型、真实 HTTP/迁移、构建、浏览器和部署检查。更新功能说明/进度，删除临时任务计划；在已授权的 dev 分支提交推送，交付固定 SHA 和比较基线，停在本功能供 review。

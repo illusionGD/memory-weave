@@ -13,7 +13,7 @@ description: >-
 
 - `apps/server/src/main.ts` / `app.ts`：启动、配置及默认认证守卫。
 - `apps/server/src/modules/auth`：单用户密码登录、服务端 Cookie 会话与撤销。
-- `apps/server/src/modules/system`：真实 PostgreSQL、vector 和文件目录探测。
+- `apps/server/src/modules/system`：真实 MySQL、Qdrant 认证连接和文件目录探测。
 - `apps/web/src/services` / `stores` / `views`：同源 API、内存状态和中文界面。
 - `packages/contracts`：公共 schema 和类型；更改接口时同步调用方。
 - `deploy`、`Dockerfile`、`scripts`：数据库与应用启动、配置生成及生产打包。
@@ -33,7 +33,7 @@ description: >-
 - HTTP 入口不自动升级资源到 HTTPS；HTTPS 入口必须使用 Secure Cookie。
 - 不记录密码、Cookie 或连接串，不把它们放入 Git、镜像构建上下文或浏览器存储。
 - 会话目前位于进程内，12 小时过期、最多 10 个；服务重启后重登。后续业务持久化不得依赖该会话存储。
-- 仅在配置的数据库真实可用、vector 存在、数据库迁移与当前发布一致、文件目录可写时报告就绪。迁移与业务数据边界另见 data-foundation 技能。
+- 仅在 MySQL 可查询、Qdrant 已就绪且密钥可访问、数据库迁移与当前发布一致、文件目录可写时报告就绪。迁移与业务数据边界另见 data-foundation 技能。
 - 生产打包使用 workspace 注入、build 同步与锁文件；依赖变更后核对标准 `pnpm deploy` 和 Docker 构建。
 - dev 及编辑器使用 `memory-weave-source` 条件直读共享包源码，根目录 dev/typecheck 无须先 build。server build 必须去掉源码条件，Vite 仅 serve 启用；普通 exports 和生产包仍读取 dist。修改相关配置时验证无 dist 启动、前后端自动更新、原子保存与新增模块，以及生产部署。新增共享包需核对实际 workspace 源码链接，不能依赖注入副本随 build 同步来提供热更新。
 
@@ -41,6 +41,6 @@ description: >-
 
 沿用已确认的 Web、HTTP、配置和部署接口验证行为，不测试私有容器或内部调用顺序。按项目 TDD 指南小步验证；运行当前范围的格式、lint、typecheck、HTTP 测试、构建及必要 E2E。
 
-真实数据库测试必须明确提供隔离的 `TEST_DATABASE_URL`；省略而跳过不能算通过。Docker SQL 初始化脚本需对容器用户可读，初始化失败时检查日志与实际扩展状态。
+真实数据库测试必须明确提供隔离的 `TEST_DATABASE_URL`；省略而跳过不能算通过。同时配置独立 TEST_QDRANT_URL / TEST_QDRANT_API_KEY。Docker 使用 mysql-data、qdrant-data、qdrant-snapshots 和 app-data 分别持久化；不复用 PostgreSQL 卷。setup 补齐新配置并保留登录密码及已有 MySQL 凭据，旧 PostgreSQL 配置备份后切换全新 MySQL；不导入或自动删除旧数据。
 
 继续使用 `dev`，每个功能交付固定 SHA、比较基线、检查结果和启动步骤。用户已授权向 `illusionGD/memory-weave` 的 `dev` 推送当前文档及后续完成功能，无需为同一范围重复询问；不擅自改写已交付历史或推送其他分支。

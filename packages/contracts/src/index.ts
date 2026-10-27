@@ -27,13 +27,27 @@ export const sessionResponseSchema: z.ZodObject<typeof sessionResponseShape> =
   z.object(sessionResponseShape);
 
 const databaseStatusShape = {
-  /** connected 表示数据库可查询且已安装 vector 扩展；查询失败或缺少扩展时为 unavailable。 */
+  /** connected 表示 MySQL 可执行查询；连接或查询失败时为 unavailable。 */
   status: z.enum(['connected', 'unavailable']),
-  /** 实际安装的 pgvector 扩展版本，例如 0.8.2；查询失败或缺少扩展时为 null。 */
-  vectorVersion: z.string().nullable(),
+  /** 实际 MySQL 服务版本；无法查询时为 null。 */
+  version: z.string().nullable(),
+  /** 主数据库引擎，与向量服务分开报告。 */
+  engine: z.literal('mysql'),
 };
 
 const databaseStatusSchema: z.ZodObject<typeof databaseStatusShape> = z.object(databaseStatusShape);
+
+const vectorStoreStatusShape = {
+  /** 独立向量服务的引擎。 */
+  engine: z.literal('qdrant'),
+  /** connected 表示服务已就绪且配置的密钥能访问集合接口。 */
+  status: z.enum(['connected', 'unavailable']),
+  /** 实际 Qdrant 版本；连接或认证失败时为 null。 */
+  version: z.string().nullable(),
+};
+
+const vectorStoreStatusSchema: z.ZodObject<typeof vectorStoreStatusShape> =
+  z.object(vectorStoreStatusShape);
 
 const storageStatusShape = {
   /** ready 表示目录可创建且临时文件写入、删除成功；任一步骤失败时为 unavailable。 */
@@ -58,8 +72,10 @@ const systemStatusShape = {
   version: z.string(),
   /** 当前交付阶段；foundation 表示工程基础阶段，不代表服务是否健康。 */
   stage: z.literal('foundation'),
-  /** 本次 PostgreSQL 连接及 pgvector 扩展的探测结果。 */
+  /** 本次 MySQL 连接的实际探测结果。 */
   database: databaseStatusSchema,
+  /** 独立 Qdrant 的连接与访问权限，不代表记忆索引已经建立。 */
+  vectorStore: vectorStoreStatusSchema,
   /** 配置的持久文件目录的可用性探测结果，不向客户端暴露实际路径。 */
   storage: storageStatusSchema,
   /** 数据库结构与当前服务版本的兼容状态，连接成功不代表结构已就绪。 */

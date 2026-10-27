@@ -27,13 +27,12 @@ export class WorkspaceService {
   /** 仅更新当前部署的显示字段，重复提交相同名称不会改变任何关联标识。 */
   update(input: UpdateWorkspaceRequest): Promise<WorkspaceResponse> {
     return this.database.withOwner(async (ownerId, db) => {
-      const [owner] = await db
+      const [result] = await db
         .update(owners)
         .set({ displayName: input.displayName })
-        .where(eq(owners.id, ownerId))
-        .returning({ ownerId: owners.id, displayName: owners.displayName });
-      if (!owner) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-      return { ...owner, schemaVersion: 1 };
+        .where(eq(owners.id, ownerId));
+      if (result.affectedRows === 0) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+      return { ownerId, displayName: input.displayName, schemaVersion: 1 };
     });
   }
 }

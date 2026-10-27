@@ -18,14 +18,14 @@ async function createMigrations(sources: string[]) {
   await mkdir(join(migrationDir, 'meta'));
   const entries = sources.map((_, index) => ({
     idx: index,
-    version: '7',
+    version: '5',
     when: 1_700_000_000_000 + index,
     tag: `${String(index).padStart(4, '0')}_fixture`,
     breakpoints: true,
   }));
   await writeFile(
     join(migrationDir, 'meta/_journal.json'),
-    JSON.stringify({ version: '7', dialect: 'postgresql', entries }),
+    JSON.stringify({ version: '7', dialect: 'mysql', entries }),
   );
   await Promise.all(
     sources.map((source, index) =>
@@ -64,7 +64,7 @@ afterEach(async () => {
   );
 });
 
-describe('migration command with PostgreSQL', () => {
+describe('migration command with MySQL', () => {
   it('applies a release once and reports the same ready version on repeat deployment', async () => {
     const databaseUrl = await isolatedDatabase();
     const migrationDir = await createMigrations([
@@ -95,7 +95,7 @@ describe('migration command with PostgreSQL', () => {
   it('serializes simultaneous deployments so each migration is applied exactly once', async () => {
     const databaseUrl = await isolatedDatabase();
     const migrationDir = await createMigrations([
-      'SELECT pg_sleep(0.5);\n--> statement-breakpoint\nCREATE TABLE deployment_marker (id integer PRIMARY KEY);',
+      'SELECT SLEEP(0.5);\n--> statement-breakpoint\nCREATE TABLE deployment_marker (id integer PRIMARY KEY);',
     ]);
     const results = await Promise.all([
       invokeCli(databaseUrl, migrationDir),
@@ -110,30 +110,20 @@ describe('migration command with PostgreSQL', () => {
     expect(JSON.parse(status.stdout)).toEqual({ status: 'ready', version: '0000_fixture' });
   });
 
-  it('rolls back the entire failed release and can apply the repaired release without partial tables', async () => {
+  it('blocks retry and readiness after a partially applied DDL release', async () => {
     const databaseUrl = await isolatedDatabase();
     const migrationDir = await createMigrations([
-      'CREATE TABLE transaction_marker (id integer PRIMARY KEY);',
-      'SELECT * FROM never_print_private_failure_detail;',
+      'CREATE TABLE partial_marker (id integer PRIMARY KEY);\n--> statement-breakpoint\nSELECT * FROM never_print_private_failure_detail;',
     ]);
     const failed = await invokeCli(databaseUrl, migrationDir);
     expect(failed.code).toBe(1);
     expect(failed.stderr).toContain('Database migration failed.');
     expect(failed.stderr + failed.stdout).not.toContain('never_print_private_failure_detail');
     const status = await invokeCli(databaseUrl, migrationDir, 'status');
-    expect(JSON.parse(status.stdout)).toEqual({ status: 'pending', version: null });
-
-    await writeFile(
-      join(migrationDir, '0001_fixture.sql'),
-      'CREATE TABLE repaired_marker (id integer PRIMARY KEY);',
-    );
-    const repaired = await invokeCli(databaseUrl, migrationDir);
-    expect(repaired.code, repaired.stderr).toBe(0);
-    expect(JSON.parse(repaired.stdout)).toEqual({
-      status: 'ready',
-      version: '0001_fixture',
-      applied: 2,
-    });
+    expect(JSON.parse(status.stdout)).toEqual({ status: 'unavailable', version: null });
+    const repeated = await invokeCli(databaseUrl, migrationDir);
+    expect(repeated.code).toBe(1);
+    expect(repeated.stderr).toContain('Database migration is incomplete.');
   });
 
   it('rejects changes to already applied SQL instead of treating the release as ready', async () => {
@@ -190,7 +180,7 @@ describe('migration command', () => {
     const migrationDir = await mkdtemp(join(tmpdir(), 'memory-weave-migrations-'));
     temporaryDirectories.push(migrationDir);
     const result = await invokeCli(
-      'postgresql://private:must-not-appear@127.0.0.1:1/unavailable',
+      'mysql://private:must-not-appear@127.0.0.1:1/unavailable',
       migrationDir,
     );
 
@@ -198,7 +188,7 @@ describe('migration command', () => {
     expect(result.stderr).toContain('Migration files are invalid.');
     expect(result.stdout + result.stderr).not.toContain('must-not-appear');
     const status = await invokeCli(
-      'postgresql://private:must-not-appear@127.0.0.1:1/unavailable',
+      'mysql://private:must-not-appear@127.0.0.1:1/unavailable',
       migrationDir,
       'status',
     );
@@ -208,7 +198,7 @@ describe('migration command', () => {
 
   it('reports malformed connection settings as unavailable without exposing their contents', async () => {
     const migrationDir = await createMigrations(['CREATE TABLE migration_marker (id integer);']);
-    const status = await invokeCli('postgresql://private:must-not-appear@', migrationDir, 'status');
+    const status = await invokeCli('mysql://private:must-not-appear@', migrationDir, 'status');
     expect(status.code).toBe(1);
     expect(JSON.parse(status.stdout)).toEqual({ status: 'unavailable', version: null });
     expect(status.stdout + status.stderr).not.toContain('must-not-appear');
@@ -220,15 +210,15 @@ describe('migration command', () => {
       join(migrationDir, 'meta/_journal.json'),
       JSON.stringify({
         version: '7',
-        dialect: 'postgresql',
+        dialect: 'mysql',
         entries: [
-          { idx: 0, version: '7', when: 1000, tag: '0000_fixture', breakpoints: true },
-          { idx: 1, version: '7', when: 1000, tag: '0001_fixture', breakpoints: true },
+          { idx: 0, version: '5', when: 1000, tag: '0000_fixture', breakpoints: true },
+          { idx: 1, version: '5', when: 1000, tag: '0001_fixture', breakpoints: true },
         ],
       }),
     );
     const result = await invokeCli(
-      'postgresql://private:must-not-appear@127.0.0.1:1/unavailable',
+      'mysql://private:must-not-appear@127.0.0.1:1/unavailable',
       migrationDir,
     );
     expect(result.code).toBe(1);
@@ -238,7 +228,7 @@ describe('migration command', () => {
   it('returns a controlled failure when the configured database is unavailable', async () => {
     const migrationDir = await createMigrations(['CREATE TABLE migration_marker (id integer);']);
     const result = await invokeCli(
-      'postgresql://private:must-not-appear@127.0.0.1:1/unavailable',
+      'mysql://private:must-not-appear@127.0.0.1:1/unavailable',
       migrationDir,
     );
     expect(result.code).toBe(1);

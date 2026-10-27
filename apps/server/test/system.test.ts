@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { Client } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
@@ -19,6 +18,8 @@ describe('observable service health', () => {
   let database: TestDatabase;
 
   beforeAll(async () => {
+    if (!process.env.TEST_QDRANT_URL || !process.env.TEST_QDRANT_API_KEY)
+      throw new Error('需要显式配置 TEST_QDRANT_URL 和 TEST_QDRANT_API_KEY。');
     database = await createTestDatabase();
   });
   afterAll(async () => {
@@ -28,6 +29,8 @@ describe('observable service health', () => {
   beforeEach(async () => {
     dataDir = await mkdtemp(join(tmpdir(), 'memory-weave-system-'));
     config = {
+      qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
+      qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,
@@ -51,7 +54,7 @@ describe('observable service health', () => {
     expect(response.body.data).toEqual({ status: 'ok' });
   });
 
-  it('reports the real PostgreSQL vector extension and writable storage to the signed-in owner', async () => {
+  it('reports the real MySQL and authenticated Qdrant status and writable storage to the signed-in owner', async () => {
     const anonymous = await request(app.getHttpServer()).get('/api/system/status');
     expect(anonymous.status).toBe(401);
     const agent = request.agent(app.getHttpServer());
@@ -62,7 +65,12 @@ describe('observable service health', () => {
       service: 'memory-weave',
       version: '0.1.0',
       stage: 'foundation',
-      database: { status: 'connected', vectorVersion: expect.stringMatching(/^0\.8\./) },
+      database: { engine: 'mysql', status: 'connected', version: expect.stringMatching(/^8\.4\./) },
+      vectorStore: {
+        engine: 'qdrant',
+        status: 'connected',
+        version: expect.stringMatching(/^1\.18\./),
+      },
       storage: { status: 'ready' },
       schema: { status: 'ready', version: expect.any(String) },
     });
@@ -74,14 +82,10 @@ describe('observable service health', () => {
       .expect((response) => expectApiSuccess(response, { status: 'ok' }));
   });
 
-  it('keeps an unmigrated F01 database live but not ready, then recovers after migration', async () => {
+  it('keeps an unmigrated MySQL database live but not ready, then recovers after migration', async () => {
     const legacy = await createTestDatabase({ migrate: false });
-    const client = new Client({ connectionString: legacy.databaseUrl });
     let legacyApp: INestApplication | undefined;
     try {
-      await client.connect();
-      await client.query('CREATE EXTENSION IF NOT EXISTS vector');
-      await client.end();
       legacyApp = await createApplication({ ...config, databaseUrl: legacy.databaseUrl });
       const agent = request.agent(legacyApp.getHttpServer());
       await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
@@ -96,22 +100,41 @@ describe('observable service health', () => {
       await request(legacyApp.getHttpServer()).get('/api/health/ready').expect(200);
       await agent.get('/api/workspace').expect(200);
     } finally {
-      await client.end().catch(() => undefined);
       await legacyApp?.close();
       await legacy.dispose();
     }
+  });
+
+  it('keeps liveness but refuses readiness when Qdrant rejects its API key', async () => {
+    await app.close();
+    app = await createApplication({ ...config, qdrantApiKey: 'wrong-vector-key-for-test' });
+    const agent = request.agent(app.getHttpServer());
+    await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
+    const response = await agent.get('/api/system/status').expect(200);
+    expect(response.body.data.vectorStore).toEqual({
+      engine: 'qdrant',
+      status: 'unavailable',
+      version: null,
+    });
+    expect(JSON.stringify(response.body)).not.toContain(config.qdrantApiKey);
+    await request(app.getHttpServer()).get('/api/health/ready').expect(503);
+    await request(app.getHttpServer()).get('/api/health/live').expect(200);
   });
 
   it('reports database unavailability without crashing the HTTP process or disclosing credentials', async () => {
     await app.close();
     app = await createApplication({
       ...config,
-      databaseUrl: 'postgres://private:do-not-echo@127.0.0.1:1/unavailable',
+      databaseUrl: 'mysql://private:do-not-echo@127.0.0.1:1/unavailable',
     });
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     const status = await agent.get('/api/system/status').expect(200);
-    expect(status.body.data.database).toEqual({ status: 'unavailable', vectorVersion: null });
+    expect(status.body.data.database).toEqual({
+      engine: 'mysql',
+      status: 'unavailable',
+      version: null,
+    });
     expect(JSON.stringify(status.body)).not.toContain('do-not-echo');
     const notReady = await request(app.getHttpServer()).get('/api/health/ready').expect(503);
     expectApiError(notReady, 503, 50302);

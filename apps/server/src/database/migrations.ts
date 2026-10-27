@@ -2,10 +2,9 @@ import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Client } from 'pg';
-import type { Pool } from 'pg';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { createConnection } from 'mysql2/promise';
+import type { Connection, RowDataPacket } from 'mysql2/promise';
+import { mysqlConnectionOptions } from './connection';
 
 /** 当前程序所要求的数据库结构状态。 */
 export interface SchemaStatus {
@@ -26,17 +25,19 @@ interface MigrationEntry {
   tag: string;
   when: number;
   hash: string;
+  statements: string[];
 }
 
-interface MigrationHistory {
+interface MigrationHistory extends RowDataPacket {
   id: number;
   hash: string;
   created_at: string;
+  state: string;
 }
 
-const defaultMigrationDirectory = fileURLToPath(new URL('../../drizzle/', import.meta.url));
-// 所有发布版本共用固定的会话锁，连接关闭时 PostgreSQL 会自动释放。
-const migrationLock = [1_297_559_383, 1_179_276_882] as const;
+const defaultMigrationDirectory = fileURLToPath(new URL('../../drizzle-mysql/', import.meta.url));
+// MySQL DDL 隐式提交；applying 状态必须先持久落盘，失败后不能把半完成结构当作就绪。
+const HISTORY_TABLE = '__memory_weave_migrations';
 
 /** 校验迁移清单与文件，拒绝缺项、重复、乱序或未登记的 SQL。 */
 async function readLocalMigrations(directory: string): Promise<MigrationEntry[]> {
@@ -52,7 +53,7 @@ async function readLocalMigrations(directory: string): Promise<MigrationEntry[]>
       !('version' in journal) ||
       journal.version !== '7' ||
       !('dialect' in journal) ||
-      journal.dialect !== 'postgresql'
+      journal.dialect !== 'mysql'
     ) {
       throw new Error();
     }
@@ -66,7 +67,7 @@ async function readLocalMigrations(directory: string): Promise<MigrationEntry[]>
         !entry ||
         typeof entry !== 'object' ||
         entry.idx !== index ||
-        entry.version !== '7' ||
+        entry.version !== '5' ||
         typeof entry.tag !== 'string' ||
         !/^\d{4}_[a-zA-Z0-9_-]+$/.test(entry.tag) ||
         tags.has(entry.tag) ||
@@ -84,6 +85,10 @@ async function readLocalMigrations(directory: string): Promise<MigrationEntry[]>
         tag: entry.tag,
         when: entry.when,
         hash: createHash('sha256').update(source).digest('hex'),
+        statements: source
+          .split('--> statement-breakpoint')
+          .map((statement) => statement.trim())
+          .filter(Boolean),
       });
     }
     const files = (await readdir(directory)).filter((file) => file.endsWith('.sql'));
@@ -95,34 +100,36 @@ async function readLocalMigrations(directory: string): Promise<MigrationEntry[]>
   }
 }
 
-/** 历史只能是当前发布包的完整前缀，不能跳过、改写或超过本地版本。 */
+/** 历史只能是当前发布包的完整前缀；未完成的 DDL 不允许自动跳过或重试。 */
 async function readVerifiedHistory(
-  client: Pick<Pool, 'query'>,
+  client: Pick<Connection, 'query'>,
   local: MigrationEntry[],
 ): Promise<MigrationHistory[]> {
-  const relation = await client.query<{ present: string | null }>(
-    "SELECT to_regclass('drizzle.__drizzle_migrations') AS present",
+  const [tables] = await client.query<RowDataPacket[]>(
+    'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
+    [HISTORY_TABLE],
   );
-  if (!relation.rows[0]?.present) return [];
-  const result = await client.query<MigrationHistory>(
-    'SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id',
+  if (tables.length === 0) return [];
+  const [rows] = await client.query<MigrationHistory[]>(
+    `SELECT id, hash, created_at, state FROM ${HISTORY_TABLE} ORDER BY id`,
   );
-  if (result.rows.length > local.length)
+  if (rows.length > local.length)
     throw new MigrationError('Migration history does not match this release.');
-  let previousId = 0;
-  for (const [index, row] of result.rows.entries()) {
+  for (const [index, row] of rows.entries()) {
     const expected = local[index]!;
     if (
-      !Number.isInteger(row.id) ||
-      row.id <= previousId ||
+      row.id !== index + 1 ||
       row.hash !== expected.hash ||
       String(row.created_at) !== String(expected.when)
     ) {
       throw new MigrationError('Migration history does not match this release.');
     }
-    previousId = row.id;
+    if (row.state !== 'applied')
+      throw new MigrationError(
+        'Database migration is incomplete. Restore the database before retrying.',
+      );
   }
-  return result.rows;
+  return rows;
 }
 
 /** 执行当前发布包的 SQL 迁移；数据库连接与语句错误不会泄露到调用方。 */
@@ -131,41 +138,43 @@ export async function runMigrations(
   migrationDirectory = defaultMigrationDirectory,
 ): Promise<MigrationResult> {
   const local = await readLocalMigrations(migrationDirectory);
-  let client: Client | undefined;
-  let locked = false;
+  let client: Connection | undefined;
+  let lockName: string | undefined;
   try {
-    client = new Client({
-      connectionString: databaseUrl,
-      connectionTimeoutMillis: 5000,
-      statement_timeout: 60_000,
-      lock_timeout: 10_000,
-      idle_in_transaction_session_timeout: 60_000,
-    });
-    client.on('error', () => undefined);
-    await client.connect();
-    // 在读取历史前加锁，避免两个部署同时判断同一迁移尚未执行。
-    await client.query('SELECT pg_advisory_lock($1, $2)', [...migrationLock]);
-    locked = true;
+    const options = mysqlConnectionOptions(databaseUrl, 5000);
+    client = await createConnection(options);
+    await client.query(
+      "SET SESSION time_zone = '+00:00', lock_wait_timeout = 10, innodb_lock_wait_timeout = 10",
+    );
+    const name = `memory-weave:migrate:${createHash('sha256').update(options.database!).digest('hex').slice(0, 32)}`;
+    const [locks] = await client.query<RowDataPacket[]>('SELECT GET_LOCK(?, 10) AS acquired', [
+      name,
+    ]);
+    if (locks[0]?.acquired !== 1) throw new MigrationError('Database migration lock timed out.');
+    lockName = name;
     const history = await readVerifiedHistory(client, local);
-    await migrate(drizzle(client), { migrationsFolder: migrationDirectory });
-    const appliedHistory = await readVerifiedHistory(client, local);
-    if (appliedHistory.length !== local.length) {
-      throw new MigrationError('Migration history does not match this release.');
+    await client.query(`CREATE TABLE IF NOT EXISTS ${HISTORY_TABLE} (
+      id INT PRIMARY KEY, hash CHAR(64) NOT NULL, created_at BIGINT NOT NULL,
+      state VARCHAR(16) NOT NULL
+    ) ENGINE=InnoDB`);
+    for (const [index, entry] of local.entries()) {
+      if (index < history.length) continue;
+      await client.query(
+        `INSERT INTO ${HISTORY_TABLE} (id, hash, created_at, state) VALUES (?, ?, ?, 'applying')`,
+        [index + 1, entry.hash, entry.when],
+      );
+      for (const statement of entry.statements) await client.query(statement);
+      await client.query(`UPDATE ${HISTORY_TABLE} SET state = 'applied' WHERE id = ?`, [index + 1]);
     }
-    return {
-      status: 'ready',
-      version: local.at(-1)!.tag,
-      applied: local.length - history.length,
-    };
+    const appliedHistory = await readVerifiedHistory(client, local);
+    if (appliedHistory.length !== local.length)
+      throw new MigrationError('Migration history does not match this release.');
+    return { status: 'ready', version: local.at(-1)!.tag, applied: local.length - history.length };
   } catch (error) {
     if (error instanceof MigrationError) throw error;
     throw new MigrationError('Database migration failed.');
   } finally {
-    if (locked) {
-      await client
-        ?.query('SELECT pg_advisory_unlock($1, $2)', [...migrationLock])
-        .catch(() => undefined);
-    }
+    if (lockName) await client?.query('SELECT RELEASE_LOCK(?)', [lockName]).catch(() => undefined);
     await client?.end().catch(() => undefined);
   }
 }
@@ -175,15 +184,9 @@ export async function getSchemaStatus(
   databaseUrl: string,
   migrationDirectory = defaultMigrationDirectory,
 ): Promise<SchemaStatus> {
-  let client: Client | undefined;
+  let client: Connection | undefined;
   try {
-    client = new Client({
-      connectionString: databaseUrl,
-      connectionTimeoutMillis: 1000,
-      statement_timeout: 1000,
-    });
-    client.on('error', () => undefined);
-    await client.connect();
+    client = await createConnection(mysqlConnectionOptions(databaseUrl));
     return await querySchemaStatus(client, migrationDirectory);
   } catch {
     return { status: 'unavailable', version: null };
@@ -194,7 +197,7 @@ export async function getSchemaStatus(
 
 /** 通过既有连接池查询迁移历史，供 HTTP 就绪检查复用，不执行 DDL。 */
 export async function querySchemaStatus(
-  client: Pick<Pool, 'query'>,
+  client: Pick<Connection, 'query'>,
   migrationDirectory = defaultMigrationDirectory,
 ): Promise<SchemaStatus> {
   try {

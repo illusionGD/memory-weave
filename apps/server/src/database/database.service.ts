@@ -2,9 +2,11 @@ import { API_CODES } from '@memory-weave/contracts';
 import { HttpException, Inject, Injectable } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
-import { drizzle } from 'drizzle-orm/node-postgres';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/mysql2';
+import type { MySql2Database } from 'drizzle-orm/mysql2';
+import { createPool } from 'mysql2/promise';
+import type { Pool } from 'mysql2/promise';
+import { mysqlConnectionOptions } from './connection';
 import { SERVER_CONFIG } from '../config';
 import type { RuntimeConfig } from '../config';
 import { querySchemaStatus } from './migrations';
@@ -12,7 +14,7 @@ import * as schema from './schema';
 import { ApiException } from '../http/api-exception';
 
 /** 领域服务共享的类型化数据库入口。 */
-export type Database = NodePgDatabase<typeof schema>;
+export type Database = MySql2Database<typeof schema>;
 
 /** 事务回调使用同一连接，适用于发布序号与幂等结果的原子提交。 */
 export type DatabaseTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -24,16 +26,14 @@ export class DatabaseService implements OnModuleDestroy {
   readonly db: Database;
 
   constructor(@Inject(SERVER_CONFIG) config: RuntimeConfig) {
-    this.pool = new Pool({
-      connectionString: config.databaseUrl,
-      max: 4,
-      connectionTimeoutMillis: 1000,
-      idleTimeoutMillis: 10_000,
-      statement_timeout: 5000,
+    this.pool = createPool({
+      ...mysqlConnectionOptions(config.databaseUrl),
+      connectionLimit: 4,
+      maxIdle: 4,
+      idleTimeout: 10_000,
+      queueLimit: 32,
     });
-    // 空闲连接断开不终止 HTTP 进程，下一次操作重新判断数据库可用性。
-    this.pool.on('error', () => undefined);
-    this.db = drizzle(this.pool, { schema });
+    this.db = drizzle(this.pool, { schema, mode: 'default' });
   }
 
   /** 只读检查当前迁移与数据库历史是否一致，不在健康检查中执行 DDL。 */
@@ -65,8 +65,19 @@ export class DatabaseService implements OnModuleDestroy {
     } catch (error) {
       if (error instanceof HttpException) throw error;
       const code = databaseErrorCode(error);
-      if (code === '23505') throw new ApiException(API_CODES.CONFLICT);
-      if (['23503', '23514', '23502', '22P02'].includes(code ?? '')) {
+      if (code === 'ER_DUP_ENTRY') throw new ApiException(API_CODES.CONFLICT);
+      if (
+        [
+          'ER_NO_REFERENCED_ROW_2',
+          'ER_ROW_IS_REFERENCED_2',
+          'ER_CHECK_CONSTRAINT_VIOLATED',
+          'ER_BAD_NULL_ERROR',
+          'ER_DATA_TOO_LONG',
+          'WARN_DATA_OUT_OF_RANGE',
+          'ER_TRUNCATED_WRONG_VALUE',
+          'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD',
+        ].includes(code ?? '')
+      ) {
         throw new ApiException(API_CODES.DATA_CONSTRAINT_VIOLATION);
       }
       if (code) throw new ApiException(API_CODES.DATA_UNAVAILABLE);

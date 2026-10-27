@@ -8,7 +8,7 @@ import { ApiException, ApiExceptionFilter, assignRequestId } from '../src/http/a
 import { expectApiError } from './support/http';
 import { ApiResponseInterceptor, ApiResult } from '../src/http/api-response.interceptor';
 
-const PRIVATE_DIAGNOSTIC = 'private-password; SELECT private_text; postgres://private';
+const PRIVATE_DIAGNOSTIC = 'private-password; SELECT private_text; mysql://private';
 
 /** 只在测试 HTTP 服务内提供故障入口，不注册到生产应用或替换内部服务。 */
 @Controller()

@@ -1,0 +1,1371 @@
+{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "76fe6ebe-95d5-4d4d-ab5c-5d281460c6a9",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "companions": {
+      "name": "companions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runtime_epoch": {
+          "name": "runtime_epoch",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "initial_snapshot": {
+          "name": "initial_snapshot",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "current_persona_version_id": {
+          "name": "current_persona_version_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "companions_owner_id_owners_id_fk": {
+          "name": "companions_owner_id_owners_id_fk",
+          "tableFrom": "companions",
+          "tableTo": "owners",
+          "columnsFrom": ["owner_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "companions_current_persona_fk": {
+          "name": "companions_current_persona_fk",
+          "tableFrom": "companions",
+          "tableTo": "persona_versions",
+          "columnsFrom": ["owner_id", "id", "current_persona_version_id"],
+          "columnsTo": ["owner_id", "companion_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "companions_id": {
+          "name": "companions_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "companions_owner_id_unique": {
+          "name": "companions_owner_id_unique",
+          "columns": ["owner_id", "id"]
+        },
+        "companions_request_unique": {
+          "name": "companions_request_unique",
+          "columns": ["owner_id", "request_id"]
+        }
+      },
+      "checkConstraint": {
+        "companions_versions_positive": {
+          "name": "companions_versions_positive",
+          "value": "`companions`.`runtime_epoch` > 0 AND `companions`.`version` > 0"
+        },
+        "companions_name_length": {
+          "name": "companions_name_length",
+          "value": "char_length(`companions`.`name`) BETWEEN 1 AND 80"
+        }
+      }
+    },
+    "conversation_members": {
+      "name": "conversation_members",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "companion_id": {
+          "name": "companion_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "runtime_epoch": {
+          "name": "runtime_epoch",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "joined_sequence": {
+          "name": "joined_sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "left_sequence": {
+          "name": "left_sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "permission_version": {
+          "name": "permission_version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "conversation_members_ref_1": {
+          "name": "conversation_members_ref_1",
+          "tableFrom": "conversation_members",
+          "tableTo": "conversations",
+          "columnsFrom": ["owner_id", "conversation_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "conversation_members_ref_2": {
+          "name": "conversation_members_ref_2",
+          "tableFrom": "conversation_members",
+          "tableTo": "companions",
+          "columnsFrom": ["owner_id", "companion_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "conversation_members_id": {
+          "name": "conversation_members_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "conversation_members_owner_id_unique": {
+          "name": "conversation_members_owner_id_unique",
+          "columns": ["owner_id", "id"]
+        },
+        "conversation_members_conversation_id_unique": {
+          "name": "conversation_members_conversation_id_unique",
+          "columns": ["owner_id", "conversation_id", "id"]
+        },
+        "conversation_members_user_unique": {
+          "name": "conversation_members_user_unique",
+          "columns": ["owner_id", "conversation_id", "user_id"]
+        },
+        "conversation_members_companion_unique": {
+          "name": "conversation_members_companion_unique",
+          "columns": ["owner_id", "conversation_id", "companion_id", "runtime_epoch"]
+        }
+      },
+      "checkConstraint": {
+        "conversation_members_identity_valid": {
+          "name": "conversation_members_identity_valid",
+          "value": "(`conversation_members`.`kind` = 'user' AND `conversation_members`.`user_id` = `conversation_members`.`owner_id` AND `conversation_members`.`user_id` IS NOT NULL AND `conversation_members`.`companion_id` IS NULL AND `conversation_members`.`runtime_epoch` IS NULL) OR (`conversation_members`.`kind` = 'companion' AND `conversation_members`.`user_id` IS NULL AND `conversation_members`.`companion_id` IS NOT NULL AND `conversation_members`.`runtime_epoch` IS NOT NULL AND `conversation_members`.`runtime_epoch` > 0)"
+        },
+        "conversation_members_range_valid": {
+          "name": "conversation_members_range_valid",
+          "value": "`conversation_members`.`joined_sequence` > 0 AND (`conversation_members`.`left_sequence` IS NULL OR `conversation_members`.`left_sequence` >= `conversation_members`.`joined_sequence`) AND `conversation_members`.`permission_version` > 0"
+        }
+      }
+    },
+    "conversations": {
+      "name": "conversations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "last_sequence": {
+          "name": "last_sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "conversations_owner_id_owners_id_fk": {
+          "name": "conversations_owner_id_owners_id_fk",
+          "tableFrom": "conversations",
+          "tableTo": "owners",
+          "columnsFrom": ["owner_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "conversations_id": {
+          "name": "conversations_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "conversations_owner_id_unique": {
+          "name": "conversations_owner_id_unique",
+          "columns": ["owner_id", "id"]
+        },
+        "conversations_request_unique": {
+          "name": "conversations_request_unique",
+          "columns": ["owner_id", "request_id"]
+        }
+      },
+      "checkConstraint": {
+        "conversations_kind_valid": {
+          "name": "conversations_kind_valid",
+          "value": "`conversations`.`kind` IN ('private', 'group')"
+        },
+        "conversations_versions_positive": {
+          "name": "conversations_versions_positive",
+          "value": "`conversations`.`version` > 0 AND `conversations`.`last_sequence` >= 0"
+        },
+        "conversations_title_length": {
+          "name": "conversations_title_length",
+          "value": "char_length(`conversations`.`title`) BETWEEN 1 AND 80"
+        }
+      }
+    },
+    "message_sources": {
+      "name": "message_sources",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_message_id": {
+          "name": "source_message_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_content_version": {
+          "name": "source_content_version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "relation": {
+          "name": "relation",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "message_sources_ref_1": {
+          "name": "message_sources_ref_1",
+          "tableFrom": "message_sources",
+          "tableTo": "messages",
+          "columnsFrom": ["owner_id", "message_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "message_sources_ref_2": {
+          "name": "message_sources_ref_2",
+          "tableFrom": "message_sources",
+          "tableTo": "messages",
+          "columnsFrom": ["owner_id", "source_message_id", "source_content_version"],
+          "columnsTo": ["owner_id", "id", "content_version"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "message_sources_id": {
+          "name": "message_sources_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "message_sources_reference_unique": {
+          "name": "message_sources_reference_unique",
+          "columns": [
+            "owner_id",
+            "message_id",
+            "source_message_id",
+            "source_content_version",
+            "relation"
+          ]
+        }
+      },
+      "checkConstraint": {
+        "message_sources_relation_valid": {
+          "name": "message_sources_relation_valid",
+          "value": "`message_sources`.`relation` IN ('reference', 'report')"
+        },
+        "message_sources_not_self": {
+          "name": "message_sources_not_self",
+          "value": "`message_sources`.`message_id` <> `message_sources`.`source_message_id`"
+        }
+      }
+    },
+    "messages": {
+      "name": "messages",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "speaker_membership_id": {
+          "name": "speaker_membership_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "content_version": {
+          "name": "content_version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "revision": {
+          "name": "revision",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "sequence": {
+          "name": "sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "valid_from": {
+          "name": "valid_from",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "valid_until": {
+          "name": "valid_until",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "epistemic_kind": {
+          "name": "epistemic_kind",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'statement'"
+        },
+        "reality": {
+          "name": "reality",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'unspecified'"
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reply_to_message_id": {
+          "name": "reply_to_message_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "publish_request_id": {
+          "name": "publish_request_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "publish_fingerprint": {
+          "name": "publish_fingerprint",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "messages_ref_1": {
+          "name": "messages_ref_1",
+          "tableFrom": "messages",
+          "tableTo": "conversations",
+          "columnsFrom": ["owner_id", "conversation_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "messages_ref_2": {
+          "name": "messages_ref_2",
+          "tableFrom": "messages",
+          "tableTo": "conversation_members",
+          "columnsFrom": ["owner_id", "conversation_id", "speaker_membership_id"],
+          "columnsTo": ["owner_id", "conversation_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "messages_ref_3": {
+          "name": "messages_ref_3",
+          "tableFrom": "messages",
+          "tableTo": "messages",
+          "columnsFrom": ["owner_id", "conversation_id", "reply_to_message_id"],
+          "columnsTo": ["owner_id", "conversation_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "messages_id": {
+          "name": "messages_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "messages_owner_id_unique": {
+          "name": "messages_owner_id_unique",
+          "columns": ["owner_id", "id"]
+        },
+        "messages_conversation_id_unique": {
+          "name": "messages_conversation_id_unique",
+          "columns": ["owner_id", "conversation_id", "id"]
+        },
+        "messages_content_version_unique": {
+          "name": "messages_content_version_unique",
+          "columns": ["owner_id", "id", "content_version"]
+        },
+        "messages_conversation_content_unique": {
+          "name": "messages_conversation_content_unique",
+          "columns": ["owner_id", "conversation_id", "id", "content_version"]
+        },
+        "messages_sequence_unique": {
+          "name": "messages_sequence_unique",
+          "columns": ["owner_id", "conversation_id", "sequence"]
+        },
+        "messages_request_unique": {
+          "name": "messages_request_unique",
+          "columns": ["owner_id", "conversation_id", "request_id"]
+        },
+        "messages_publish_request_unique": {
+          "name": "messages_publish_request_unique",
+          "columns": ["owner_id", "conversation_id", "publish_request_id"]
+        }
+      },
+      "checkConstraint": {
+        "messages_versions_positive": {
+          "name": "messages_versions_positive",
+          "value": "`messages`.`schema_version` > 0 AND `messages`.`content_version` > 0 AND `messages`.`revision` > 0"
+        },
+        "messages_text_length": {
+          "name": "messages_text_length",
+          "value": "char_length(`messages`.`text`) BETWEEN 1 AND 4000"
+        },
+        "messages_publication_valid": {
+          "name": "messages_publication_valid",
+          "value": "(`messages`.`state` = 'draft' AND `messages`.`sequence` IS NULL AND `messages`.`published_at` IS NULL AND `messages`.`publish_request_id` IS NULL AND `messages`.`publish_fingerprint` IS NULL) OR (`messages`.`state` = 'published' AND `messages`.`sequence` IS NOT NULL AND `messages`.`sequence` > 0 AND `messages`.`published_at` IS NOT NULL AND `messages`.`publish_request_id` IS NOT NULL AND `messages`.`publish_fingerprint` IS NOT NULL)"
+        },
+        "messages_validity_ordered": {
+          "name": "messages_validity_ordered",
+          "value": "`messages`.`valid_from` IS NULL OR `messages`.`valid_until` IS NULL OR `messages`.`valid_until` >= `messages`.`valid_from`"
+        },
+        "messages_epistemic_kind_valid": {
+          "name": "messages_epistemic_kind_valid",
+          "value": "`messages`.`epistemic_kind` IN ('statement', 'report', 'inference', 'setting')"
+        },
+        "messages_reality_valid": {
+          "name": "messages_reality_valid",
+          "value": "`messages`.`reality` IN ('unspecified', 'real', 'fictional')"
+        },
+        "messages_source_kind_valid": {
+          "name": "messages_source_kind_valid",
+          "value": "`messages`.`source_kind` IN ('user_input', 'admin_companion_input')"
+        }
+      }
+    },
+    "owners": {
+      "name": "owners",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deployment_key": {
+          "name": "deployment_key",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'local'"
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'用户'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "owners_id": {
+          "name": "owners_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "owners_deployment_key_unique": {
+          "name": "owners_deployment_key_unique",
+          "columns": ["deployment_key"]
+        }
+      },
+      "checkConstraint": {
+        "owners_display_name_length": {
+          "name": "owners_display_name_length",
+          "value": "char_length(trim(`owners`.`display_name`)) BETWEEN 1 AND 80"
+        }
+      }
+    },
+    "persona_versions": {
+      "name": "persona_versions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "companion_id": {
+          "name": "companion_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runtime_epoch": {
+          "name": "runtime_epoch",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "profile_text": {
+          "name": "profile_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "persona_versions_ref_1": {
+          "name": "persona_versions_ref_1",
+          "tableFrom": "persona_versions",
+          "tableTo": "companions",
+          "columnsFrom": ["owner_id", "companion_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "persona_versions_id": {
+          "name": "persona_versions_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "persona_versions_owner_companion_id_unique": {
+          "name": "persona_versions_owner_companion_id_unique",
+          "columns": ["owner_id", "companion_id", "id"]
+        },
+        "persona_versions_number_unique": {
+          "name": "persona_versions_number_unique",
+          "columns": ["owner_id", "companion_id", "runtime_epoch", "version"]
+        }
+      },
+      "checkConstraint": {
+        "persona_versions_positive": {
+          "name": "persona_versions_positive",
+          "value": "`persona_versions`.`runtime_epoch` > 0 AND `persona_versions`.`version` > 0"
+        },
+        "persona_versions_profile_length": {
+          "name": "persona_versions_profile_length",
+          "value": "char_length(`persona_versions`.`profile_text`) BETWEEN 1 AND 4000"
+        }
+      }
+    },
+    "processing_ranges": {
+      "name": "processing_ranges",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "companion_id": {
+          "name": "companion_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runtime_epoch": {
+          "name": "runtime_epoch",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_version": {
+          "name": "content_version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "start_sequence": {
+          "name": "start_sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "end_sequence": {
+          "name": "end_sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stage": {
+          "name": "stage",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'memory_extraction'"
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {
+        "processing_ranges_conversation_sequence_idx": {
+          "name": "processing_ranges_conversation_sequence_idx",
+          "columns": [
+            "owner_id",
+            "companion_id",
+            "runtime_epoch",
+            "conversation_id",
+            "start_sequence"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "processing_ranges_ref_1": {
+          "name": "processing_ranges_ref_1",
+          "tableFrom": "processing_ranges",
+          "tableTo": "companions",
+          "columnsFrom": ["owner_id", "companion_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "processing_ranges_ref_2": {
+          "name": "processing_ranges_ref_2",
+          "tableFrom": "processing_ranges",
+          "tableTo": "messages",
+          "columnsFrom": ["owner_id", "conversation_id", "message_id", "content_version"],
+          "columnsTo": ["owner_id", "conversation_id", "id", "content_version"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "processing_ranges_id": {
+          "name": "processing_ranges_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "processing_ranges_instance_message_unique": {
+          "name": "processing_ranges_instance_message_unique",
+          "columns": [
+            "owner_id",
+            "companion_id",
+            "runtime_epoch",
+            "message_id",
+            "content_version",
+            "stage"
+          ]
+        }
+      },
+      "checkConstraint": {
+        "processing_ranges_range_valid": {
+          "name": "processing_ranges_range_valid",
+          "value": "`processing_ranges`.`runtime_epoch` > 0 AND `processing_ranges`.`start_sequence` > 0 AND `processing_ranges`.`end_sequence` >= `processing_ranges`.`start_sequence`"
+        },
+        "processing_ranges_stage_valid": {
+          "name": "processing_ranges_stage_valid",
+          "value": "`processing_ranges`.`stage` = 'memory_extraction' AND `processing_ranges`.`status` = 'pending'"
+        }
+      }
+    },
+    "read_receipts": {
+      "name": "read_receipts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "companion_id": {
+          "name": "companion_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runtime_epoch": {
+          "name": "runtime_epoch",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_version": {
+          "name": "content_version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "acquired_at": {
+          "name": "acquired_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        },
+        "start_offset": {
+          "name": "start_offset",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "end_offset": {
+          "name": "end_offset",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "read_receipts_ref_1": {
+          "name": "read_receipts_ref_1",
+          "tableFrom": "read_receipts",
+          "tableTo": "companions",
+          "columnsFrom": ["owner_id", "companion_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "read_receipts_ref_2": {
+          "name": "read_receipts_ref_2",
+          "tableFrom": "read_receipts",
+          "tableTo": "messages",
+          "columnsFrom": ["owner_id", "conversation_id", "message_id", "content_version"],
+          "columnsTo": ["owner_id", "conversation_id", "id", "content_version"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "read_receipts_id": {
+          "name": "read_receipts_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "read_receipts_instance_message_unique": {
+          "name": "read_receipts_instance_message_unique",
+          "columns": ["owner_id", "companion_id", "runtime_epoch", "message_id", "content_version"]
+        }
+      },
+      "checkConstraint": {
+        "read_receipts_range_valid": {
+          "name": "read_receipts_range_valid",
+          "value": "`read_receipts`.`runtime_epoch` > 0 AND `read_receipts`.`start_offset` >= 0 AND `read_receipts`.`end_offset` >= `read_receipts`.`start_offset`"
+        }
+      }
+    },
+    "receive_batches": {
+      "name": "receive_batches",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "companion_id": {
+          "name": "companion_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runtime_epoch": {
+          "name": "runtime_epoch",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fingerprint": {
+          "name": "fingerprint",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "messages": {
+          "name": "messages",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "acquired_at": {
+          "name": "acquired_at",
+          "type": "datetime(3)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP(3)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "receive_batches_ref_1": {
+          "name": "receive_batches_ref_1",
+          "tableFrom": "receive_batches",
+          "tableTo": "companions",
+          "columnsFrom": ["owner_id", "companion_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "receive_batches_ref_2": {
+          "name": "receive_batches_ref_2",
+          "tableFrom": "receive_batches",
+          "tableTo": "conversations",
+          "columnsFrom": ["owner_id", "conversation_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "receive_batches_id": {
+          "name": "receive_batches_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "receive_batches_request_unique": {
+          "name": "receive_batches_request_unique",
+          "columns": ["owner_id", "companion_id", "runtime_epoch", "conversation_id", "request_id"]
+        }
+      },
+      "checkConstraint": {
+        "receive_batches_epoch_positive": {
+          "name": "receive_batches_epoch_positive",
+          "value": "`receive_batches`.`runtime_epoch` > 0"
+        },
+        "receive_batches_messages_array": {
+          "name": "receive_batches_messages_array",
+          "value": "JSON_TYPE(`receive_batches`.`messages`) = 'ARRAY'"
+        }
+      }
+    },
+    "visibility_grants": {
+      "name": "visibility_grants",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "membership_id": {
+          "name": "membership_id",
+          "type": "char(36) character set ascii collate ascii_general_ci",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "start_sequence": {
+          "name": "start_sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "end_sequence": {
+          "name": "end_sequence",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "permission_version": {
+          "name": "permission_version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "visibility_grants_ref_1": {
+          "name": "visibility_grants_ref_1",
+          "tableFrom": "visibility_grants",
+          "tableTo": "conversation_members",
+          "columnsFrom": ["owner_id", "membership_id"],
+          "columnsTo": ["owner_id", "id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "visibility_grants_id": {
+          "name": "visibility_grants_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "visibility_grants_range_unique": {
+          "name": "visibility_grants_range_unique",
+          "columns": ["owner_id", "membership_id", "kind", "start_sequence", "permission_version"]
+        }
+      },
+      "checkConstraint": {
+        "visibility_grants_kind_valid": {
+          "name": "visibility_grants_kind_valid",
+          "value": "`visibility_grants`.`kind` IN ('membership', 'history')"
+        },
+        "visibility_grants_range_valid": {
+          "name": "visibility_grants_range_valid",
+          "value": "`visibility_grants`.`start_sequence` > 0 AND (`visibility_grants`.`end_sequence` IS NULL OR `visibility_grants`.`end_sequence` >= `visibility_grants`.`start_sequence`) AND `visibility_grants`.`permission_version` > 0"
+        }
+      }
+    }
+  },
+  "views": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
+  }
+}

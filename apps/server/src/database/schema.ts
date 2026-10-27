@@ -1,17 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import {
   check,
   foreignKey,
   index,
-  integer,
-  jsonb,
-  pgTable,
+  int,
+  json,
+  mysqlTable,
   text,
-  timestamp,
+  datetime,
+  varchar,
+  customType,
   unique,
-  uuid,
-} from 'drizzle-orm/pg-core';
-import type { PgTableExtraConfigValue } from 'drizzle-orm/pg-core';
+} from 'drizzle-orm/mysql-core';
+import type { MySqlTableExtraConfigValue } from 'drizzle-orm/mysql-core';
 
 /** 创建时保留的初始设定，与后续当前人格版本分开存储。 */
 export interface InitialSnapshot {
@@ -28,44 +30,53 @@ export interface ReceivedMessageVersion {
   contentVersion: number;
 }
 
-const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+/** UUID 统一为小写；ASCII 不区分大小写索引保持既有 UUID 查询语义。 */
+const uuid = customType<{ data: string; driverData: string }>({
+  dataType: () => 'char(36) character set ascii collate ascii_general_ci',
+  toDriver: (value) => value.toLowerCase(),
+  fromDriver: (value) => value.toLowerCase(),
+});
+const createdAt = () =>
+  datetime('created_at', { fsp: 3 })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP(3)`);
 
 /** 当前部署唯一的管理者；迁移生成身份，请求不能指定部署身份。 */
-export const owners = pgTable(
+export const owners = mysqlTable(
   'owners',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
-    deploymentKey: text('deployment_key').notNull().unique().default('local'),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    deploymentKey: varchar('deployment_key', { length: 32 }).notNull().unique().default('local'),
     /** 供界面展示的当前名称；改名不改变身份或覆盖历史发言。 */
-    displayName: text('display_name').notNull().default('用户'),
+    displayName: varchar('display_name', { length: 80 }).notNull().default('用户'),
     createdAt: createdAt(),
   },
-  (table): PgTableExtraConfigValue[] => [
+  (table): MySqlTableExtraConfigValue[] => [
     check(
       'owners_display_name_length',
-      sql`char_length(btrim(${table.displayName})) BETWEEN 1 AND 80`,
+      sql`char_length(trim(${table.displayName})) BETWEEN 1 AND 80`,
     ),
   ],
 );
 
 /** 稳定实例及其当前运行代次；共同会话原文不级联归属于实例。 */
-export const companions = pgTable(
+export const companions = mysqlTable(
   'companions',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id')
       .notNull()
       .references(() => owners.id),
-    name: text('name').notNull(),
-    runtimeEpoch: integer('runtime_epoch').notNull().default(1),
-    version: integer('version').notNull().default(1),
-    initialSnapshot: jsonb('initial_snapshot').$type<InitialSnapshot>().notNull(),
+    name: varchar('name', { length: 80 }).notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull().default(1),
+    version: int('version').notNull().default(1),
+    initialSnapshot: json('initial_snapshot').$type<InitialSnapshot>().notNull(),
     currentPersonaVersionId: uuid('current_persona_version_id'),
     requestId: uuid('request_id').notNull(),
-    fingerprint: text('fingerprint').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
     createdAt: createdAt(),
   },
-  (table): PgTableExtraConfigValue[] => [
+  (table): MySqlTableExtraConfigValue[] => [
     unique('companions_owner_id_unique').on(table.ownerId, table.id),
     unique('companions_request_unique').on(table.ownerId, table.requestId),
     check('companions_versions_positive', sql`${table.runtimeEpoch} > 0 AND ${table.version} > 0`),
@@ -79,18 +90,18 @@ export const companions = pgTable(
 );
 
 /** 人格版本与初始快照分别保存，版本只能属于对应实例及管理者。 */
-export const personaVersions = pgTable(
+export const personaVersions = mysqlTable(
   'persona_versions',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id').notNull(),
     companionId: uuid('companion_id').notNull(),
-    runtimeEpoch: integer('runtime_epoch').notNull(),
-    version: integer('version').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    version: int('version').notNull(),
     profileText: text('profile_text').notNull(),
     createdAt: createdAt(),
   },
-  (table): PgTableExtraConfigValue[] => [
+  (table): MySqlTableExtraConfigValue[] => [
     unique('persona_versions_owner_companion_id_unique').on(
       table.ownerId,
       table.companionId,
@@ -103,6 +114,7 @@ export const personaVersions = pgTable(
       table.version,
     ),
     foreignKey({
+      name: 'persona_versions_ref_1',
       columns: [table.ownerId, table.companionId],
       foreignColumns: [companions.ownerId, companions.id],
     }),
@@ -115,19 +127,19 @@ export const personaVersions = pgTable(
 );
 
 /** 会话保存共享顺序；发布命令在事务中锁定该行后分配序号。 */
-export const conversations = pgTable(
+export const conversations = mysqlTable(
   'conversations',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id')
       .notNull()
       .references(() => owners.id),
-    kind: text('kind', { enum: ['private', 'group'] }).notNull(),
-    title: text('title').notNull(),
-    version: integer('version').notNull().default(1),
-    lastSequence: integer('last_sequence').notNull().default(0),
+    kind: varchar('kind', { length: 32, enum: ['private', 'group'] }).notNull(),
+    title: varchar('title', { length: 80 }).notNull(),
+    version: int('version').notNull().default(1),
+    lastSequence: int('last_sequence').notNull().default(0),
     requestId: uuid('request_id').notNull(),
-    fingerprint: text('fingerprint').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
     createdAt: createdAt(),
   },
   (table) => [
@@ -143,19 +155,19 @@ export const conversations = pgTable(
 );
 
 /** 成员身份绑定加入时的实例代次，与历史授权独立。 */
-export const conversationMembers = pgTable(
+export const conversationMembers = mysqlTable(
   'conversation_members',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id').notNull(),
     conversationId: uuid('conversation_id').notNull(),
-    kind: text('kind', { enum: ['user', 'companion'] }).notNull(),
+    kind: varchar('kind', { length: 32, enum: ['user', 'companion'] }).notNull(),
     userId: uuid('user_id'),
     companionId: uuid('companion_id'),
-    runtimeEpoch: integer('runtime_epoch'),
-    joinedSequence: integer('joined_sequence').notNull().default(1),
-    leftSequence: integer('left_sequence'),
-    permissionVersion: integer('permission_version').notNull().default(1),
+    runtimeEpoch: int('runtime_epoch'),
+    joinedSequence: int('joined_sequence').notNull().default(1),
+    leftSequence: int('left_sequence'),
+    permissionVersion: int('permission_version').notNull().default(1),
   },
   (table) => [
     unique('conversation_members_owner_id_unique').on(table.ownerId, table.id),
@@ -176,10 +188,12 @@ export const conversationMembers = pgTable(
       table.runtimeEpoch,
     ),
     foreignKey({
+      name: 'conversation_members_ref_1',
       columns: [table.ownerId, table.conversationId],
       foreignColumns: [conversations.ownerId, conversations.id],
     }),
     foreignKey({
+      name: 'conversation_members_ref_2',
       columns: [table.ownerId, table.companionId],
       foreignColumns: [companions.ownerId, companions.id],
     }),
@@ -195,19 +209,20 @@ export const conversationMembers = pgTable(
 );
 
 /** 序号授权表达成员期间与历史权限，避免将身份等同于全部历史可见。 */
-export const visibilityGrants = pgTable(
+export const visibilityGrants = mysqlTable(
   'visibility_grants',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id').notNull(),
     membershipId: uuid('membership_id').notNull(),
-    startSequence: integer('start_sequence').notNull(),
-    endSequence: integer('end_sequence'),
-    kind: text('kind', { enum: ['membership', 'history'] }).notNull(),
-    permissionVersion: integer('permission_version').notNull(),
+    startSequence: int('start_sequence').notNull(),
+    endSequence: int('end_sequence'),
+    kind: varchar('kind', { length: 32, enum: ['membership', 'history'] }).notNull(),
+    permissionVersion: int('permission_version').notNull(),
   },
   (table) => [
     foreignKey({
+      name: 'visibility_grants_ref_1',
       columns: [table.ownerId, table.membershipId],
       foreignColumns: [conversationMembers.ownerId, conversationMembers.id],
     }),
@@ -227,40 +242,48 @@ export const visibilityGrants = pgTable(
 );
 
 /** 原文单份保存；草稿保存、发布、实际取得和后续整理分别记录。 */
-export const messages = pgTable(
+export const messages = mysqlTable(
   'messages',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id').notNull(),
     conversationId: uuid('conversation_id').notNull(),
     speakerMembershipId: uuid('speaker_membership_id').notNull(),
-    schemaVersion: integer('schema_version').notNull().default(1),
-    contentVersion: integer('content_version').notNull().default(1),
-    revision: integer('revision').notNull().default(1),
+    schemaVersion: int('schema_version').notNull().default(1),
+    contentVersion: int('content_version').notNull().default(1),
+    revision: int('revision').notNull().default(1),
     text: text('text').notNull(),
-    state: text('state', { enum: ['draft', 'published'] })
+    state: varchar('state', { length: 32, enum: ['draft', 'published'] })
       .notNull()
       .default('draft'),
-    sequence: integer('sequence'),
-    occurredAt: timestamp('occurred_at', { withTimezone: true }),
-    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
-    publishedAt: timestamp('published_at', { withTimezone: true }),
-    validFrom: timestamp('valid_from', { withTimezone: true }),
-    validUntil: timestamp('valid_until', { withTimezone: true }),
-    epistemicKind: text('epistemic_kind', { enum: ['statement', 'report', 'inference', 'setting'] })
+    sequence: int('sequence'),
+    occurredAt: datetime('occurred_at', { fsp: 3 }),
+    receivedAt: datetime('received_at', { fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    publishedAt: datetime('published_at', { fsp: 3 }),
+    validFrom: datetime('valid_from', { fsp: 3 }),
+    validUntil: datetime('valid_until', { fsp: 3 }),
+    epistemicKind: varchar('epistemic_kind', {
+      length: 32,
+      enum: ['statement', 'report', 'inference', 'setting'],
+    })
       .notNull()
       .default('statement'),
-    reality: text('reality', { enum: ['unspecified', 'real', 'fictional'] })
+    reality: varchar('reality', { length: 32, enum: ['unspecified', 'real', 'fictional'] })
       .notNull()
       .default('unspecified'),
-    sourceKind: text('source_kind', { enum: ['user_input', 'admin_companion_input'] }).notNull(),
+    sourceKind: varchar('source_kind', {
+      length: 32,
+      enum: ['user_input', 'admin_companion_input'],
+    }).notNull(),
     replyToMessageId: uuid('reply_to_message_id'),
     requestId: uuid('request_id').notNull(),
-    fingerprint: text('fingerprint').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
     publishRequestId: uuid('publish_request_id'),
-    publishFingerprint: text('publish_fingerprint'),
+    publishFingerprint: varchar('publish_fingerprint', { length: 64 }),
   },
-  (table): PgTableExtraConfigValue[] => [
+  (table): MySqlTableExtraConfigValue[] => [
     unique('messages_owner_id_unique').on(table.ownerId, table.id),
     unique('messages_conversation_id_unique').on(table.ownerId, table.conversationId, table.id),
     unique('messages_content_version_unique').on(table.ownerId, table.id, table.contentVersion),
@@ -278,10 +301,12 @@ export const messages = pgTable(
       table.publishRequestId,
     ),
     foreignKey({
+      name: 'messages_ref_1',
       columns: [table.ownerId, table.conversationId],
       foreignColumns: [conversations.ownerId, conversations.id],
     }),
     foreignKey({
+      name: 'messages_ref_2',
       columns: [table.ownerId, table.conversationId, table.speakerMembershipId],
       foreignColumns: [
         conversationMembers.ownerId,
@@ -290,6 +315,7 @@ export const messages = pgTable(
       ],
     }),
     foreignKey({
+      name: 'messages_ref_3',
       columns: [table.ownerId, table.conversationId, table.replyToMessageId],
       foreignColumns: [table.ownerId, table.conversationId, table.id],
     }),
@@ -319,15 +345,15 @@ export const messages = pgTable(
 );
 
 /** 引用保留稳定原文和版本；服务层额外校验发言者的会话可见范围。 */
-export const messageSources = pgTable(
+export const messageSources = mysqlTable(
   'message_sources',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id').notNull(),
     messageId: uuid('message_id').notNull(),
     sourceMessageId: uuid('source_message_id').notNull(),
-    sourceContentVersion: integer('source_content_version').notNull(),
-    relation: text('relation', { enum: ['reference', 'report'] }).notNull(),
+    sourceContentVersion: int('source_content_version').notNull(),
+    relation: varchar('relation', { length: 32, enum: ['reference', 'report'] }).notNull(),
   },
   (table) => [
     unique('message_sources_reference_unique').on(
@@ -338,10 +364,12 @@ export const messageSources = pgTable(
       table.relation,
     ),
     foreignKey({
+      name: 'message_sources_ref_1',
       columns: [table.ownerId, table.messageId],
       foreignColumns: [messages.ownerId, messages.id],
     }),
     foreignKey({
+      name: 'message_sources_ref_2',
       columns: [table.ownerId, table.sourceMessageId, table.sourceContentVersion],
       foreignColumns: [messages.ownerId, messages.id, messages.contentVersion],
     }),
@@ -351,19 +379,21 @@ export const messageSources = pgTable(
 );
 
 /** 每个实例实际取得的正文范围；查询与发布不会写入此表。 */
-export const readReceipts = pgTable(
+export const readReceipts = mysqlTable(
   'read_receipts',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id').notNull(),
     companionId: uuid('companion_id').notNull(),
-    runtimeEpoch: integer('runtime_epoch').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
     conversationId: uuid('conversation_id').notNull(),
     messageId: uuid('message_id').notNull(),
-    contentVersion: integer('content_version').notNull(),
-    acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull().defaultNow(),
-    startOffset: integer('start_offset').notNull(),
-    endOffset: integer('end_offset').notNull(),
+    contentVersion: int('content_version').notNull(),
+    acquiredAt: datetime('acquired_at', { fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    startOffset: int('start_offset').notNull(),
+    endOffset: int('end_offset').notNull(),
   },
   (table) => [
     unique('read_receipts_instance_message_unique').on(
@@ -374,10 +404,12 @@ export const readReceipts = pgTable(
       table.contentVersion,
     ),
     foreignKey({
+      name: 'read_receipts_ref_1',
       columns: [table.ownerId, table.companionId],
       foreignColumns: [companions.ownerId, companions.id],
     }),
     foreignKey({
+      name: 'read_receipts_ref_2',
       columns: [table.ownerId, table.conversationId, table.messageId, table.contentVersion],
       foreignColumns: [
         messages.ownerId,
@@ -394,22 +426,22 @@ export const readReceipts = pgTable(
 );
 
 /** 每份原文独立登记待整理区间，不能由最大游标跳过未处理空洞。 */
-export const processingRanges = pgTable(
+export const processingRanges = mysqlTable(
   'processing_ranges',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id').notNull(),
     companionId: uuid('companion_id').notNull(),
-    runtimeEpoch: integer('runtime_epoch').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
     conversationId: uuid('conversation_id').notNull(),
     messageId: uuid('message_id').notNull(),
-    contentVersion: integer('content_version').notNull(),
-    startSequence: integer('start_sequence').notNull(),
-    endSequence: integer('end_sequence').notNull(),
-    stage: text('stage', { enum: ['memory_extraction'] })
+    contentVersion: int('content_version').notNull(),
+    startSequence: int('start_sequence').notNull(),
+    endSequence: int('end_sequence').notNull(),
+    stage: varchar('stage', { length: 32, enum: ['memory_extraction'] })
       .notNull()
       .default('memory_extraction'),
-    status: text('status', { enum: ['pending'] })
+    status: varchar('status', { length: 32, enum: ['pending'] })
       .notNull()
       .default('pending'),
     createdAt: createdAt(),
@@ -431,10 +463,12 @@ export const processingRanges = pgTable(
       table.startSequence,
     ),
     foreignKey({
+      name: 'processing_ranges_ref_1',
       columns: [table.ownerId, table.companionId],
       foreignColumns: [companions.ownerId, companions.id],
     }),
     foreignKey({
+      name: 'processing_ranges_ref_2',
       columns: [table.ownerId, table.conversationId, table.messageId, table.contentVersion],
       foreignColumns: [
         messages.ownerId,
@@ -455,18 +489,20 @@ export const processingRanges = pgTable(
 );
 
 /** 接收命令的稳定结果，重试复用确切消息集合和首次取得时间。 */
-export const receiveBatches = pgTable(
+export const receiveBatches = mysqlTable(
   'receive_batches',
   {
-    id: uuid('id').primaryKey().defaultRandom(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
     ownerId: uuid('owner_id').notNull(),
     companionId: uuid('companion_id').notNull(),
-    runtimeEpoch: integer('runtime_epoch').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
     conversationId: uuid('conversation_id').notNull(),
     requestId: uuid('request_id').notNull(),
-    fingerprint: text('fingerprint').notNull(),
-    messages: jsonb('messages').$type<ReceivedMessageVersion[]>().notNull(),
-    acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull().defaultNow(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    messages: json('messages').$type<ReceivedMessageVersion[]>().notNull(),
+    acquiredAt: datetime('acquired_at', { fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (table) => [
     unique('receive_batches_request_unique').on(
@@ -477,14 +513,16 @@ export const receiveBatches = pgTable(
       table.requestId,
     ),
     foreignKey({
+      name: 'receive_batches_ref_1',
       columns: [table.ownerId, table.companionId],
       foreignColumns: [companions.ownerId, companions.id],
     }),
     foreignKey({
+      name: 'receive_batches_ref_2',
       columns: [table.ownerId, table.conversationId],
       foreignColumns: [conversations.ownerId, conversations.id],
     }),
     check('receive_batches_epoch_positive', sql`${table.runtimeEpoch} > 0`),
-    check('receive_batches_messages_array', sql`jsonb_typeof(${table.messages}) = 'array'`),
+    check('receive_batches_messages_array', sql`JSON_TYPE(${table.messages}) = 'ARRAY'`),
   ],
 );

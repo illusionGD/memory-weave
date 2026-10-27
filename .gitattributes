@@ -1,1 +1,2 @@
 apps/server/drizzle/** text eol=lf
+apps/server/drizzle-mysql/** text eol=lf

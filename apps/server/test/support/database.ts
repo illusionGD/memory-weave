@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { Client } from 'pg';
+import { createConnection } from 'mysql2/promise';
+import { mysqlConnectionOptions } from '../../src/database/connection';
 import { runMigrations } from '../../src/database/migrations';
 
 /** 单个测试用例或测试组独占的数据库。 */
@@ -21,10 +22,11 @@ export async function createTestDatabase(
   if (!process.env.TEST_DATABASE_URL) throw new Error('需要显式配置 TEST_DATABASE_URL。');
   const maintenanceUrl = new URL(process.env.TEST_DATABASE_URL);
   const name = `mw_f02_${randomUUID().replaceAll('-', '')}`;
-  const connection = new Client({ connectionString: maintenanceUrl.toString() });
-  await connection.connect();
+  const connection = await createConnection(mysqlConnectionOptions(maintenanceUrl.toString()));
   try {
-    await connection.query(`CREATE DATABASE "${name}"`);
+    await connection.query(
+      `CREATE DATABASE \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`,
+    );
   } finally {
     await connection.end();
   }
@@ -35,10 +37,9 @@ export async function createTestDatabase(
     databaseUrl: databaseUrl.toString(),
     async dispose() {
       if (disposed) return;
-      const cleanup = new Client({ connectionString: maintenanceUrl.toString() });
-      await cleanup.connect();
+      const cleanup = await createConnection(mysqlConnectionOptions(maintenanceUrl.toString()));
       try {
-        await cleanup.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+        await cleanup.query(`DROP DATABASE IF EXISTS \`${name}\``);
         disposed = true;
       } finally {
         await cleanup.end();

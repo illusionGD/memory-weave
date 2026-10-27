@@ -2,7 +2,7 @@
 
 维护持续身份、记忆与成长的 AI 伴侣系统。后端保存状态，浏览器提供使用入口。
 
-**当前功能：F02 数据与会话基础。** 已提供登录、运行检查、版本化数据库迁移，以及实例、会话、原文发布和独立接收的 HTTP 接口。伴侣创建页面、模型聊天、自动成长和记忆整理按后续阶段加入；本版本不需要大模型 API 密钥。
+**当前功能：F02 数据与会话基础。** 已提供登录、运行检查、版本化数据库迁移，以及实例、会话、原文发布和独立接收的 HTTP 接口。伴侣创建页面、模型聊天、自动成长和记忆整理按后续阶段加入；本版本不需要大模型 API 密钥。当前使用 MySQL 8.4.9 保存业务数据，Qdrant 1.18.3 提供独立向量服务；记忆索引与检索尚未实现。
 
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
@@ -21,35 +21,37 @@ git switch dev
 git pull --ff-only origin dev
 pnpm install --frozen-lockfile
 pnpm run setup
-docker compose --env-file .env -f deploy/compose.yaml up -d --wait database
+docker compose --env-file .env -f deploy/compose.yaml up -d --wait mysql qdrant
 pnpm db:migrate
 pnpm dev
 ```
 
-打开 **http://localhost:5173**。在本地生成的 `.env` 中查看 `ADMIN_PASSWORD`，将它填入登录页的“部署密码”。`pnpm run setup` 生成随机数据库密码和登录密码，不输出到日志，也不覆盖已有 `.env`。
+打开 **http://localhost:5173**。在本地生成的 `.env` 中查看 `ADMIN_PASSWORD`，将它填入登录页的“部署密码”。`pnpm run setup` 生成或补齐 MySQL、Qdrant 与登录配置，不输出密码；已有登录密码和 MySQL 凭据保持不变。
 
-已有 F01 数据卷可直接执行 `pnpm db:migrate` 升级，无需删除数据卷。每次拉取涉及数据结构的新版本后，先停止旧应用、运行迁移，再启动新应用。`pnpm db:status` 可只读检查；迁移命令可重复运行，不会重新创建已有实例。
+从旧 PostgreSQL 版本更新时，先停止正在运行的 `pnpm dev`，再执行上述命令。setup 会将旧 `.env` 备份到 `.env.postgresql-backup`，切换到新的 MySQL 连接，并保留登录密码。按开发阶段约定，不迁移 PostgreSQL 数据；MySQL 使用新的 `mysql-data` 卷，旧实例和聊天不会出现在新库，旧数据卷不会被删除。已有旧 Docker 应用时，在 setup 后先执行 `docker compose --env-file .env -f deploy/compose.yaml down --remove-orphans` 停止旧服务，再启动新组合。
 
-开发模式由 Vite 将 `/api` 转发到 `127.0.0.1:3000`，后端与数据库默认仅监听本机。若修改数据库端口，需同时更新 `.env` 中的 `POSTGRES_PORT` 和 `DATABASE_URL`；首次初始化后，数据库卷中的密码不会随环境变量自动改变。
+开发模式由 Vite 将 `/api` 转发到 `127.0.0.1:3000`。MySQL 默认监听本机 3306，Qdrant HTTP 默认监听本机 6333，两者均不对公网开放。修改端口时同步更新 `.env` 的 `MYSQL_PORT` / `DATABASE_URL` 或 `QDRANT_PORT` / `QDRANT_URL`。初始化后 MySQL 卷中的密码不会随 `.env` 自动改变；Qdrant 的访问密钥通过 `QDRANT_API_KEY` 配置，后端校验实际连接与访问权限。
+
+后续 MySQL 结构更新时，停止旧应用、执行 `pnpm db:migrate` 再启动；`pnpm db:status` 可只读检查。迁移失败会保留未完成标记并阻止就绪，MySQL DDL 不保证整批回滚，恢复方式见 [F02 迁移说明](docs/features/f02-data-foundation.md#数据库迁移与部署)。
 
 `pnpm dev` 直接读取 `packages/contracts/src`，不需要先构建共享包。修改共享 schema、常量或新增导出后，前端由 Vite 热更新或自动刷新，后端由 tsx 自动重启；类型提示和 `pnpm typecheck` 也直接使用源码。后端重启会清空当前内存登录会话，需要时重新登录。修改 `package.json`、依赖或开发配置后应重新安装依赖并重启 dev；生产部署继续使用 `pnpm build` 生成的产物。
 
-登录后可从页面顶部进入“个人设置”，修改用户的显示名称。默认名称为“用户”，去掉首尾空白后为 1～80 个字符；保存后刷新或重启仍保留。名称用于显示，不参与登录，也不会改变历史消息的用户身份关联。已有 F02 数据同样需要先执行 `pnpm db:migrate` 添加资料字段。
+登录后可从页面顶部进入“个人设置”，修改用户的显示名称。默认名称为“用户”，去掉首尾空白后为 1～80 个字符；保存后刷新或重启仍保留。名称用于显示，不参与登录，也不会改变历史消息的用户身份关联。MySQL 初始结构已经包含资料字段。
 
 ## 用 Docker 启动整套系统
 
 在上面安装配置步骤完成后运行：
 
 ```bash
-docker compose --env-file .env -f deploy/compose.yaml up -d --build
+docker compose --env-file .env -f deploy/compose.yaml up -d --build --wait
 docker compose --env-file .env -f deploy/compose.yaml ps
 ```
 
-打开 **http://localhost:8080**。Compose 会先等待数据库可连接，再执行一次性 `migrate` 服务，成功后启动应用；迁移失败时应用不会按就绪状态启动。查看升级结果使用 `docker compose --env-file .env -f deploy/compose.yaml logs migrate`。后端镜像同时提供构建后的 Web 页面，因此运行时不需要单独的 Vite 服务。
+打开 **http://localhost:8080**。Compose 会等待 MySQL 可连接，执行一次性 `migrate` 服务，并等待 Qdrant 健康后启动应用；迁移失败时应用不会按就绪状态启动。查看升级结果使用 `docker compose --env-file .env -f deploy/compose.yaml logs migrate`。后端镜像同时提供构建后的 Web 页面，因此运行时不需要单独的 Vite 服务。
 
-服务器只有 Docker 时，可先复制 `.env.example` 为 `.env`，填写独立随机的 `POSTGRES_PASSWORD` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器数据库连接串，不依赖宿主配置中的 `DATABASE_URL`；在该方式下可以将其留空。其他环境变量仍按示例设置。
+服务器只有 Docker 时，可先复制 `.env.example` 为 `.env`，填写独立随机的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`QDRANT_API_KEY` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器数据库连接串，不依赖宿主配置中的 `DATABASE_URL`；在该方式下可以将其留空。其他环境变量仍按示例设置。
 
-数据库和应用文件分别保存在 Compose 的持久卷中。普通停止使用：
+MySQL、Qdrant 数据和快照、应用文件分别保存在 Compose 的持久卷中。Qdrant 可连接仅表示服务已接入，本版不会创建记忆集合或生成 embedding。普通停止使用：
 
 ```bash
 docker compose --env-file .env -f deploy/compose.yaml down
@@ -97,7 +99,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-HTTP 测试验证真实 NestJS 接口和 PostgreSQL。运行 `pnpm test` 前，必须设置指向独立测试 PostgreSQL 的 `TEST_DATABASE_URL`；该角色需要创建/删除临时数据库及创建 vector 扩展的权限。测试只在随机命名的临时数据库内写入业务数据，并清理自己创建的库；不提供测试连接会明确失败。浏览器测试启动独立服务，覆盖桌面和移动视口。
+HTTP 测试验证真实 NestJS、MySQL 与 Qdrant。运行 `pnpm test` 前，必须设置指向独立测试 MySQL 的 `TEST_DATABASE_URL`，该角色需要创建/删除临时数据库的权限；另设置 `TEST_QDRANT_URL` 和 `TEST_QDRANT_API_KEY`。不要给生产应用账号授予跨库管理权限。测试只在随机命名的临时数据库内写入业务数据，并清理自己创建的库；不提供测试连接会明确失败。浏览器测试启动独立服务，覆盖桌面和移动视口。
 
 服务启动后，另开一个位于仓库根目录的终端执行 `pnpm verify:f02`，通过 HTTP 验收 F02。脚本读取 `.env` 的登录密码，默认访问 `APP_ORIGIN`，可用 `VERIFY_BASE_URL` 指定其他入口。它会永久创建带“F02 验收”名称的实例和会话；重复执行会创建新的验收数据，不会删除或修改已有实例。
 

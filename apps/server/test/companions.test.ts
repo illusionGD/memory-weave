@@ -29,6 +29,8 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
   beforeEach(async () => {
     dataDir = await mkdtemp(join(tmpdir(), 'memory-weave-companions-'));
     config = {
+      qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
+      qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,
@@ -273,14 +275,14 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     await app.close();
     app = await createApplication({
       ...config,
-      databaseUrl: 'postgres://private:must-not-appear@127.0.0.1:1/unavailable',
+      databaseUrl: 'mysql://private:must-not-appear@127.0.0.1:1/unavailable',
     });
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     for (const path of ['/api/workspace', '/api/companions', `/api/companions/${randomUUID()}`]) {
       const response = await agent.get(path).expect(503);
       expect(JSON.stringify(response.body)).not.toContain('must-not-appear');
-      expect(JSON.stringify(response.body)).not.toContain('postgres://');
+      expect(JSON.stringify(response.body)).not.toContain('mysql://');
     }
     await agent
       .post('/api/companions')

@@ -2,6 +2,8 @@
 
 状态：实现与验证完成，2026 年 10 月 26 日本轮用户 review 通过。比较基线：`d73ece9`；本轮代码交付版本：`cd1546b`。用户已在 Windows 本地成功启动并登录，运行状态显示后端、数据库和附件目录正常。
 
+2026-10-27 存储更新：当前运行依赖改为 MySQL 8.4.9 与 Qdrant 1.18.3，状态页分别探测连接与实际版本；本文件下方的 PostgreSQL 验证记录属于 F01 历史。当前启动方式以 [README](../../README.md) 为准，MySQL 迁移和故障处理见 [F02 说明](f02-data-foundation.md)。
+
 ## 功能范围
 
 建立 pnpm workspace：`apps/web` 为 Vue 3 页面，`apps/server` 为 NestJS 服务，`packages/contracts` 保存公共 Zod schema 与类型。后端在构建模式提供 Web 静态资源；开发模式使用 Vite `/api` 代理。

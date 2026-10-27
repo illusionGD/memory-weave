@@ -21,6 +21,8 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
     database = await createTestDatabase();
     dataDir = await mkdtemp(join(tmpdir(), 'memory-weave-workspace-'));
     config = {
+      qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
+      qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,

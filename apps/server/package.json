@@ -5,7 +5,7 @@
   "type": "module",
   "files": [
     "dist",
-    "drizzle"
+    "drizzle-mysql"
   ],
   "scripts": {
     "dev": "tsx watch --include \"../../packages/*/src/**/*.ts\" --conditions=memory-weave-source src/main.ts",
@@ -24,7 +24,7 @@
     "drizzle-orm": "0.45.4",
     "express": "^5.1.0",
     "helmet": "^8.1.0",
-    "pg": "^8.16.0",
+    "mysql2": "3.24.6",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "zod": "^4.0.0"
@@ -32,7 +32,6 @@
   "devDependencies": {
     "@types/cookie-parser": "^1.4.9",
     "@types/express": "^5.0.0",
-    "@types/pg": "^8.15.0",
     "@types/supertest": "^6.0.3",
     "drizzle-kit": "0.31.11",
     "supertest": "^7.1.0",

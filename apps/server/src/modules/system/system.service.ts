@@ -4,7 +4,9 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Inject, Injectable } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
-import { Pool } from 'pg';
+import { createPool } from 'mysql2/promise';
+import type { Pool, RowDataPacket } from 'mysql2/promise';
+import { mysqlConnectionOptions } from '../../database/connection';
 import type { SystemStatus } from '@memory-weave/contracts';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
@@ -23,53 +25,85 @@ export class SystemService implements OnModuleDestroy {
     @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
     @Inject(DatabaseService) private readonly database: DatabaseService,
   ) {
-    this.pool = new Pool({
-      connectionString: config.databaseUrl,
-      max: 3,
-      connectionTimeoutMillis: 1000,
-      idleTimeoutMillis: 10_000,
-      query_timeout: 1000,
+    this.pool = createPool({
+      ...mysqlConnectionOptions(config.databaseUrl),
+      connectionLimit: 2,
+      maxIdle: 2,
+      idleTimeout: 10_000,
+      queueLimit: 8,
     });
-    // PostgreSQL 重启可能导致空闲连接断开；由下一次探测确认当前可用状态。
-    this.pool.on('error', () => undefined);
   }
 
   /**
    * 为登录后的运行状态页面提供已脱敏的检查结果。
-   * @returns 应用、PostgreSQL 扩展和可写存储目录的可用状态。
+   * @returns 应用、MySQL、Qdrant 和可写存储目录的可用状态。
    */
   async getStatus(): Promise<SystemStatus> {
-    const [database, storage, schema] = await Promise.all([
+    const [database, storage, schema, vectorStore] = await Promise.all([
       this.probeDatabase(),
       this.probeStorage(),
       this.database.getSchemaStatus(),
+      this.probeVectorStore(),
     ]);
     return {
       service: 'memory-weave',
       version: PACKAGE_INFO.version,
       stage: 'foundation',
       database,
+      vectorStore,
       storage,
       schema,
     };
   }
 
-  /** 应用关闭时释放全部 PostgreSQL 连接。 */
+  /** 应用关闭时释放全部 MySQL 连接。 */
   async onModuleDestroy(): Promise<void> {
     await this.pool.end();
   }
 
   private async probeDatabase(): Promise<SystemStatus['database']> {
     try {
-      const result = await this.pool.query<{ extversion: string }>(
-        "SELECT extversion FROM pg_extension WHERE extname = 'vector'",
-      );
-      const version = result.rows[0]?.extversion;
-      if (!version) return { status: 'unavailable', vectorVersion: null };
-      return { status: 'connected', vectorVersion: version };
+      const [rows] = await this.pool.query<RowDataPacket[]>({
+        sql: 'SELECT VERSION() AS version',
+        timeout: 1000,
+      });
+      const version: unknown = rows[0]?.version;
+      if (typeof version !== 'string') throw new Error();
+      return { engine: 'mysql', status: 'connected', version };
     } catch {
-      // 不向客户端返回凭据、连接串或数据库驱动的异常详情。
-      return { status: 'unavailable', vectorVersion: null };
+      return { engine: 'mysql', status: 'unavailable', version: null };
+    }
+  }
+
+  private async probeVectorStore(): Promise<SystemStatus['vectorStore']> {
+    try {
+      const options: RequestInit = {
+        headers: { 'api-key': this.config.qdrantApiKey },
+        signal: AbortSignal.timeout(1500),
+        redirect: 'error',
+      };
+      // /readyz 可匿名访问，集合接口额外确认访问密钥确实可用。
+      const [ready, info, collections] = await Promise.all([
+        fetch(`${this.config.qdrantUrl}/readyz`, options),
+        fetch(`${this.config.qdrantUrl}/`, options),
+        fetch(`${this.config.qdrantUrl}/collections`, options),
+      ]);
+      if (!ready.ok || !info.ok || !collections.ok) {
+        await Promise.all([ready.body?.cancel(), info.body?.cancel(), collections.body?.cancel()]);
+        throw new Error();
+      }
+      const value: unknown = await info.json();
+      await Promise.all([ready.body?.cancel(), collections.body?.cancel()]);
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        !('version' in value) ||
+        typeof value.version !== 'string'
+      )
+        throw new Error();
+      return { engine: 'qdrant', status: 'connected', version: value.version };
+    } catch {
+      return { engine: 'qdrant', status: 'unavailable', version: null };
     }
   }
 

@@ -1,3 +1,5 @@
+import { sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
@@ -193,70 +195,71 @@ export class ReceivingService {
     input: ReceiveMessagesRequest,
   ): Promise<ReceiveMessagesResponse> {
     return this.database.withOwner((ownerId, db) =>
-      db.transaction(async (tx) => {
-        // 与发布共用会话锁，使并发重试取得同一份批次和首次读取时间。
-        await requireConversation(ownerId, conversationId, tx, true);
-        const member = await requireCompanionMember(
-          ownerId,
-          companionId,
-          input.runtimeEpoch,
-          conversationId,
-          tx,
-        );
-        if (member.permissionVersion !== input.expectedPermissionVersion) {
-          throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
-        }
-        const requestFingerprint = fingerprint({
-          runtimeEpoch: input.runtimeEpoch,
-          expectedPermissionVersion: input.expectedPermissionVersion,
-          afterSequence: input.afterSequence,
-          limit: input.limit,
-        });
-        const [existing] = await tx
-          .select()
-          .from(receiveBatches)
-          .where(
-            and(
-              eq(receiveBatches.ownerId, ownerId),
-              eq(receiveBatches.companionId, companionId),
-              eq(receiveBatches.runtimeEpoch, input.runtimeEpoch),
-              eq(receiveBatches.conversationId, conversationId),
-              eq(receiveBatches.requestId, input.requestId),
-            ),
-          )
-          .limit(1);
-        if (existing) {
-          if (existing.fingerprint !== requestFingerprint) {
-            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
+      db.transaction(
+        async (tx) => {
+          // 与发布共用会话锁，使并发重试取得同一份批次和首次读取时间。
+          await requireConversation(ownerId, conversationId, tx, true);
+          const member = await requireCompanionMember(
+            ownerId,
+            companionId,
+            input.runtimeEpoch,
+            conversationId,
+            tx,
+          );
+          if (member.permissionVersion !== input.expectedPermissionVersion) {
+            throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
           }
-          const rows: (typeof messages.$inferSelect)[] = [];
-          for (const reference of existing.messages) {
-            const [row] = await tx
-              .select()
-              .from(messages)
-              .where(
-                and(
-                  eq(messages.ownerId, ownerId),
-                  eq(messages.conversationId, conversationId),
-                  eq(messages.id, reference.messageId),
-                  eq(messages.contentVersion, reference.contentVersion),
-                  eq(messages.state, 'published'),
-                ),
-              )
-              .limit(1);
-            if (!row || row.sequence === null) {
-              throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+          const requestFingerprint = fingerprint({
+            runtimeEpoch: input.runtimeEpoch,
+            expectedPermissionVersion: input.expectedPermissionVersion,
+            afterSequence: input.afterSequence,
+            limit: input.limit,
+          });
+          const [existing] = await tx
+            .select()
+            .from(receiveBatches)
+            .where(
+              and(
+                eq(receiveBatches.ownerId, ownerId),
+                eq(receiveBatches.companionId, companionId),
+                eq(receiveBatches.runtimeEpoch, input.runtimeEpoch),
+                eq(receiveBatches.conversationId, conversationId),
+                eq(receiveBatches.requestId, input.requestId),
+              ),
+            )
+            .limit(1);
+          if (existing) {
+            if (existing.fingerprint !== requestFingerprint) {
+              throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
             }
-            await assertVisible(member, row.sequence, tx);
-            rows.push(row);
+            const rows: (typeof messages.$inferSelect)[] = [];
+            for (const reference of existing.messages) {
+              const [row] = await tx
+                .select()
+                .from(messages)
+                .where(
+                  and(
+                    eq(messages.ownerId, ownerId),
+                    eq(messages.conversationId, conversationId),
+                    eq(messages.id, reference.messageId),
+                    eq(messages.contentVersion, reference.contentVersion),
+                    eq(messages.state, 'published'),
+                  ),
+                )
+                .limit(1);
+              if (!row || row.sequence === null) {
+                throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+              }
+              await assertVisible(member, row.sequence, tx);
+              rows.push(row);
+            }
+            return this.batchResponse(existing, rows, tx);
           }
-          return this.batchResponse(existing, rows, tx);
-        }
-        const rows = await this.visibleRows(member, input.afterSequence, input.limit, tx);
-        const acquiredAt = new Date();
-        const [batch] = await tx
-          .insert(receiveBatches)
-          .values({
+          const rows = await this.visibleRows(member, input.afterSequence, input.limit, tx);
+          const acquiredAt = new Date();
+          const batchId = randomUUID();
+          await tx.insert(receiveBatches).values({
+            id: batchId,
             ownerId,
             companionId,
             runtimeEpoch: input.runtimeEpoch,
@@ -268,37 +271,35 @@ export class ReceivingService {
               contentVersion: row.contentVersion,
             })),
             acquiredAt,
-          })
-          .returning();
-        if (!batch) throw new Error('Failed to persist the receive batch.');
-        if (rows.length > 0) {
-          await tx
-            .insert(readReceipts)
-            .values(
-              rows.map((row) => ({
-                ownerId,
-                companionId,
-                runtimeEpoch: input.runtimeEpoch,
-                conversationId,
-                messageId: row.id,
-                contentVersion: row.contentVersion,
-                acquiredAt,
-                startOffset: 0,
-                endOffset: row.text.length,
-              })),
-            )
-            .onConflictDoNothing({
-              target: [
-                readReceipts.ownerId,
-                readReceipts.companionId,
-                readReceipts.runtimeEpoch,
-                readReceipts.messageId,
-                readReceipts.contentVersion,
-              ],
-            });
-        }
-        return this.batchResponse(batch, rows, tx);
-      }),
+          });
+          const [batch] = await tx
+            .select()
+            .from(receiveBatches)
+            .where(and(eq(receiveBatches.ownerId, ownerId), eq(receiveBatches.id, batchId)))
+            .limit(1);
+          if (!batch) throw new Error('Failed to persist the receive batch.');
+          if (rows.length > 0) {
+            await tx
+              .insert(readReceipts)
+              .values(
+                rows.map((row) => ({
+                  ownerId,
+                  companionId,
+                  runtimeEpoch: input.runtimeEpoch,
+                  conversationId,
+                  messageId: row.id,
+                  contentVersion: row.contentVersion,
+                  acquiredAt,
+                  startOffset: 0,
+                  endOffset: row.text.length,
+                })),
+              )
+              .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
+          }
+          return this.batchResponse(batch, rows, tx);
+        },
+        { isolationLevel: 'read committed' },
+      ),
     );
   }
 
