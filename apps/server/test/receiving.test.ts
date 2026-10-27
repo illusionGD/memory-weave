@@ -17,7 +17,7 @@ import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
-import { expectApiError } from './support/http';
+import { expectApiError, expectApiSuccess } from './support/http';
 
 describe('伴侣视角的原文查询与独立接收', () => {
   let app: INestApplication;
@@ -61,7 +61,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
       .post('/api/companions')
       .send({ requestId: randomUUID(), name, initialProfile: '只用于隔离验收的初始设定。' })
       .expect(201);
-    return companionDetailSchema.parse(response.body);
+    return companionDetailSchema.parse(response.body.data);
   }
 
   async function createConversation(companionIds: string[], includeUser = true) {
@@ -75,12 +75,12 @@ describe('伴侣视角的原文查询与独立接收', () => {
         companions: companionIds.map((companionId) => ({ companionId, runtimeEpoch: 1 })),
       })
       .expect(201);
-    return conversationDetailSchema.parse(response.body);
+    return conversationDetailSchema.parse(response.body.data);
   }
 
   async function saveMessage(conversationId: string, text: string) {
     const detail = await agent.get(`/api/conversations/${conversationId}`).expect(200);
-    const conversation = conversationDetailSchema.parse(detail.body).conversation;
+    const conversation = conversationDetailSchema.parse(detail.body.data).conversation;
     const response = await agent
       .post(`/api/conversations/${conversationId}/messages`)
       .send({
@@ -90,13 +90,13 @@ describe('伴侣视角的原文查询与独立接收', () => {
         text,
       })
       .expect(201);
-    return draftMessageSchema.parse(response.body);
+    return draftMessageSchema.parse(response.body.data);
   }
 
   async function publishMessage(conversationId: string, text: string) {
     const draft = await saveMessage(conversationId, text);
     const detail = await agent.get(`/api/conversations/${conversationId}`).expect(200);
-    const conversation = conversationDetailSchema.parse(detail.body).conversation;
+    const conversation = conversationDetailSchema.parse(detail.body.data).conversation;
     const response = await agent
       .post(`/api/conversations/${conversationId}/messages/${draft.id}/publish`)
       .send({
@@ -105,7 +105,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
         expectedConversationVersion: conversation.version,
       })
       .expect(201);
-    return publishedMessageSchema.parse(response.body);
+    return publishedMessageSchema.parse(response.body.data);
   }
 
   it('新会话的原文查询仅允许当前代次的成员访问', async () => {
@@ -113,17 +113,23 @@ describe('伴侣视角的原文查询与独立接收', () => {
     const b = await createCompanion('未加入私聊的 B');
     const { conversation } = await createConversation([a.id]);
     const path = `/api/companions/${a.id}/conversations/${conversation.id}/messages`;
-    await agent.get(path).query({ runtimeEpoch: 1 }).expect(200, {
-      items: [],
-      nextAfterSequence: null,
-    });
+    await agent
+      .get(path)
+      .query({ runtimeEpoch: 1 })
+      .expect(200)
+      .expect((response) =>
+        expectApiSuccess(response, {
+          items: [],
+          nextAfterSequence: null,
+        }),
+      );
     const stale = await agent.get(path).query({ runtimeEpoch: 2 }).expect(409);
-    expectApiError(stale, 409, 'RUNTIME_EPOCH_MISMATCH');
+    expectApiError(stale, 409, 40903);
     const denied = await agent
       .get(`/api/companions/${b.id}/conversations/${conversation.id}/messages`)
       .query({ runtimeEpoch: 1 })
       .expect(404);
-    expectApiError(denied, 404, 'RESOURCE_NOT_FOUND');
+    expectApiError(denied, 404, 404);
   });
 
   it('空接收批次也持久保存并幂等重放，同键改变参数不能替换原批次', async () => {
@@ -132,7 +138,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
     const path = `/api/companions/${a.id}/conversations/${conversation.id}/receive`;
     const command = { requestId: randomUUID(), runtimeEpoch: 1, expectedPermissionVersion: 1 };
     const first = await agent.post(path).send(command).expect(201);
-    const batch = receiveMessagesResponseSchema.parse(first.body);
+    const batch = receiveMessagesResponseSchema.parse(first.body.data);
     expect(batch).toMatchObject({
       companionId: a.id,
       runtimeEpoch: 1,
@@ -140,7 +146,11 @@ describe('伴侣视角的原文查询与独立接收', () => {
       items: [],
       nextAfterSequence: null,
     });
-    await agent.post(path).send(command).expect(201, first.body);
+    await agent
+      .post(path)
+      .send(command)
+      .expect(201)
+      .expect((response) => expectApiSuccess(response, first.body.data));
     await agent
       .post(path)
       .send({ ...command, limit: 1 })
@@ -153,7 +163,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
       .post(path)
       .send({ ...command, expectedPermissionVersion: 2 })
       .expect(409);
-    expectApiError(changedPermission, 409, 'PERMISSION_VERSION_CONFLICT');
+    expectApiError(changedPermission, 409, 40904);
   });
   it('普通查看不记已读，A 与 B 分别取得同一原文且整理和交付保持独立状态', async () => {
     const a = await createCompanion('独立取得 A');
@@ -166,10 +176,13 @@ describe('伴侣视角的原文查询与独立接收', () => {
     await agent
       .get(`${aBase}/messages`)
       .query({ runtimeEpoch: 1 })
-      .expect(200, {
-        items: [published],
-        nextAfterSequence: null,
-      });
+      .expect(200)
+      .expect((response) =>
+        expectApiSuccess(response, {
+          items: [published],
+          nextAfterSequence: null,
+        }),
+      );
     const pending = {
       items: [
         {
@@ -183,8 +196,16 @@ describe('伴侣视角的原文查询与独立接收', () => {
       ],
       nextAfterSequence: null,
     };
-    await agent.get(`${aBase}/progress`).query({ runtimeEpoch: 1 }).expect(200, pending);
-    await agent.get(`${bBase}/progress`).query({ runtimeEpoch: 1 }).expect(200, pending);
+    await agent
+      .get(`${aBase}/progress`)
+      .query({ runtimeEpoch: 1 })
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, pending));
+    await agent
+      .get(`${bBase}/progress`)
+      .query({ runtimeEpoch: 1 })
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, pending));
     const aReceived = await agent
       .post(`${aBase}/receive`)
       .send({
@@ -193,9 +214,9 @@ describe('伴侣视角的原文查询与独立接收', () => {
         expectedPermissionVersion: 1,
       })
       .expect(201);
-    expect(aReceived.body.items).toEqual([published]);
+    expect(aReceived.body.data.items).toEqual([published]);
     const aProgress = conversationProgressResponseSchema.parse(
-      (await agent.get(`${aBase}/progress`).query({ runtimeEpoch: 1 }).expect(200)).body,
+      (await agent.get(`${aBase}/progress`).query({ runtimeEpoch: 1 }).expect(200)).body.data,
     );
     expect(aProgress.items[0]).toMatchObject({
       messageId: published.id,
@@ -213,7 +234,11 @@ describe('伴侣视角的原文查询与独立接收', () => {
       processing: 'pending',
       delivery: 'not_recorded',
     });
-    await agent.get(`${bBase}/progress`).query({ runtimeEpoch: 1 }).expect(200, pending);
+    await agent
+      .get(`${bBase}/progress`)
+      .query({ runtimeEpoch: 1 })
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, pending));
     const bReceived = await agent
       .post(`${bBase}/receive`)
       .send({
@@ -222,9 +247,9 @@ describe('伴侣视角的原文查询与独立接收', () => {
         expectedPermissionVersion: 1,
       })
       .expect(201);
-    expect(bReceived.body.items).toEqual([published]);
+    expect(bReceived.body.data.items).toEqual([published]);
     const bProgress = conversationProgressResponseSchema.parse(
-      (await agent.get(`${bBase}/progress`).query({ runtimeEpoch: 1 }).expect(200)).body,
+      (await agent.get(`${bBase}/progress`).query({ runtimeEpoch: 1 }).expect(200)).body.data,
     );
     expect(bProgress.items[0]?.readReceipt?.companionId).toBe(b.id);
     expect(bProgress.items[0]?.readReceipt?.id).not.toBe(aProgress.items[0]?.readReceipt?.id);
@@ -242,7 +267,8 @@ describe('伴侣视角的原文查询与独立接收', () => {
     await agent
       .get(sourcePath)
       .query({ runtimeEpoch: 1, contentVersion: 1 })
-      .expect(200, published);
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, published));
     await agent.get(sourcePath).query({ runtimeEpoch: 1, contentVersion: 2 }).expect(404);
     await agent.get(sourcePath).query({ runtimeEpoch: 2, contentVersion: 1 }).expect(409);
     await agent
@@ -257,7 +283,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
       .get(`/api/companions/${a.id}/conversations/${conversation.id}/progress`)
       .query({ runtimeEpoch: 1 })
       .expect(200);
-    expect(progress.body.items[0].readReceipt).toBeNull();
+    expect(progress.body.data.items[0].readReceipt).toBeNull();
   });
   it('新增消息和重启不改变原接收批次，跳过的序号保持未读', async () => {
     const a = await createCompanion('稳定批次接收者');
@@ -267,11 +293,15 @@ describe('伴侣视角的原文查询与独立接收', () => {
     // 默认 limit=20：新增消息后若错误地重新查询，旧批次响应就会发生变化。
     const command = { requestId: randomUUID(), runtimeEpoch: 1, expectedPermissionVersion: 1 };
     const first = await agent.post(`${base}/receive`).send(command).expect(201);
-    expect(first.body.items).toEqual([firstMessage]);
-    expect(first.body.nextAfterSequence).toBe(1);
+    expect(first.body.data.items).toEqual([firstMessage]);
+    expect(first.body.data.nextAfterSequence).toBe(1);
     const secondMessage = await publishMessage(conversation.id, '这条暂时跳过，不可冒充已读。');
     const thirdMessage = await publishMessage(conversation.id, '之后明确取得第三条。');
-    await agent.post(`${base}/receive`).send(command).expect(201, first.body);
+    await agent
+      .post(`${base}/receive`)
+      .send(command)
+      .expect(201)
+      .expect((response) => expectApiSuccess(response, first.body.data));
     const skipped = await agent
       .post(`${base}/receive`)
       .send({
@@ -281,9 +311,9 @@ describe('伴侣视角的原文查询与独立接收', () => {
         afterSequence: 2,
       })
       .expect(201);
-    expect(skipped.body.items).toEqual([thirdMessage]);
+    expect(skipped.body.data.items).toEqual([thirdMessage]);
     const progress = conversationProgressResponseSchema.parse(
-      (await agent.get(`${base}/progress`).query({ runtimeEpoch: 1 }).expect(200)).body,
+      (await agent.get(`${base}/progress`).query({ runtimeEpoch: 1 }).expect(200)).body.data,
     );
     expect(progress.items.map((item) => [item.messageId, item.readReceipt !== null])).toEqual([
       [firstMessage.id, true],
@@ -294,21 +324,35 @@ describe('伴侣视角的原文查询与独立接收', () => {
       .get(`${base}/messages`)
       .query({ runtimeEpoch: 1, limit: 1 })
       .expect(200);
-    expect(page.body).toEqual({ items: [firstMessage], nextAfterSequence: 1 });
+    expect(page.body.data).toEqual({ items: [firstMessage], nextAfterSequence: 1 });
     await agent
       .get(`${base}/messages`)
       .query({ runtimeEpoch: 1, limit: 1, afterSequence: 1 })
-      .expect(200, { items: [secondMessage], nextAfterSequence: 2 });
+      .expect(200)
+      .expect((response) =>
+        expectApiSuccess(response, { items: [secondMessage], nextAfterSequence: 2 }),
+      );
     await agent
       .get(`${base}/progress`)
       .query({ runtimeEpoch: 1, limit: 1, afterSequence: 1 })
-      .expect(200, { items: [progress.items[1]], nextAfterSequence: 2 });
+      .expect(200)
+      .expect((response) =>
+        expectApiSuccess(response, { items: [progress.items[1]], nextAfterSequence: 2 }),
+      );
     await app.close();
     app = await createApplication(config);
     agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
-    await agent.post(`${base}/receive`).send(command).expect(201, first.body);
-    await agent.get(`${base}/progress`).query({ runtimeEpoch: 1 }).expect(200, progress);
+    await agent
+      .post(`${base}/receive`)
+      .send(command)
+      .expect(201)
+      .expect((response) => expectApiSuccess(response, first.body.data));
+    await agent
+      .get(`${base}/progress`)
+      .query({ runtimeEpoch: 1 })
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, progress));
   });
   it('并发重试复用一个批次，新的接收命令保留首次读取记录且不占用其他实例的幂等键', async () => {
     const a = await createCompanion('并发接收 A');
@@ -323,9 +367,9 @@ describe('伴侣视角的原文查询与独立接收', () => {
     const first = concurrent[0]!;
     for (const response of concurrent) {
       expect(response.status).toBe(201);
-      expect(response.body).toEqual(first.body);
+      expect(response.body.data).toEqual(first.body.data);
     }
-    expect(first.body.items).toEqual([published]);
+    expect(first.body.data.items).toEqual([published]);
     const initialProgress = await agent
       .get(`${aBase}/progress`)
       .query({ runtimeEpoch: 1 })
@@ -337,18 +381,19 @@ describe('伴侣视角的原文查询与独立接收', () => {
         requestId: randomUUID(),
       })
       .expect(201);
-    expect(subsequent.body.batchId).not.toBe(first.body.batchId);
+    expect(subsequent.body.data.batchId).not.toBe(first.body.data.batchId);
     await agent
       .get(`${aBase}/progress`)
       .query({ runtimeEpoch: 1 })
-      .expect(200, initialProgress.body);
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, initialProgress.body.data));
     const bReceived = await agent
       .post(`/api/companions/${b.id}/conversations/${conversation.id}/receive`)
       .send(command)
       .expect(201);
-    expect(bReceived.body.items).toEqual([published]);
-    expect(bReceived.body.batchId).not.toBe(first.body.batchId);
-    expect(bReceived.body.companionId).toBe(b.id);
+    expect(bReceived.body.data.items).toEqual([published]);
+    expect(bReceived.body.data.batchId).not.toBe(first.body.data.batchId);
+    expect(bReceived.body.data.companionId).toBe(b.id);
   });
   it('全部读取入口要求登录和显式代次，拒绝越界分页、伪造字段及非成员接收', async () => {
     const a = await createCompanion('参数校验 A');

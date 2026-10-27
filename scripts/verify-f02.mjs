@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import {
+  apiResponseSchema,
+  apiErrorResponseSchema,
+  REQUEST_ID_HEADER,
+  uuidSchema,
+} from '../packages/contracts/dist/index.js';
 
 /** 仅输出脚本主动构造的错误说明，避免响应正文、Cookie 或凭据进入日志。 */
 class VerificationError extends Error {}
@@ -82,12 +88,19 @@ async function api(label, path, options = {}) {
     check(cookie, '登录响应缺少会话 Cookie。');
     sessionCookie = cookie.split(';', 1)[0];
   }
-  if (response.status === 204) return null;
+  let value;
   try {
-    return await response.json();
+    value = await response.json();
   } catch {
     throw new VerificationError(`${label}：响应不是有效的 JSON，请检查 API 路由或代理配置。`);
   }
+  const parsed = (response.ok ? apiResponseSchema : apiErrorResponseSchema).safeParse(value);
+  check(parsed.success, `${label}：响应不符合统一的 code/data/message 契约。`);
+  check(
+    uuidSchema.safeParse(response.headers.get(REQUEST_ID_HEADER)).success,
+    `${label}：响应缺少有效的请求追踪编号。`,
+  );
+  return parsed.data.data;
 }
 
 /** 记录并立即打印已创建的公开标识，失败中断时也能查到已写入的数据。 */
@@ -631,7 +644,7 @@ try {
 } finally {
   if (sessionCookie && baseUrl) {
     try {
-      await api('结束验收会话', '/auth/logout', { method: 'POST', status: 204 });
+      await api('结束验收会话', '/auth/logout', { method: 'POST', status: 200 });
     } catch {
       console.error('未能撤销本次验收登录会话；Cookie 未写入文件，服务端会话按原有期限过期。');
     }

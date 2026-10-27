@@ -12,7 +12,7 @@
     "setup": "node scripts/setup-env.mjs",
     "db:migrate": "node --env-file-if-exists=.env scripts/database.mjs migrate",
     "db:status": "node --env-file-if-exists=.env scripts/database.mjs status",
-    "verify:f02": "node --env-file-if-exists=.env scripts/verify-f02.mjs",
+    "verify:f02": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f02.mjs",
     "dev": "pnpm --filter @memory-weave/contracts build && node --env-file=.env scripts/dev.mjs",
     "start": "node --env-file-if-exists=.env scripts/start.mjs",
     "build": "pnpm -r build",

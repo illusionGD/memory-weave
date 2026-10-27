@@ -25,8 +25,8 @@ import { ReceivingController } from './modules/conversations/receiving.controlle
 import { ReceivingService } from './modules/conversations/receiving.service';
 import { WorkspaceController } from './modules/workspace/workspace.controller';
 import { WorkspaceService } from './modules/workspace/workspace.service';
-import { ApiExceptionFilter } from './http/api-exception.filter';
-import { assignRequestId } from './http/error-response';
+import { ApiExceptionFilter, assignRequestId } from './http/api-exception';
+import { ApiResponseInterceptor } from './http/api-response.interceptor';
 
 @Module({})
 class ApplicationModule {
@@ -71,6 +71,7 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
   app.setGlobalPrefix('api');
   app.use(assignRequestId);
   app.useGlobalFilters(new ApiExceptionFilter());
+  app.useGlobalInterceptors(new ApiResponseInterceptor());
   app.use(
     helmet({
       contentSecurityPolicy: {

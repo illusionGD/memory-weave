@@ -52,7 +52,7 @@ describe('production web delivery', () => {
       const response = await request(app.getHttpServer()).get(path).set('Accept', 'text/html');
       expect(response.status).toBe(404);
       expect(response.type).toBe('application/json');
-      expectApiError(response, 404, 'RESOURCE_NOT_FOUND');
+      expectApiError(response, 404, 404);
     },
   );
 

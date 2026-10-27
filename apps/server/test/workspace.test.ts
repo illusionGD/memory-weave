@@ -1,3 +1,4 @@
+import { expectApiSuccess } from './support/http';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -42,7 +43,7 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     const response = await agent.get('/api/workspace').expect(200);
-    expect(response.body).toEqual({
+    expect(response.body.data).toEqual({
       ownerId: expect.any(String),
       schemaVersion: 1,
       displayName: '用户',
@@ -54,9 +55,16 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     const before = await agent.get('/api/workspace').expect(200);
     const saved = await agent.patch('/api/workspace').send({ displayName: '  小林  ' }).expect(200);
-    expect(saved.body).toEqual({ ...before.body, displayName: '小林' });
-    await agent.get('/api/workspace').expect(200, saved.body);
-    await agent.patch('/api/workspace').send({ displayName: '小林' }).expect(200, saved.body);
+    expect(saved.body.data).toEqual({ ...before.body.data, displayName: '小林' });
+    await agent
+      .get('/api/workspace')
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, saved.body.data));
+    await agent
+      .patch('/api/workspace')
+      .send({ displayName: '小林' })
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, saved.body.data));
   });
 
   it('拒绝未登录、跨站及非法资料写入，错误请求不能改变既有名称', async () => {
@@ -85,11 +93,17 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
     ]) {
       await agent.patch('/api/workspace').send(body).expect(400);
     }
-    await agent.get('/api/workspace').expect(200, before.body);
+    await agent
+      .get('/api/workspace')
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, before.body.data));
     await agent
       .patch('/api/workspace')
       .send({ displayName: '名'.repeat(80) })
-      .expect(200, { ...before.body, displayName: '名'.repeat(80) });
+      .expect(200)
+      .expect((response) =>
+        expectApiSuccess(response, { ...before.body.data, displayName: '名'.repeat(80) }),
+      );
   });
 
   it('改名及服务重启后保留资料，既有消息、会话成员和伴侣身份不被改写', async () => {
@@ -107,10 +121,10 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
         kind: 'private',
         title: '改名前建立的会话',
         includeUser: true,
-        companions: [{ companionId: companion.body.id, runtimeEpoch: 1 }],
+        companions: [{ companionId: companion.body.data.id, runtimeEpoch: 1 }],
       })
       .expect(201);
-    const conversationId = conversation.body.conversation.id as string;
+    const conversationId = conversation.body.data.conversation.id as string;
     const draft = await agent
       .post(`/api/conversations/${conversationId}/messages`)
       .send({
@@ -121,10 +135,13 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
       })
       .expect(201);
     const published = await agent
-      .post(`/api/conversations/${conversationId}/messages/${draft.body.id}/publish`)
+      .post(`/api/conversations/${conversationId}/messages/${draft.body.data.id}/publish`)
       .send({ requestId: randomUUID(), expectedRevision: 1, expectedConversationVersion: 1 })
       .expect(201);
-    expect(published.body.speaker).toEqual({ kind: 'user', userId: workspace.body.ownerId });
+    expect(published.body.data.speaker).toEqual({
+      kind: 'user',
+      userId: workspace.body.data.ownerId,
+    });
     const previousConversation = await agent
       .get(`/api/conversations/${conversationId}`)
       .expect(200);
@@ -132,21 +149,35 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
       .patch('/api/workspace')
       .send({ displayName: '现在的小林' })
       .expect(200);
-    expect(saved.body).toEqual({ ...workspace.body, displayName: '现在的小林' });
+    expect(saved.body.data).toEqual({ ...workspace.body.data, displayName: '现在的小林' });
     await agent
-      .get(`/api/conversations/${conversationId}/messages/${published.body.id}`)
-      .expect(200, published.body);
-    await agent.get(`/api/conversations/${conversationId}`).expect(200, previousConversation.body);
-    await agent.get(`/api/companions/${companion.body.id}`).expect(200, companion.body);
+      .get(`/api/conversations/${conversationId}/messages/${published.body.data.id}`)
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, published.body.data));
+    await agent
+      .get(`/api/conversations/${conversationId}`)
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, previousConversation.body.data));
+    await agent
+      .get(`/api/companions/${companion.body.data.id}`)
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, companion.body.data));
 
     await app.close();
     app = await createApplication(config);
     agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
-    await agent.get('/api/workspace').expect(200, saved.body);
     await agent
-      .get(`/api/conversations/${conversationId}/messages/${published.body.id}`)
-      .expect(200, published.body);
-    await agent.get(`/api/conversations/${conversationId}`).expect(200, previousConversation.body);
+      .get('/api/workspace')
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, saved.body.data));
+    await agent
+      .get(`/api/conversations/${conversationId}/messages/${published.body.data.id}`)
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, published.body.data));
+    await agent
+      .get(`/api/conversations/${conversationId}`)
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, previousConversation.body.data));
   });
 });

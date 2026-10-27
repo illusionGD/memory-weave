@@ -1,4 +1,4 @@
-import { API_ERROR_CODES } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
@@ -60,7 +60,7 @@ export class CompanionsService {
             .where(and(eq(companions.ownerId, ownerId), eq(companions.requestId, input.requestId)))
             .limit(1);
           if (!existing || existing.fingerprint !== requestFingerprint) {
-            throw new ApiException(API_ERROR_CODES.IDEMPOTENCY_CONFLICT);
+            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
           }
           return this.detail(tx, ownerId, existing.id);
         }
@@ -136,7 +136,7 @@ export class CompanionsService {
       )
       .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)))
       .limit(1);
-    if (!row) throw new ApiException(API_ERROR_CODES.RESOURCE_NOT_FOUND);
+    if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return this.toDetail(row);
   }
 

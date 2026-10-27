@@ -81,6 +81,8 @@ docker compose --env-file .env -f deploy/compose.yaml up -d
 
 CA 仅通过 BuildKit secret 挂载到网络构建步骤，不进入镜像层；TLS 验证保持开启。
 
+JSON API 统一返回 `{ code, data, message }`，`code` 为数字；常用码与默认提示由 contracts 共用，业务也可自定义。前后端应一起升级，接口接入见 [HTTP API 公共约定](docs/api-conventions.md)。
+
 ## 常用检查
 
 ```bash

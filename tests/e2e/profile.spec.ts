@@ -22,38 +22,48 @@ test('显示名称可修改并在刷新和重新登录后保留', async ({ page 
     for (const failure of [
       {
         status: 409,
-        code: 'VERSION_CONFLICT',
-        statusCode: 409,
-        expected: '数据版本已变化，请刷新后核对。',
+        code: 40902,
+        message: '此会话刚刚更新，请刷新后再保存。',
+        expected: '此会话刚刚更新，请刷新后再保存。',
       },
       {
         status: 409,
-        code: 'FUTURE_CONFLICT',
-        statusCode: 409,
-        expected: '操作与当前状态冲突，请刷新后核对。',
+        code: 10001,
+        message: '当前伴侣正在休息。',
+        expected: '当前伴侣正在休息。',
       },
       {
         status: 400,
-        code: 'VERSION_CONFLICT',
-        statusCode: 409,
-        expected: '请求参数不符合接口约定。',
+        code: -1,
+        message: '当前操作暂不可用。',
+        expected: '当前操作暂不可用。',
       },
-      { status: 503, code: null, statusCode: 503, expected: '服务暂时不可用，请稍后重试。' },
+      { status: 503, code: null, expected: '服务暂时不可用，请稍后重试。' },
+      {
+        status: 409,
+        code: '40902',
+        expected: '操作与当前状态冲突，请刷新后核对。',
+      },
+      {
+        status: 200,
+        code: 200,
+        expected: '服务响应与当前页面不匹配，请刷新页面后重试。',
+      },
     ]) {
       await page.route('**/api/workspace', async (route) => {
         if (route.request().method() !== 'PATCH') return route.continue();
         await route.fulfill({
           status: failure.status,
           headers: { 'X-Request-Id': traceId },
-          contentType: failure.code ? 'application/json' : 'text/html',
-          body: failure.code
-            ? JSON.stringify({
-                statusCode: failure.statusCode,
-                code: failure.code,
-                message: '不应展示的远端原始诊断信息',
-                requestId: traceId,
-              })
-            : '<html>不应展示的代理错误页面</html>',
+          contentType: failure.code !== null ? 'application/json' : 'text/html',
+          body:
+            failure.code !== null
+              ? JSON.stringify({
+                  code: failure.code,
+                  data: null,
+                  message: failure.message ?? '不应展示的格式错误内容',
+                })
+              : '<html>不应展示的代理错误页面</html>',
         });
       });
       await name.fill(changedName);
@@ -62,9 +72,20 @@ test('显示名称可修改并在刷新和重新登录后保留', async ({ page 
       await expect(name).toHaveValue(changedName);
       await page.unroute('**/api/workspace');
     }
+    // 保留真实保存行为，只在 HTTP 边界使用未登记的成功码，验证终端的扩展兼容。
+    await page.route('**/api/workspace', async (route) => {
+      if (route.request().method() !== 'PATCH') return route.continue();
+      const response = await route.fetch();
+      const body = await response.json();
+      await route.fulfill({
+        response,
+        json: { ...body, code: 10000, message: '本轮资料已保存。' },
+      });
+    });
     await name.fill(`  ${changedName}  `);
     await page.getByRole('button', { name: '保存名称', exact: true }).click();
     await expect(page.getByRole('status')).toHaveText('显示名称已保存。');
+    await page.unroute('**/api/workspace');
     await page.reload();
     await expect(name).toHaveValue(changedName);
 

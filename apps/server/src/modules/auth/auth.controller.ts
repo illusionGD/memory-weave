@@ -10,7 +10,7 @@ import {
   Res,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { API_ERROR_CODES, loginRequestSchema } from '@memory-weave/contracts';
+import { API_CODES, loginRequestSchema } from '@memory-weave/contracts';
 import type { SessionResponse } from '@memory-weave/contracts';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
@@ -46,7 +46,7 @@ export class AuthController {
     const input = parseInput(loginRequestSchema, body);
     this.auth.checkLoginRate(request.ip ?? 'unknown');
     if (!(await this.auth.verifyPassword(input.password))) {
-      throw new ApiException(API_ERROR_CODES.INVALID_CREDENTIALS);
+      throw new ApiException(API_CODES.INVALID_CREDENTIALS);
     }
     const token = this.auth.createSession();
     response.cookie(SESSION_COOKIE_NAME, token, {
@@ -71,7 +71,7 @@ export class AuthController {
    * @param response 用于清除 Cookie 的 HTTP 响应。
    */
   @Post('logout')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   logout(@Req() request: Request, @Res({ passthrough: true }) response: Response): void {
     this.auth.revokeSession(readSessionCookie(request));
     response.clearCookie(SESSION_COOKIE_NAME, sessionCookieOptions(this.config.cookieSecure));

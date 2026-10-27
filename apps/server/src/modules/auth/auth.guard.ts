@@ -1,4 +1,4 @@
-import { API_ERROR_CODES } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -29,6 +29,6 @@ export class AuthGuard implements CanActivate {
     if (isPublic) return true;
     const request = context.switchToHttp().getRequest<Request>();
     if (this.auth.hasSession(readSessionCookie(request))) return true;
-    throw new ApiException(API_ERROR_CODES.AUTH_REQUIRED);
+    throw new ApiException(API_CODES.AUTH_REQUIRED);
   }
 }

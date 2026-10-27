@@ -1,18 +1,19 @@
 import {
-  API_ERRORS,
+  API_RESPONSES,
   REQUEST_ID_HEADER,
   apiErrorResponseSchema,
+  apiResponseSchema,
   defaultApiErrorCode,
-  getApiErrorDefinition,
   uuidSchema,
 } from '@memory-weave/contracts';
+import type { ApiResponse } from '@memory-weave/contracts';
 
 /** 对外请求错误；业务错误码与提示复用共享契约，不展示未经验证的远端内容。 */
 export class ApiError extends Error {
   /** HTTP 状态；连接失败或超时没有 HTTP 状态。 */
   readonly status: number | null;
-  /** 服务端的稳定业务错误码；网络失败或不符合契约的响应为 null。 */
-  readonly code: string | null;
+  /** 服务端的数字响应码；网络失败或不符合契约的响应为 null。 */
+  readonly code: number | null;
   /** 服务端 HTTP 请求追踪编号；未收到有效编号时为 null，不是幂等键。 */
   readonly requestId: string | null;
 
@@ -20,13 +21,13 @@ export class ApiError extends Error {
    * 创建可供页面区分认证失败和服务不可用的错误。
    * @param message 适合展示给使用者的错误说明。
    * @param status HTTP 响应状态，连接失败时为 null。
-   * @param code 经过契约验证的业务错误码，可包含未来版本增加的值。
+   * @param code 经过契约验证的数字码，可包含未来版本增加的业务码。
    * @param requestId 经过 UUID 校验的服务端追踪编号。
    */
   constructor(
     message: string,
     status: number | null = null,
-    code: string | null = null,
+    code: number | null = null,
     requestId: string | null = null,
   ) {
     super(message);
@@ -45,14 +46,14 @@ interface ResponseSchema<T> {
 const REQUEST_TIMEOUT_MS = 15_000;
 
 /**
- * 校验统一错误；未知码、旧格式或代理 HTML 按实际 HTTP 状态降级，禁止猜测业务原因。
+ * 校验统一错误并保留业务提示；旧格式或代理 HTML 按实际 HTTP 状态提供默认提示。
  * @param response 已收到的失败响应，正文读取仍受整次请求的超时限制。
  * @returns 含安全提示、原始状态、可用业务码和追踪编号的错误。
  */
 async function readApiError(response: Response): Promise<ApiError> {
   const headerId = uuidSchema.safeParse(response.headers.get(REQUEST_ID_HEADER));
   const requestId = headerId.success ? headerId.data : null;
-  const fallback = API_ERRORS[defaultApiErrorCode(response.status)];
+  const fallback = API_RESPONSES[defaultApiErrorCode(response.status)];
   let value: unknown;
   try {
     value = await response.json();
@@ -60,22 +61,35 @@ async function readApiError(response: Response): Promise<ApiError> {
     return new ApiError(fallback.message, response.status, null, requestId);
   }
   const parsed = apiErrorResponseSchema.safeParse(value);
-  if (parsed.success && parsed.data.statusCode === response.status) {
+  if (parsed.success) {
     const body = parsed.data;
-    const definition = getApiErrorDefinition(body.code);
-    if (
-      (!definition || definition.statusCode === response.status) &&
-      (!requestId || requestId === body.requestId)
-    ) {
-      return new ApiError(
-        definition?.message ?? fallback.message,
-        response.status,
-        body.code,
-        body.requestId,
-      );
-    }
+    return new ApiError(body.message, response.status, body.code, requestId);
   }
   return new ApiError(fallback.message, response.status, null, requestId);
+}
+
+/**
+ * 校验成功响应的公共外层，允许业务自定义数字码和提示。
+ * @param response 已收到的成功响应，正文读取仍受整次请求超时控制。
+ * @returns 经过公共协议校验、尚未校验领域数据的响应。
+ */
+async function readApiResponse(response: Response): Promise<ApiResponse> {
+  const headerId = uuidSchema.safeParse(response.headers.get(REQUEST_ID_HEADER));
+  const requestId = headerId.success ? headerId.data : null;
+  let value: unknown;
+  try {
+    value = await response.json();
+  } catch {
+    throw new ApiError('服务返回了无法识别的内容，请重试。', response.status, null, requestId);
+  }
+  const parsed = apiResponseSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw new ApiError(
+    '服务响应与当前页面不匹配，请刷新页面后重试。',
+    response.status,
+    null,
+    requestId,
+  );
 }
 
 /**
@@ -123,21 +137,23 @@ async function executeRequest<T>(
 }
 
 /**
- * 发送不需要读取响应内容的操作，例如退出登录。
+ * 发送不需要业务数据的操作，例如退出登录；仍须校验统一响应体。
  * @param path 同源 API 路径。
  * @param options HTTP 请求参数。
  * @returns 服务端已成功响应的结果。
  */
-export function request(path: string, options: RequestInit = {}): Promise<Response> {
-  return executeRequest(path, options, async (response) => response);
+export function request(path: string, options: RequestInit = {}): Promise<void> {
+  return executeRequest(path, options, async (response) => {
+    await readApiResponse(response);
+  });
 }
 
 /**
  * 读取 JSON 并使用共享契约检查，防止失配响应被当作正常业务数据。
  * @param path 同源 API 路径。
- * @param schema 对应 API 的公共响应契约。
+ * @param schema 对应 API 的 data 字段契约。
  * @param options HTTP 请求参数。
- * @returns 通过契约验证的响应。
+ * @returns 解开公共外层并通过领域契约校验的业务数据。
  */
 export async function requestJson<T>(
   path: string,
@@ -145,15 +161,8 @@ export async function requestJson<T>(
   options: RequestInit = {},
 ): Promise<T> {
   return executeRequest(path, options, async (response) => {
-    let value: unknown;
-
-    try {
-      value = await response.json();
-    } catch {
-      throw new ApiError('服务返回了无法识别的内容，请重试。', response.status);
-    }
-
-    const parsed = schema.safeParse(value);
+    const body = await readApiResponse(response);
+    const parsed = schema.safeParse(body.data);
 
     if (!parsed.success) {
       throw new ApiError('服务响应与当前页面不匹配，请刷新页面后重试。', response.status);

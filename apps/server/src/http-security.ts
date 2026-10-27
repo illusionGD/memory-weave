@@ -1,7 +1,7 @@
-import { API_ERROR_CODES } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
 import type { NextFunction, Request, Response } from 'express';
 import type { RequestHandler } from 'express';
-import { sendApiError } from './http/error-response';
+import { ApiException, sendApiError } from './http/api-exception';
 
 /**
  * 校验写请求的浏览器来源，防止其他站点借用会话发起操作。
@@ -16,7 +16,7 @@ export function createOriginCheck(allowedOrigin: string): RequestHandler {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
         const origin = request.get('origin');
         if (origin !== undefined && origin !== allowedOrigin) {
-          sendApiError(response, API_ERROR_CODES.ORIGIN_NOT_ALLOWED);
+          sendApiError(response, new ApiException(API_CODES.ORIGIN_NOT_ALLOWED));
           return;
         }
       }
@@ -40,19 +40,19 @@ export function handleBodyError(
 ): void {
   const status = error && typeof error === 'object' && 'status' in error ? error.status : null;
   if (status === 413) {
-    sendApiError(response, API_ERROR_CODES.REQUEST_BODY_TOO_LARGE);
+    sendApiError(response, new ApiException(API_CODES.REQUEST_BODY_TOO_LARGE));
     return;
   }
   if (status === 415) {
-    sendApiError(response, API_ERROR_CODES.UNSUPPORTED_MEDIA_TYPE);
+    sendApiError(response, new ApiException(API_CODES.UNSUPPORTED_MEDIA_TYPE));
     return;
   }
   if (error instanceof SyntaxError) {
-    sendApiError(response, API_ERROR_CODES.INVALID_JSON);
+    sendApiError(response, new ApiException(API_CODES.INVALID_JSON));
     return;
   }
   if (status === 400) {
-    sendApiError(response, API_ERROR_CODES.INVALID_REQUEST);
+    sendApiError(response, new ApiException(API_CODES.INVALID_REQUEST));
     return;
   }
   next(error);

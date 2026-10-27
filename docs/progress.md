@@ -16,6 +16,8 @@
 - 错误码常量补充：导出仅包含 code 值的 `ApiErrorCode` 对象，并从其值推导同名类型和枚举 schema；`API_ERRORS` 按常量配置元数据，类型检查覆盖遗漏项。server 的异常、比较和中间件已全部改用常量引用，对外协议值、状态与提示保持一致。现有 64 条后端、4 条浏览器测试及格式/lint/typecheck/build 通过，构建后的类型声明保留常量字段中文注释。无迁移或依赖变更；比较基线 `23cb162`。
 - 导入路径统一：清理 contracts 中剩余 8 处指向 TS 文件的 `.js` 导入/导出，项目源码统一使用无后缀路径。contracts 改用 ESNext / Bundler，复用已有版本的开发依赖 `tsc-alias@1.9.9` 补齐编译后 JavaScript 和类型声明路径；真正指向构建产物的 exports 和启动脚本保留 `.js`。冻结安装、格式/lint/typecheck/build、64 条后端及 4 条浏览器测试通过；原生 ESM 包入口和严格 NodeNext 消费方检查通过；`pnpm dev` 实际登录与状态查询正常。Docker 构建含生产依赖打包通过，容器健康、登录/查询/退出正常，已有数据卷迁移 `applied=0`，运行镜像未安装构建工具。比较基线 `c128beb`；拉取后先执行 `pnpm install --frozen-lockfile`，无新增数据库迁移。
 - HTTP 默认错误码映射：按用户补充，导出数字键的 `HTTP_STATUS_TO_ERROR_CODE`，类型为 `Readonly<Partial<Record<number, ApiErrorCode>>>`；`defaultApiErrorCode` 直接复用它，未知状态仍兜底 `INTERNAL_ERROR`。业务名称常量改名为 `API_ERROR_CODES`，`ApiErrorCode` 仅保留联合类型，13 个后端调用文件与接入文档已同步。对外 code、HTTP 状态及提示不变；Node 22.23.4 下格式/lint/typecheck/build、64 条后端及 4 条浏览器测试通过，构建后的公共入口可直接查询数字键与未知状态兜底。无依赖或迁移变更；比较基线 `79462f5`。
+- 统一响应补充（2026-10-27）：所有 JSON API 使用 `{ code, data, message }`，code 为数字。常用码、默认 HTTP 状态与文案集中到 `contracts/src/api.ts`，允许业务自定义数字码和提示；成功由拦截器统一包装，可用 `ApiResult` 覆盖，失败可用 `ApiException(code, message?, statusCode?)`。异常类、响应输出、追踪中间件和过滤器合并到 `http/api-exception.ts`。HTTP 追踪仅使用响应头与日志，退出登录改为 200/null；Web 与验收脚本统一校验外层并读取 data，领域数据和幂等规则保持原义。
+- 本次验证：Node 22.23.4 下格式、lint、全工程类型检查与干净构建通过；10 个后端文件共 68 条测试、桌面/移动浏览器 4 条流程通过。覆盖常用/自定义数字码、文案覆盖、无数据响应、未知异常脱敏，以及业务同名字段不会被误当成已包装外层。新版验收脚本在隔离数据库和编译后的原生 Node 服务上完成 14 步；临时数据库与服务已清理。响应协议需要前后端一起升级；无依赖或数据库迁移变更。比较基线 `7c24e6b`。
 - 交付说明：[F02 接口、迁移与验收](features/f02-data-foundation.md)。比较基线：`af55db5`，固定版本以本功能 Git 提交号为准。GitHub Actions 的远程状态另行核对。
 - 当前边界：HTTP 管理接口代理伴侣发言/接收，明确保留管理操作来源；尚无模型生成、自主运行、人格成长、完整聊天页面、成员变更和记忆提取。F03–F24 未开始，停在 F02 供 review。
 
@@ -36,5 +38,7 @@
 主要限制：F01 会话仅存单后端进程，固定 12 小时有效且尚未实现自动续期，重启需重登；尚无完整伴侣创建页面、模型聊天、自主成长与记忆整理；未进行目标主机容量压测。
 
 ## 后续功能
+
+用户于 2026-10-27 提出以 MySQL 替换 PostgreSQL，并考虑独立向量库、图数据库和 Redis；向量库仍在选型讨论。本轮未改动持久存储实现或既有数据，后续开发前先明确新的存储方案与迁移范围。
 
 F03–F24 尚未开始，功能范围和依赖见 [开发计划](plan.md)。

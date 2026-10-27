@@ -10,7 +10,7 @@ import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
-import { expectApiError } from './support/http';
+import { expectApiError, expectApiSuccess } from './support/http';
 
 describe('部署管理者通过 HTTP 管理伴侣实例', () => {
   let app: INestApplication;
@@ -51,7 +51,7 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     const workspace = await agent.get('/api/workspace').expect(200);
-    expect(workspace.body).toEqual({
+    expect(workspace.body.data).toEqual({
       ownerId: expect.any(String),
       schemaVersion: 1,
       displayName: '用户',
@@ -64,8 +64,8 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
         initialProfile: '我喜欢一起看星星。\n保留未经模型处理的原始设定。',
       })
       .expect(201);
-    expect(created.body).toMatchObject({
-      ownerId: workspace.body.ownerId,
+    expect(created.body.data).toMatchObject({
+      ownerId: workspace.body.data.ownerId,
       name: '初始伴侣',
       runtimeEpoch: 1,
       version: 1,
@@ -75,16 +75,23 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
         profileText: '我喜欢一起看星星。\n保留未经模型处理的原始设定。',
       },
       currentPersonaVersion: {
-        ownerId: workspace.body.ownerId,
+        ownerId: workspace.body.data.ownerId,
         runtimeEpoch: 1,
         version: 1,
         profileText: '我喜欢一起看星星。\n保留未经模型处理的原始设定。',
       },
     });
-    expect(created.body.initialSnapshot.id).not.toBe(created.body.currentPersonaVersionId);
-    expect(created.body.currentPersonaVersion.id).toBe(created.body.currentPersonaVersionId);
-    expect(created.body.currentPersonaVersion.companionId).toBe(created.body.id);
-    await agent.get(`/api/companions/${created.body.id}`).expect(200, created.body);
+    expect(created.body.data.initialSnapshot.id).not.toBe(
+      created.body.data.currentPersonaVersionId,
+    );
+    expect(created.body.data.currentPersonaVersion.id).toBe(
+      created.body.data.currentPersonaVersionId,
+    );
+    expect(created.body.data.currentPersonaVersion.companionId).toBe(created.body.data.id);
+    await agent
+      .get(`/api/companions/${created.body.data.id}`)
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, created.body.data));
   });
 
   it('同一创建命令并发重试复用实例，改用其他内容返回冲突且不覆盖原文', async () => {
@@ -100,20 +107,24 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     );
     for (const response of responses) {
       expect(response.status).toBe(201);
-      expect(response.body).toEqual(responses[0]!.body);
+      expect(response.body.data).toEqual(responses[0]!.body.data);
     }
     await agent
       .post('/api/companions')
       .send({ ...command, requestId: command.requestId.toUpperCase() })
-      .expect(201, responses[0]!.body);
+      .expect(201)
+      .expect((response) => expectApiSuccess(response, responses[0]!.body.data));
     const conflict = await agent
       .post('/api/companions')
       .send({ ...command, initialProfile: '不能覆盖最初创建的原文。' })
       .expect(409);
-    expectApiError(conflict, 409, 'IDEMPOTENCY_CONFLICT');
-    expect(conflict.body.requestId).not.toBe(command.requestId);
+    expectApiError(conflict, 409, 40901);
+    expect(conflict.headers['x-request-id']).not.toBe(command.requestId);
     expect(new Set(responses.map((response) => response.headers['x-request-id'])).size).toBe(4);
-    await agent.get(`/api/companions/${responses[0]!.body.id}`).expect(200, responses[0]!.body);
+    await agent
+      .get(`/api/companions/${responses[0]!.body.data.id}`)
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, responses[0]!.body.data));
   });
 
   it('以稳定实例标识分页遍历，每个实例只返回一次且游标只在有下一页时出现', async () => {
@@ -125,7 +136,7 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
         .post('/api/companions')
         .send({ requestId: randomUUID(), name, initialProfile: '保留各自的稳定身份。' })
         .expect(201);
-      createdIds.push(created.body.id);
+      createdIds.push(created.body.data.id);
     }
     const seenIds: string[] = [];
     let afterId: string | null = null;
@@ -134,7 +145,7 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
         .get('/api/companions')
         .query({ limit: 2, ...(afterId ? { afterId } : {}) })
         .expect(200);
-      const page = companionListResponseSchema.parse(response.body);
+      const page = companionListResponseSchema.parse(response.body.data);
       expect(page.items.length).toBeLessThanOrEqual(2);
       if (page.nextAfterId) {
         expect(page.items).toHaveLength(2);
@@ -152,7 +163,7 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
       .get('/api/companions')
       .query({ afterId: seenIds.at(-1), limit: 2 })
       .expect(200);
-    expect(exhausted.body).toEqual({ items: [], nextAfterId: null });
+    expect(exhausted.body.data).toEqual({ items: [], nextAfterId: null });
   });
 
   it('服务重启后部署身份、实例和幂等结果仍保留，重新登录即可继续回查', async () => {
@@ -174,10 +185,20 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     await request(app.getHttpServer()).get('/api/workspace').set('Cookie', oldCookie).expect(401);
     agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
-    await agent.get('/api/workspace').expect(200, workspace.body);
-    await agent.get(`/api/companions/${created.body.id}`).expect(200, created.body);
-    await agent.post('/api/companions').send(command).expect(201, created.body);
-    expect(created.body.initialSnapshot.profileText).toBe('  初始空白也应原样保存。\n');
+    await agent
+      .get('/api/workspace')
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, workspace.body.data));
+    await agent
+      .get(`/api/companions/${created.body.data.id}`)
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, created.body.data));
+    await agent
+      .post('/api/companions')
+      .send(command)
+      .expect(201)
+      .expect((response) => expectApiSuccess(response, created.body.data));
+    expect(created.body.data.initialSnapshot.profileText).toBe('  初始空白也应原样保存。\n');
   });
 
   it('拒绝由请求指定归属、代次及非法字段，不存在的实例返回不可见结果', async () => {
@@ -210,20 +231,20 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     }
     await agent.get('/api/companions/不是UUID').expect(400);
     const missing = await agent.get(`/api/companions/${randomUUID()}`).expect(404);
-    expectApiError(missing, 404, 'RESOURCE_NOT_FOUND');
+    expectApiError(missing, 404, 404);
     const created = await agent.post('/api/companions').send(command).expect(201);
     const workspace = await agent.get('/api/workspace').expect(200);
-    expect(created.body.ownerId).toBe(workspace.body.ownerId);
-    expect(created.body.runtimeEpoch).toBe(1);
-    expect(created.body).not.toHaveProperty('requestId');
-    expect(created.body).not.toHaveProperty('fingerprint');
+    expect(created.body.data.ownerId).toBe(workspace.body.data.ownerId);
+    expect(created.body.data.runtimeEpoch).toBe(1);
+    expect(created.body.data).not.toHaveProperty('requestId');
+    expect(created.body.data).not.toHaveProperty('fingerprint');
   });
 
   it('相同设定可创建身份独立的实例，列表默认只取二十条', async () => {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     const before = companionListResponseSchema.parse(
-      (await agent.get('/api/companions').query({ limit: 100 }).expect(200)).body,
+      (await agent.get('/api/companions').query({ limit: 100 }).expect(200)).body.data,
     );
     const ids: string[] = [];
     const snapshots: string[] = [];
@@ -232,14 +253,14 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
         .post('/api/companions')
         .send({ requestId: randomUUID(), name: '同名的独立实例', initialProfile: '相同设定。' })
         .expect(201);
-      expect(created.body.runtimeEpoch).toBe(1);
-      ids.push(created.body.id);
-      snapshots.push(created.body.initialSnapshot.id);
+      expect(created.body.data.runtimeEpoch).toBe(1);
+      ids.push(created.body.data.id);
+      snapshots.push(created.body.data.initialSnapshot.id);
     }
     expect(new Set(ids).size).toBe(21);
     expect(new Set(snapshots).size).toBe(21);
     const first = companionListResponseSchema.parse(
-      (await agent.get('/api/companions').expect(200)).body,
+      (await agent.get('/api/companions').expect(200)).body.data,
     );
     expect(first.items).toHaveLength(20);
     expect(first.items.map((item) => item.id)).toEqual(

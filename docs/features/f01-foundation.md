@@ -35,7 +35,7 @@ server 和 contracts 的生产构建均在 `tsc` 之后执行开发依赖 [tsc-a
 | `POST /api/auth/logout`  | 登录，校验来源       | 服务端撤销会话并清理 Cookie                         |
 | `GET /api/system/status` | 登录                 | 查询运行状态，隐藏凭据和连接串                      |
 
-公共类型由 contracts 导出。认证在全局 API 守卫执行，后续接口必须明确声明公开例外；前端路由判断只负责体验，不代替后端控制。
+当前 JSON 接口统一返回 `{ code, data, message }`，code 为数字；退出登录返回 HTTP 200 和 `data: null`。公共类型由 contracts 导出，详见 [HTTP API 公共约定](../api-conventions.md)。认证在全局 API 守卫执行，后续接口必须明确声明公开例外；前端路由判断只负责体验，不代替后端控制。
 
 ## 拉取后验收
 

@@ -57,8 +57,8 @@ describe('会话与原文 HTTP 契约', () => {
       })
       .expect(201);
     return {
-      companionId: response.body.id as string,
-      runtimeEpoch: response.body.runtimeEpoch as number,
+      companionId: response.body.data.id as string,
+      runtimeEpoch: response.body.data.runtimeEpoch as number,
     };
   }
 
@@ -78,7 +78,7 @@ describe('会话与原文 HTTP 契约', () => {
           ...shape,
         })
         .expect(201);
-      const detail = conversationDetailSchema.parse(created.body);
+      const detail = conversationDetailSchema.parse(created.body.data);
       expect(detail.conversation).toMatchObject({ kind: shape.kind, version: 1, lastSequence: 0 });
       expect(detail.members).toHaveLength(shape.companions.length + Number(shape.includeUser));
       expect(detail.members.filter((member) => member.kind === 'companion')).toEqual(
@@ -95,7 +95,7 @@ describe('会话与原文 HTTP 契约', () => {
         ),
       );
       const queried = await agent.get(`/api/conversations/${detail.conversation.id}`).expect(200);
-      expect(queried.body).toEqual(created.body);
+      expect(queried.body.data).toEqual(created.body.data);
     }
   });
 
@@ -111,7 +111,7 @@ describe('会话与原文 HTTP 契约', () => {
         title: '未发布消息',
       })
       .expect(201);
-    const id = created.body.conversation.id as string;
+    const id = created.body.data.conversation.id as string;
     const draft = await agent
       .post(`/api/conversations/${id}/messages`)
       .send({
@@ -122,7 +122,7 @@ describe('会话与原文 HTTP 契约', () => {
         occurredAt: '2026-10-25T10:00:00.000Z',
       })
       .expect(201);
-    const parsed = draftMessageSchema.parse(draft.body);
+    const parsed = draftMessageSchema.parse(draft.body.data);
     expect(parsed).toMatchObject({
       state: 'draft',
       sequence: null,
@@ -136,11 +136,11 @@ describe('会话与原文 HTTP 契约', () => {
       validUntil: null,
     });
     const detail = await agent.get(`/api/conversations/${id}/messages/${parsed.id}`).expect(200);
-    expect(detail.body).toEqual(draft.body);
+    expect(detail.body.data).toEqual(draft.body.data);
     const history = await agent.get(`/api/conversations/${id}/messages`).expect(200);
-    expect(history.body).toEqual({ items: [], nextAfterSequence: null });
+    expect(history.body.data).toEqual({ items: [], nextAfterSequence: null });
     const conversation = await agent.get(`/api/conversations/${id}`).expect(200);
-    expect(conversation.body.conversation.lastSequence).toBe(0);
+    expect(conversation.body.data.conversation.lastSequence).toBe(0);
   });
 
   it('正式发布分配共享顺序并独立于草稿修订，重复发布不会产生第二条经历', async () => {
@@ -155,7 +155,7 @@ describe('会话与原文 HTTP 契约', () => {
         title: '正式发布',
       })
       .expect(201);
-    const id = created.body.conversation.id as string;
+    const id = created.body.data.conversation.id as string;
     const draft = await agent
       .post(`/api/conversations/${id}/messages`)
       .send({
@@ -171,12 +171,12 @@ describe('会话与原文 HTTP 契约', () => {
       expectedConversationVersion: 1,
     };
     const published = await agent
-      .post(`/api/conversations/${id}/messages/${draft.body.id}/publish`)
+      .post(`/api/conversations/${id}/messages/${draft.body.data.id}/publish`)
       .send(command)
       .expect(201);
-    const parsed = publishedMessageSchema.parse(published.body);
+    const parsed = publishedMessageSchema.parse(published.body.data);
     expect(parsed).toMatchObject({
-      id: draft.body.id,
+      id: draft.body.data.id,
       revision: 2,
       contentVersion: 1,
       sequence: 1,
@@ -187,11 +187,11 @@ describe('会话与原文 HTTP 契约', () => {
       .post(`/api/conversations/${id}/messages/${parsed.id}/publish`)
       .send(command)
       .expect(201);
-    expect(replay.body).toEqual(published.body);
+    expect(replay.body.data).toEqual(published.body.data);
     const history = await agent.get(`/api/conversations/${id}/messages`).expect(200);
-    expect(history.body.items).toEqual([published.body]);
+    expect(history.body.data.items).toEqual([published.body.data]);
     const conversation = await agent.get(`/api/conversations/${id}`).expect(200);
-    expect(conversation.body.conversation).toMatchObject({ lastSequence: 1, version: 2 });
+    expect(conversation.body.data.conversation).toMatchObject({ lastSequence: 1, version: 2 });
   });
 
   it('会话列表使用稳定游标分页且每页有界', async () => {
@@ -208,7 +208,7 @@ describe('会话与原文 HTTP 契约', () => {
           title,
         })
         .expect(201);
-      expectedIds.push(created.body.conversation.id as string);
+      expectedIds.push(created.body.data.conversation.id as string);
     }
     const collected: string[] = [];
     let afterId: string | undefined;
@@ -217,9 +217,9 @@ describe('会话与原文 HTTP 契约', () => {
         .get('/api/conversations')
         .query({ limit: 2, ...(afterId ? { afterId } : {}) })
         .expect(200);
-      expect(page.body.items.length).toBeLessThanOrEqual(2);
-      collected.push(...page.body.items.map((item: { id: string }) => item.id));
-      afterId = (page.body.nextAfterId as string | null) ?? undefined;
+      expect(page.body.data.items.length).toBeLessThanOrEqual(2);
+      collected.push(...page.body.data.items.map((item: { id: string }) => item.id));
+      afterId = (page.body.data.nextAfterId as string | null) ?? undefined;
     } while (afterId);
     expect(collected).toEqual(expect.arrayContaining(expectedIds));
     expect(new Set(collected).size).toBe(collected.length);
@@ -238,7 +238,7 @@ describe('会话与原文 HTTP 契约', () => {
         title: '未知发生时间',
       })
       .expect(201);
-    const id = created.body.conversation.id as string;
+    const id = created.body.data.conversation.id as string;
     for (const time of [{}, { occurredAt: null }]) {
       const saved = await agent
         .post(`/api/conversations/${id}/messages`)
@@ -250,8 +250,8 @@ describe('会话与原文 HTTP 契约', () => {
           ...time,
         })
         .expect(201);
-      expect(saved.body.occurredAt).toBeNull();
-      expect(saved.body.receivedAt).toEqual(expect.stringMatching(/Z$/));
+      expect(saved.body.data.occurredAt).toBeNull();
+      expect(saved.body.data.receivedAt).toEqual(expect.stringMatching(/Z$/));
     }
   });
 
@@ -278,7 +278,7 @@ describe('会话与原文 HTTP 契约', () => {
         title: '来源群聊',
       })
       .expect(201);
-    const privateId = personal.body.conversation.id as string;
+    const privateId = personal.body.data.conversation.id as string;
     const original = await agent
       .post(`/api/conversations/${privateId}/messages`)
       .send({
@@ -288,7 +288,11 @@ describe('会话与原文 HTTP 契约', () => {
         text: '只有原私聊可见的经历',
       })
       .expect(201);
-    const source = { messageId: original.body.id as string, contentVersion: 1, relation: 'report' };
+    const source = {
+      messageId: original.body.data.id as string,
+      contentVersion: 1,
+      relation: 'report',
+    };
     const report = {
       requestId: randomUUID(),
       speaker: { kind: 'companion', ...a },
@@ -307,7 +311,7 @@ describe('会话与原文 HTTP 契约', () => {
       })
       .expect(201);
     await agent
-      .post(`/api/conversations/${group.body.conversation.id}/messages`)
+      .post(`/api/conversations/${group.body.data.conversation.id}/messages`)
       .send(report)
       .expect(404);
     await agent
@@ -322,7 +326,7 @@ describe('会话与原文 HTTP 契约', () => {
       .post(`/api/conversations/${privateId}/messages`)
       .send({ ...report, expectedConversationVersion: 2, replyToMessageId: source.messageId })
       .expect(201);
-    expect(valid.body).toMatchObject({
+    expect(valid.body.data).toMatchObject({
       epistemicKind: 'report',
       sources: [source],
       sourceKind: 'admin_companion_input',
@@ -330,15 +334,15 @@ describe('会话与原文 HTTP 契约', () => {
       replyToMessageId: source.messageId,
     });
     const published = await agent
-      .post(`/api/conversations/${privateId}/messages/${valid.body.id}/publish`)
+      .post(`/api/conversations/${privateId}/messages/${valid.body.data.id}/publish`)
       .send({
         requestId: randomUUID(),
         expectedRevision: 1,
         expectedConversationVersion: 2,
       })
       .expect(201);
-    expect(published.body.sources).toEqual([source]);
-    expect(published.body.sequence).toBe(2);
+    expect(published.body.data.sources).toEqual([source]);
+    expect(published.body.data.sequence).toBe(2);
   });
 
   it('并发发布通过会话版本只接纳一个写入，重试后连续排序且分页不漏消息', async () => {
@@ -353,7 +357,7 @@ describe('会话与原文 HTTP 契约', () => {
         title: '并发顺序',
       })
       .expect(201);
-    const id = created.body.conversation.id as string;
+    const id = created.body.data.conversation.id as string;
     const first = await agent
       .post(`/api/conversations/${id}/messages`)
       .send({
@@ -372,7 +376,7 @@ describe('会话与原文 HTTP 契约', () => {
         text: '并发二',
       })
       .expect(201);
-    const drafts = [first.body.id as string, second.body.id as string];
+    const drafts = [first.body.data.id as string, second.body.data.id as string];
     const commands = drafts.map(() => ({
       requestId: randomUUID(),
       expectedRevision: 1,
@@ -390,8 +394,8 @@ describe('会话与原文 HTTP 契约', () => {
       .get(`/api/conversations/${id}/messages`)
       .query({ limit: 1 })
       .expect(200);
-    expect(firstPage.body.items).toHaveLength(1);
-    expect(firstPage.body.items[0]).toMatchObject({ id: drafts[winner], sequence: 1 });
+    expect(firstPage.body.data.items).toHaveLength(1);
+    expect(firstPage.body.data.items[0]).toMatchObject({ id: drafts[winner], sequence: 1 });
     await agent
       .post(`/api/conversations/${id}/messages/${drafts[loser]}/publish`)
       .send({
@@ -404,19 +408,19 @@ describe('会话与原文 HTTP 契约', () => {
       .post(`/api/conversations/${id}/messages/${drafts[winner]}/publish`)
       .send(commands[winner])
       .expect(201);
-    expect(replay.body).toEqual(concurrent[winner]?.body);
+    expect(replay.body.data).toEqual(concurrent[winner]?.body.data);
     const pageOne = await agent
       .get(`/api/conversations/${id}/messages`)
       .query({ limit: 1 })
       .expect(200);
-    expect(pageOne.body.nextAfterSequence).toBe(1);
+    expect(pageOne.body.data.nextAfterSequence).toBe(1);
     const pageTwo = await agent
       .get(`/api/conversations/${id}/messages`)
       .query({ limit: 1, afterSequence: 1 })
       .expect(200);
-    expect(pageTwo.body.items).toHaveLength(1);
-    expect(pageTwo.body.items[0]).toMatchObject({ id: drafts[loser], sequence: 2 });
-    expect(pageTwo.body.nextAfterSequence).toBeNull();
+    expect(pageTwo.body.data.items).toHaveLength(1);
+    expect(pageTwo.body.data.items[0]).toMatchObject({ id: drafts[loser], sequence: 2 });
+    expect(pageTwo.body.data.nextAfterSequence).toBeNull();
   });
 
   it('创建与保存的并发重试复用同一对象，异载荷或跨消息复用发布键回滚', async () => {
@@ -433,8 +437,8 @@ describe('会话与原文 HTTP 契约', () => {
       agent.post('/api/conversations').send(command),
     ]);
     expect(created.map((response) => response.status)).toEqual([201, 201]);
-    expect(created[0]?.body).toEqual(created[1]?.body);
-    const id = created[0]?.body.conversation.id as string;
+    expect(created[0]?.body.data).toEqual(created[1]?.body.data);
+    const id = created[0]?.body.data.conversation.id as string;
     await agent
       .post('/api/conversations')
       .send({ ...command, title: '异载荷' })
@@ -450,13 +454,13 @@ describe('会话与原文 HTTP 契约', () => {
       agent.post(`/api/conversations/${id}/messages`).send(messageCommand),
     ]);
     expect(saved.map((response) => response.status)).toEqual([201, 201]);
-    expect(saved[0]?.body).toEqual(saved[1]?.body);
-    const originalId = saved[0]?.body.id as string;
+    expect(saved[0]?.body.data).toEqual(saved[1]?.body.data);
+    const originalId = saved[0]?.body.data.id as string;
     const changedContent = await agent
       .post(`/api/conversations/${id}/messages`)
       .send({ ...messageCommand, text: '变更原文' })
       .expect(409);
-    expectApiError(changedContent, 409, 'IDEMPOTENCY_CONFLICT');
+    expectApiError(changedContent, 409, 40901);
     const publishCommand = {
       requestId: randomUUID(),
       expectedRevision: 1,
@@ -466,7 +470,7 @@ describe('会话与原文 HTTP 契约', () => {
       .post(`/api/conversations/${id}/messages/${originalId}/publish`)
       .send({ ...publishCommand, expectedRevision: 2 })
       .expect(409);
-    expectApiError(staleRevision, 409, 'VERSION_CONFLICT');
+    expectApiError(staleRevision, 409, 40902);
     await agent
       .post(`/api/conversations/${id}/messages/${originalId}/publish`)
       .send(publishCommand)
@@ -480,18 +484,18 @@ describe('会话与原文 HTTP 契约', () => {
       })
       .expect(201);
     await agent
-      .post(`/api/conversations/${id}/messages/${next.body.id}/publish`)
+      .post(`/api/conversations/${id}/messages/${next.body.data.id}/publish`)
       .send({
         ...publishCommand,
         expectedConversationVersion: 2,
       })
       .expect(409);
     const nextState = await agent
-      .get(`/api/conversations/${id}/messages/${next.body.id}`)
+      .get(`/api/conversations/${id}/messages/${next.body.data.id}`)
       .expect(200);
-    expect(nextState.body).toMatchObject({ state: 'draft', revision: 1, sequence: null });
+    expect(nextState.body.data).toMatchObject({ state: 'draft', revision: 1, sequence: null });
     const conversation = await agent.get(`/api/conversations/${id}`).expect(200);
-    expect(conversation.body.conversation).toMatchObject({ version: 2, lastSequence: 1 });
+    expect(conversation.body.data.conversation).toMatchObject({ version: 2, lastSequence: 1 });
   });
 
   it('身份只来自认证归属与当前成员，不能指定owner、伪造用户或越代次发言', async () => {
@@ -519,7 +523,7 @@ describe('会话与原文 HTTP 契约', () => {
       .send({ ...command, companions: [{ ...a, runtimeEpoch: 2 }, b] })
       .expect(409);
     const created = await agent.post('/api/conversations').send(command).expect(201);
-    const id = created.body.conversation.id as string;
+    const id = created.body.data.conversation.id as string;
     const message = {
       requestId: randomUUID(),
       expectedConversationVersion: 1,
@@ -553,6 +557,6 @@ describe('会话与原文 HTTP 契约', () => {
         text: '我自称是 B，但真实发言者仍为 A。',
       })
       .expect(201);
-    expect(accepted.body.speaker).toEqual({ kind: 'companion', ...a });
+    expect(accepted.body.data.speaker).toEqual({ kind: 'companion', ...a });
   });
 });

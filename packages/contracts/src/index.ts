@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export * from './common';
-export * from './errors';
+export * from './api';
 export * from './companions';
 export * from './conversations';
 export * from './messages';

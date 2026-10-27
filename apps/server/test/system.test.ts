@@ -9,7 +9,7 @@ import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
-import { expectApiError } from './support/http';
+import { expectApiError, expectApiSuccess } from './support/http';
 import { runMigrations } from '../src/database/migrations';
 
 describe('observable service health', () => {
@@ -48,7 +48,7 @@ describe('observable service health', () => {
   it('reports public liveness without disclosing deployment settings', async () => {
     const response = await request(app.getHttpServer()).get('/api/health/live');
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ status: 'ok' });
+    expect(response.body.data).toEqual({ status: 'ok' });
   });
 
   it('reports the real PostgreSQL vector extension and writable storage to the signed-in owner', async () => {
@@ -58,7 +58,7 @@ describe('observable service health', () => {
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     const status = await agent.get('/api/system/status');
     expect(status.status).toBe(200);
-    expect(status.body).toEqual({
+    expect(status.body.data).toEqual({
       service: 'memory-weave',
       version: '0.1.0',
       stage: 'foundation',
@@ -68,7 +68,10 @@ describe('observable service health', () => {
     });
     expect(JSON.stringify(status.body).includes(config.databaseUrl)).toBe(false);
     expect(JSON.stringify(status.body).includes(config.adminPassword)).toBe(false);
-    await request(app.getHttpServer()).get('/api/health/ready').expect(200, { status: 'ok' });
+    await request(app.getHttpServer())
+      .get('/api/health/ready')
+      .expect(200)
+      .expect((response) => expectApiSuccess(response, { status: 'ok' }));
   });
 
   it('keeps an unmigrated F01 database live but not ready, then recovers after migration', async () => {
@@ -83,12 +86,12 @@ describe('observable service health', () => {
       const agent = request.agent(legacyApp.getHttpServer());
       await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
       const status = await agent.get('/api/system/status').expect(200);
-      expect(status.body.database.status).toBe('connected');
-      expect(status.body.schema).toEqual({ status: 'pending', version: null });
+      expect(status.body.data.database.status).toBe('connected');
+      expect(status.body.data.schema).toEqual({ status: 'pending', version: null });
       await request(legacyApp.getHttpServer()).get('/api/health/live').expect(200);
       await request(legacyApp.getHttpServer()).get('/api/health/ready').expect(503);
       const unavailable = await agent.get('/api/workspace').expect(503);
-      expectApiError(unavailable, 503, 'DATA_UNAVAILABLE');
+      expectApiError(unavailable, 503, 50301);
       await runMigrations(legacy.databaseUrl);
       await request(legacyApp.getHttpServer()).get('/api/health/ready').expect(200);
       await agent.get('/api/workspace').expect(200);
@@ -108,10 +111,10 @@ describe('observable service health', () => {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     const status = await agent.get('/api/system/status').expect(200);
-    expect(status.body.database).toEqual({ status: 'unavailable', vectorVersion: null });
+    expect(status.body.data.database).toEqual({ status: 'unavailable', vectorVersion: null });
     expect(JSON.stringify(status.body)).not.toContain('do-not-echo');
     const notReady = await request(app.getHttpServer()).get('/api/health/ready').expect(503);
-    expectApiError(notReady, 503, 'DEPENDENCIES_UNAVAILABLE');
+    expectApiError(notReady, 503, 50302);
     await request(app.getHttpServer()).get('/api/health/live').expect(200);
   });
 });

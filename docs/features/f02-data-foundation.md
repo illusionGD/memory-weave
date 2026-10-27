@@ -58,7 +58,7 @@
 
 参数错误 400，未登录 401，不存在或不可见 404，幂等/版本冲突 409，数据库或迁移未就绪 503。响应不返回连接串、SQL 或请求指纹。
 
-错误响应统一使用 `{ statusCode, code, message, requestId }`，稳定错误码与中文提示由 `packages/contracts/src/errors.ts` 集中维护。成功正文与现有 HTTP 状态保持不变；错误中的 HTTP 追踪 `requestId` 与创建命令的业务幂等键不同。各终端接入及兼容规则见 [HTTP API 公共约定](../api-conventions.md)。
+所有 JSON 响应统一为 `{ code, data, message }`，领域数据放在 `data` 中；失败和无业务数据时为 null。数字码、默认 HTTP 状态与文案在 `packages/contracts/src/api.ts` 集中维护，也允许业务自定义数字码和提示。HTTP 追踪编号使用 `X-Request-Id` 响应头，与命令中的幂等 `requestId` 分开。各终端应按 [HTTP API 公共约定](../api-conventions.md) 同步升级。
 
 资料修改只接收 `{ "displayName": "新名称" }`，去掉首尾空白后校验 1～80 字符；空白、超长及额外身份字段返回 400。该操作更新当前名称，不需要创建命令的 `requestId`；重复提交同一名称不会产生新身份。消息继续使用稳定 `userId`，展示时通过工作区资料取得当前名称，不改写原文中的旧称呼。
 

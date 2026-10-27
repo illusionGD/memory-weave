@@ -1,4 +1,4 @@
-import { API_ERROR_CODES } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
@@ -76,7 +76,7 @@ export class ConversationsService {
             )
             .limit(1);
           if (!existing || existing.fingerprint !== requestFingerprint)
-            throw new ApiException(API_ERROR_CODES.IDEMPOTENCY_CONFLICT);
+            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
           return this.detail(ownerId, existing.id, tx);
         }
         const members: (typeof conversationMembers.$inferInsert)[] = input.companions.map(
@@ -182,11 +182,11 @@ export class ConversationsService {
           .limit(1);
         if (existing) {
           if (existing.fingerprint !== requestFingerprint)
-            throw new ApiException(API_ERROR_CODES.IDEMPOTENCY_CONFLICT);
+            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
           return toMessage(existing, tx);
         }
         if (conversation.version !== input.expectedConversationVersion)
-          throw new ApiException(API_ERROR_CODES.VERSION_CONFLICT);
+          throw new ApiException(API_CODES.VERSION_CONFLICT);
         const receivedAt = new Date();
         const [row] = await tx
           .insert(messages)
@@ -207,7 +207,7 @@ export class ConversationsService {
             replyToMessageId: input.replyToMessageId ?? null,
           })
           .returning();
-        if (!row) throw new ApiException(API_ERROR_CODES.CONFLICT);
+        if (!row) throw new ApiException(API_CODES.CONFLICT);
         if (input.sources.length > 0)
           await tx.insert(messageSources).values(
             input.sources.map((source) => ({
@@ -238,7 +238,7 @@ export class ConversationsService {
           ),
         )
         .limit(1);
-      if (!row) throw new ApiException(API_ERROR_CODES.RESOURCE_NOT_FOUND);
+      if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return toMessage(row, db);
     });
   }
@@ -263,7 +263,7 @@ export class ConversationsService {
             ),
           )
           .limit(1);
-        if (!row) throw new ApiException(API_ERROR_CODES.RESOURCE_NOT_FOUND);
+        if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
         const original = await toMessage(row, tx);
         const member = await this.speaker(ownerId, conversationId, original.speaker, tx);
         await this.validateReferences(
@@ -283,7 +283,7 @@ export class ConversationsService {
             row.publishRequestId !== input.requestId.toLowerCase() ||
             row.publishFingerprint !== requestFingerprint
           ) {
-            throw new ApiException(API_ERROR_CODES.MESSAGE_ALREADY_PUBLISHED);
+            throw new ApiException(API_CODES.MESSAGE_ALREADY_PUBLISHED);
           }
           return original;
         }
@@ -291,14 +291,14 @@ export class ConversationsService {
           row.revision !== input.expectedRevision ||
           conversation.version !== input.expectedConversationVersion
         ) {
-          throw new ApiException(API_ERROR_CODES.VERSION_CONFLICT);
+          throw new ApiException(API_CODES.VERSION_CONFLICT);
         }
         if (
           conversation.lastSequence >= 2_147_483_647 ||
           conversation.version >= 2_147_483_647 ||
           row.revision >= 2_147_483_647
         ) {
-          throw new ApiException(API_ERROR_CODES.VERSION_LIMIT_REACHED);
+          throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
         }
         const sequence = conversation.lastSequence + 1;
         await assertVisible(member, sequence, tx);
@@ -315,7 +315,7 @@ export class ConversationsService {
           })
           .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)))
           .returning();
-        if (!published) throw new ApiException(API_ERROR_CODES.CONFLICT);
+        if (!published) throw new ApiException(API_CODES.CONFLICT);
         await tx
           .update(conversations)
           .set({ lastSequence: sequence, version: conversation.version + 1 })
@@ -342,7 +342,7 @@ export class ConversationsService {
           try {
             await assertVisible(recipient, sequence, tx);
           } catch (error) {
-            if (error instanceof ApiException && error.code === API_ERROR_CODES.RESOURCE_NOT_FOUND)
+            if (error instanceof ApiException && error.code === API_CODES.RESOURCE_NOT_FOUND)
               continue;
             throw error;
           }
@@ -408,7 +408,7 @@ export class ConversationsService {
         conversationId,
         db,
       );
-      if (member.leftSequence !== null) throw new ApiException(API_ERROR_CODES.MEMBER_LEFT);
+      if (member.leftSequence !== null) throw new ApiException(API_CODES.MEMBER_LEFT);
       return member;
     }
     const [member] = await db
@@ -424,7 +424,7 @@ export class ConversationsService {
       )
       .limit(1);
     if (!member || member.leftSequence !== null)
-      throw new ApiException(API_ERROR_CODES.RESOURCE_NOT_FOUND);
+      throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return member;
   }
 
@@ -455,7 +455,7 @@ export class ConversationsService {
           ),
         )
         .limit(1);
-      if (!row || row.sequence === null) throw new ApiException(API_ERROR_CODES.RESOURCE_NOT_FOUND);
+      if (!row || row.sequence === null) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       await assertVisible(member, row.sequence, db);
     }
   }

@@ -23,9 +23,10 @@ description: >-
 - 用户使用 Node 22；最低 22.20.0，推荐版本见 `.nvmrc`。运行时、Node 类型、Docker 和 CI 保持一致；CI 验证最低版本与推荐版本。
 - server 的说明性注释统一使用中文，包括 JSDoc、参数和返回值说明、行内注释；保留代码标识符、协议名称及 JSDoc 标签。
 - 公共契约字段使用中文 JSDoc，说明语义、枚举与空值含义；通过具名 shape 和 `z.ZodObject<typeof shape>` 保留声明文件的字段提示，类型继续从 schema 推导，不重复维护规则。
-- 所有终端共用 [HTTP API 约定](../../../docs/api-conventions.md)。业务错误先在 contracts 的 `API_ERROR_CODES` 常量登记协议值，并在 `API_ERRORS` 补上状态和中文提示；通过 `ApiException(API_ERROR_CODES.名称)` 或常量比较引用，禁止散落错误码字符串。中间件共用 `sendApiError`，禁止单独拼装失败正文。未知异常由全局过滤器返回安全 500。成功响应保持领域对象和真实 HTTP 状态，204 不写正文。
-- HTTP 追踪 `requestId` 与业务幂等键独立；响应头和错误正文一致，日志仅记录受控分类与编号。终端允许未来新增错误码，并按 HTTP 状态降级未知/旧格式响应，不能直接展示任意异常文本或自动重试写操作。
-- HTTP 状态到默认错误码使用 contracts 导出的 `HTTP_STATUS_TO_ERROR_CODE` 数字键映射；`defaultApiErrorCode` 复用它并为未知状态兜底，不在调用方复制映射。`ApiErrorCode` 仅作为错误码联合类型，常量命名为 `API_ERROR_CODES`。
+- 所有 JSON API 统一使用 `{ code, data, message }`，失败和无数据时 data 为 null；真实 HTTP 状态区分成功与失败，退出登录使用 200。领域 schema 描述 data，控制器默认返回领域对象，由 `ApiResponseInterceptor` 包装一次；按需用 `ApiResult` 自定义成功 code/message。
+- 数字常用码、默认 HTTP 状态与文案集中在 contracts 的 `api.ts`：`API_CODES`、`API_RESPONSES`、`HTTP_STATUS_TO_API_CODE`。目录提供默认值，不是白名单；`ApiException(code, message?, statusCode?)` 允许未登记数字码和自定义文案。跨模块需要复用的码加入目录；局部码在相关接口说明中约定。
+- 异常类、统一输出 `sendApiError`、追踪中间件及全局过滤器集中到 `http/api-exception.ts`。业务自定义提示可对外展示，普通框架及未知异常仍返回受控提示。日志不写提示、原始异常或敏感内容。
+- HTTP 追踪编号仅放 `X-Request-Id` 响应头并与日志关联，与业务幂等键独立。终端校验外层和 data，接受自定义数字码及业务文案；格式不合法或代理 HTML 才按实际 HTTP 状态降级，不自动重试写操作。接入规则见 [HTTP API 公共约定](../../../docs/api-conventions.md)。
 - 项目源码中指向 TypeScript 文件的相对 import / export 统一省略文件后缀，包含 server、contracts 与 Web；Vue 和静态资源保留各自扩展名。server 与 contracts 使用 ESNext / Bundler，server 另启用 node 条件；构建必须执行 `tsc` 后的 `tsc-alias` 路径补全，确保 JavaScript 与类型声明都可供 ESM 使用。指向真实构建产物的入口与运行脚本继续使用 `.js`。修改导入方式时验证源码解析、编译运行和 NodeNext 消费方的类型检查。
 - 默认 API 需要认证，公开路由显式声明；前端路由判断不能代替后端控制。
 - API 路径大小写与 Express 匹配保持一致；静态资源 fallback 不返回 API 的 HTML 页面。
