@@ -24,7 +24,7 @@ description: >-
 - server 的说明性注释统一使用中文，包括 JSDoc、参数和返回值说明、行内注释；保留代码标识符、协议名称及 JSDoc 标签。
 - 公共契约字段使用中文 JSDoc，说明语义、枚举与空值含义；通过具名 shape 和 `z.ZodObject<typeof shape>` 保留声明文件的字段提示，类型继续从 schema 推导，不重复维护规则。
 - 所有 JSON API 统一使用 `{ code, data, message }`，失败和无数据时 data 为 null；真实 HTTP 状态区分成功与失败，退出登录使用 200。领域 schema 描述 data，控制器默认返回领域对象，由 `ApiResponseInterceptor` 包装一次；按需用 `ApiResult` 自定义成功 code/message。
-- 数字常用码、默认 HTTP 状态与文案集中在 contracts 的 `api.ts`：`API_CODES`、`API_RESPONSES`、`HTTP_STATUS_TO_API_CODE`。目录提供默认值，不是白名单；`ApiException(code, message?, statusCode?)` 允许未登记数字码和自定义文案。跨模块需要复用的码加入目录；局部码在相关接口说明中约定。
+- 数字常用码、默认 HTTP 状态与文案集中在 contracts 的 `api.ts`：`API_CODES`、`API_RESPONSES`。通用 code 直接使用 HTTP 状态值，不维护重复数字映射；`defaultApiErrorCode` 查公共目录为未登记的错误状态兜底 500。目录提供默认值，不是白名单；`ApiException(code, message?, statusCode?)` 允许未登记数字码和自定义文案。跨模块需要复用的码加入目录；局部码在相关接口说明中约定。
 - 异常类、统一输出 `sendApiError`、追踪中间件及全局过滤器集中到 `http/api-exception.ts`。业务自定义提示可对外展示，普通框架及未知异常仍返回受控提示。日志不写提示、原始异常或敏感内容。
 - HTTP 追踪编号仅放 `X-Request-Id` 响应头并与日志关联，与业务幂等键独立。终端校验外层和 data，接受自定义数字码及业务文案；格式不合法或代理 HTML 才按实际 HTTP 状态降级，不自动重试写操作。接入规则见 [HTTP API 公共约定](../../../docs/api-conventions.md)。
 - 项目源码中指向 TypeScript 文件的相对 import / export 统一省略文件后缀，包含 server、contracts 与 Web；Vue 和静态资源保留各自扩展名。server 与 contracts 使用 ESNext / Bundler，server 另启用 node 条件；构建必须执行 `tsc` 后的 `tsc-alias` 路径补全，确保 JavaScript 与类型声明都可供 ESM 使用。指向真实构建产物的入口与运行脚本继续使用 `.js`。修改导入方式时验证源码解析、编译运行和 NodeNext 消费方的类型检查。
@@ -35,6 +35,7 @@ description: >-
 - 会话目前位于进程内，12 小时过期、最多 10 个；服务重启后重登。后续业务持久化不得依赖该会话存储。
 - 仅在配置的数据库真实可用、vector 存在、数据库迁移与当前发布一致、文件目录可写时报告就绪。迁移与业务数据边界另见 data-foundation 技能。
 - 生产打包使用 workspace 注入、build 同步与锁文件；依赖变更后核对标准 `pnpm deploy` 和 Docker 构建。
+- dev 及编辑器使用 `memory-weave-source` 条件直读共享包源码，根目录 dev/typecheck 无须先 build。server build 必须去掉源码条件，Vite 仅 serve 启用；普通 exports 和生产包仍读取 dist。修改相关配置时验证无 dist 启动、前后端自动更新、原子保存与新增模块，以及生产部署。新增共享包需核对实际 workspace 源码链接，不能依赖注入副本随 build 同步来提供热更新。
 
 ## 验证与交付
 

@@ -1,9 +1,4 @@
-import {
-  API_CODES,
-  API_RESPONSES,
-  HTTP_STATUS_TO_API_CODE,
-  getApiResponseDefinition,
-} from '@memory-weave/contracts';
+import { API_CODES, API_RESPONSES, getApiResponseDefinition } from '@memory-weave/contracts';
 import type { ApiResponse } from '@memory-weave/contracts';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import type { Response } from 'express';
@@ -48,10 +43,7 @@ export class ApiResponseInterceptor implements NestInterceptor<unknown, ApiRespo
           throw new ApiException(API_CODES.INTERNAL_ERROR);
         }
         const result = value instanceof ApiResult ? value : new ApiResult(value);
-        const code =
-          result.options.code ??
-          HTTP_STATUS_TO_API_CODE[response.statusCode] ??
-          response.statusCode;
+        const code = result.options.code ?? response.statusCode;
         const message =
           result.options.message ??
           getApiResponseDefinition(code)?.message ??

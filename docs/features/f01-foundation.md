@@ -24,6 +24,14 @@ server 和 contracts 的生产构建均在 `tsc` 之后执行开发依赖 [tsc-a
 
 路径补全不重算 source map，被改写导入行的列定位可能有偏差。构建工具也不能代替运行验证；检查仍覆盖编译产物启动与 Docker 登录流程。
 
+### workspace 源码联调
+
+contracts 的 exports 增加 `memory-weave-source` 条件并置于 `types` / `import` 之前。server dev 的 tsx、Vite serve 和前后端 TypeScript 检查均启用这个条件，直接使用 `src/index.ts`；根目录 dev 与 typecheck 不再预先 build。tsx 额外监听 `packages/*/src/**/*.ts`，覆盖新模块和编辑器原子保存。Vite 保留默认解析条件，仅在 serve 时增加源码条件，普通构建仍读取 dist。
+
+server 的 build 配置只保留 `node` 条件，避免将共享包源码编进 server 的产物目录。contracts 的普通 exports、发布文件范围与生产部署不变；构建、生产 Node 及打包工具不启用源码条件。当前 pnpm 将 contracts 去重为指向 workspace 的符号链接，继续保留注入与 build 同步供生产 deploy 使用。以后增加共享包时沿用相同条件，并核对开发依赖实际链接到源码目录；带不同 peer dependencies 的注入副本不能代替实时源码链接。
+
+验收时可临时移走 contracts 的 dist，执行 `pnpm typecheck` 与 `pnpm dev`，再修改公共响应文案：后端 HTTP 和浏览器的默认提示应随保存更新，无需手动 build。另验证原子替换、新增模块、再次修改和撤回导入；结束后还原临时修改。后端重启会使当前内存会话失效，这是已有会话机制。
+
 ## 公共 HTTP 接口
 
 | 接口                     | 访问条件             | 作用                                                |

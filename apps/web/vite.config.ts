@@ -1,8 +1,8 @@
 import { fileURLToPath, URL } from 'node:url';
 import vue from '@vitejs/plugin-vue';
-import { defineConfig, loadEnv } from 'vite';
+import { defaultClientConditions, defineConfig, loadEnv } from 'vite';
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
   const environment = loadEnv(mode, workspaceRoot, '');
 
@@ -11,6 +11,11 @@ export default defineConfig(({ mode }) => {
     // Only explicitly public variables may enter browser bundles.
     envPrefix: 'PUBLIC_',
     resolve: {
+      // 开发时直读 workspace 源码，生产构建仍使用各包的 dist 入口。
+      conditions:
+        command === 'serve'
+          ? ['memory-weave-source', ...defaultClientConditions]
+          : [...defaultClientConditions],
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },

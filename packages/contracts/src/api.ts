@@ -68,47 +68,8 @@ export const API_CODES = {
 /** 当前版本已登记的响应码类型，从 API_CODES 常量的值推导。 */
 export type ApiCode = (typeof API_CODES)[keyof typeof API_CODES];
 
-/** 已登记失败码的联合类型，用于默认映射；自定义业务异常仍接受 number。 */
+/** 已登记失败码的联合类型，用于默认错误处理；自定义业务异常仍接受 number。 */
 export type ApiErrorCode = Exclude<ApiCode, typeof API_CODES.OK | typeof API_CODES.CREATED>;
-
-/**
- * HTTP 状态码到默认数字响应码的只读映射，供统一出口和各终端降级使用。
- * 数字键仅覆盖已登记的状态，未登记时为 undefined；具体业务原因由 API_CODES 表达。
- */
-export const HTTP_STATUS_TO_API_CODE: Readonly<Partial<Record<number, ApiCode>>> = {
-  /** 查询、更新及无业务数据的操作成功。 */
-  200: API_CODES.OK,
-  /** 创建、发布及接收成功。 */
-  201: API_CODES.CREATED,
-  /** 请求不符合接口约定。 */
-  400: API_CODES.INVALID_REQUEST,
-  /** 当前请求需要登录。 */
-  401: API_CODES.AUTH_REQUIRED,
-  /** 当前操作没有访问权限。 */
-  403: API_CODES.ACCESS_DENIED,
-  /** 资源不存在或不可见。 */
-  404: API_CODES.RESOURCE_NOT_FOUND,
-  /** 接口不支持当前请求方法。 */
-  405: API_CODES.METHOD_NOT_ALLOWED,
-  /** 服务端接收请求超时。 */
-  408: API_CODES.REQUEST_TIMEOUT,
-  /** 请求与当前状态冲突，具体原因尚未分类。 */
-  409: API_CODES.CONFLICT,
-  /** 请求正文超过体积限制。 */
-  413: API_CODES.REQUEST_BODY_TOO_LARGE,
-  /** 请求正文的格式或编码不受支持。 */
-  415: API_CODES.UNSUPPORTED_MEDIA_TYPE,
-  /** 当前请求达到限流条件。 */
-  429: API_CODES.RATE_LIMITED,
-  /** 服务发生未预期的内部错误。 */
-  500: API_CODES.INTERNAL_ERROR,
-  /** 上游服务响应异常。 */
-  502: API_CODES.BAD_GATEWAY,
-  /** 服务暂时不可用，具体原因尚未分类。 */
-  503: API_CODES.SERVICE_UNAVAILABLE,
-  /** 等待上游服务响应超时。 */
-  504: API_CODES.GATEWAY_TIMEOUT,
-} as const;
 
 /**
  * 各终端共用的响应目录。数字 code、实际 HTTP 状态和安全中文提示在此统一维护。
@@ -234,8 +195,8 @@ export function getApiResponseDefinition(code: number): ApiResponseDefinition | 
  * @returns 当前终端可识别的通用错误码；其他状态统一使用内部错误提示。
  */
 export function defaultApiErrorCode(statusCode: number): ApiErrorCode {
-  const code = HTTP_STATUS_TO_API_CODE[statusCode];
-  return code === undefined || code === API_CODES.OK || code === API_CODES.CREATED
-    ? API_CODES.INTERNAL_ERROR
-    : code;
+  const definition = getApiResponseDefinition(statusCode);
+  return statusCode >= 400 && statusCode < 600 && definition?.statusCode === statusCode
+    ? (statusCode as ApiErrorCode)
+    : API_CODES.INTERNAL_ERROR;
 }

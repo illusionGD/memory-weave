@@ -38,23 +38,24 @@ GET、PATCH、登录和退出登录成功为 HTTP 200。F02 创建、保存、�
 
 ## 常用码的统一维护
 
-| 内容                     | 维护入口                                                                                    |
-| ------------------------ | ------------------------------------------------------------------------------------------- |
-| 常用数字码               | `API_CODES`；`ApiCode` 是当前已登记码的联合类型                                             |
-| 对应 HTTP 状态和默认提示 | `API_RESPONSES`；`getApiResponseDefinition(code)` 查询，未登记时为 `undefined`              |
-| HTTP 状态对应的默认码    | `HTTP_STATUS_TO_API_CODE`；`defaultApiErrorCode(status)` 复用该映射，为未知错误状态兜底 500 |
-| 完整响应及其类型         | `apiResponseSchema`、`ApiResponse<T>`                                                       |
-| 失败响应                 | `apiErrorResponseSchema`、`ApiErrorResponse`，固定 `data: null`                             |
-| 已登记码枚举             | `apiCodeSchema`；仅在需要限制到目录时使用，普通 HTTP 响应不使用它拒绝自定义码               |
-| 追踪头                   | `REQUEST_ID_HEADER`，值为 `X-Request-Id`                                                    |
+| 内容                     | 维护入口                                                                                                 |
+| ------------------------ | -------------------------------------------------------------------------------------------------------- |
+| 常用数字码               | `API_CODES`；`ApiCode` 是当前已登记码的联合类型                                                          |
+| 对应 HTTP 状态和默认提示 | `API_RESPONSES`；`getApiResponseDefinition(code)` 查询，未登记时为 `undefined`                           |
+| 默认响应码               | 成功直接使用 HTTP 状态；`defaultApiErrorCode(status)` 查公共目录，已登记错误状态返回自身，其他值兜底 500 |
+| 完整响应及其类型         | `apiResponseSchema`、`ApiResponse<T>`                                                                    |
+| 失败响应                 | `apiErrorResponseSchema`、`ApiErrorResponse`，固定 `data: null`                                          |
+| 已登记码枚举             | `apiCodeSchema`；仅在需要限制到目录时使用，普通 HTTP 响应不使用它拒绝自定义码                            |
+| 追踪头                   | `REQUEST_ID_HEADER`，值为 `X-Request-Id`                                                                 |
 
 ```ts
-import { API_CODES, API_RESPONSES, HTTP_STATUS_TO_API_CODE } from '@memory-weave/contracts';
+import { API_CODES, API_RESPONSES, defaultApiErrorCode } from '@memory-weave/contracts';
 
 API_CODES.OK; // 200
 API_CODES.INVALID_CREDENTIALS; // 40101
 API_CODES.VERSION_CONFLICT; // 40902
-HTTP_STATUS_TO_API_CODE[409]; // 409
+defaultApiErrorCode(409); // 409
+defaultApiErrorCode(599); // 500，未登记的状态使用通用错误
 API_RESPONSES[API_CODES.VERSION_CONFLICT];
 // { statusCode: 409, message: '数据版本已变化，请刷新后核对。' }
 ```
@@ -72,7 +73,7 @@ return new ApiResult(result, { code: 10000, message: '记录已保存。' });
 return new ApiResult(result, { message: '本轮处理已完成。' });
 ```
 
-`ApiResult` 与 `ApiResponseInterceptor` 维护在 `apps/server/src/http/api-response.interceptor.ts`。省略 code 时使用 HTTP 状态的默认码；省略 message 时依次采用该码默认提示、该 HTTP 状态的默认提示、通用成功提示。HTTP 状态仍通过 Nest 的 `@HttpCode` 等接口声明。
+`ApiResult` 与 `ApiResponseInterceptor` 维护在 `apps/server/src/http/api-response.interceptor.ts`。省略 code 时直接使用 HTTP 状态值；省略 message 时依次采用该码默认提示、该 HTTP 状态的默认提示、通用成功提示。HTTP 状态仍通过 Nest 的 `@HttpCode` 等接口声明。通用码与 HTTP 状态相同，不额外维护一份数字到相同数字的映射；业务码到 HTTP 状态的关系保存在 `API_RESPONSES`。
 
 失败时：
 
