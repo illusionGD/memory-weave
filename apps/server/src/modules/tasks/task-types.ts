@@ -1,5 +1,11 @@
 /** 持久输入由所属模块解释，客户端不能任意注册处理器。 */
 export type TaskInput =
+  | {
+      kind: 'persona_initialization';
+      profileText: string;
+      expectedPersonaVersionId: string;
+      configVersion: number;
+    }
   | { kind: 'model_probe'; probe: import('@memory-weave/contracts').QueuedModelProbe }
   | { kind: 'diagnostic'; steps: number }
   | {

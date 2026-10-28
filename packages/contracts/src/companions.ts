@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { positiveIntegerSchema, utcDateTimeSchema, uuidSchema } from './common';
+import { personaDocumentSchema } from './persona-document';
 
 const createCompanionRequestShape = {
   /** 创建命令的 UUID 幂等键；同键同载荷重放，同键异载荷返回冲突。 */
@@ -42,10 +43,20 @@ const personaVersionShape = {
   companionId: uuidSchema,
   /** 此人格版本所属的运行代次，与实例稳定标识分别记录。 */
   runtimeEpoch: positiveIntegerSchema,
-  /** 此代次下的人格版本号；F02 仅初始化第 1 版。 */
+  /** 此代次下不可变的人格版本号。 */
   version: positiveIntegerSchema,
-  /** 当前版本的人格原文，与初始快照分别存储。 */
+  /** 版本对应的原稿；整理后以 document 为人格内容，原稿仅供溯源。 */
   profileText: z.string().min(1).max(4000),
+  /** 整理后的人格文档；尚未整理的原稿版本为 null。 */
+  document: personaDocumentSchema.nullable(),
+  /** 版本产生原因，自动成长将独立扩展。 */
+  origin: z.enum(['initial_text', 'initialization', 'lock_revision']),
+  /** 前一版记录标识；原稿首版为空。 */
+  parentVersionId: uuidSchema.nullable(),
+  /** 整理使用的模型调用；人工约束修订不产生新模型调用。 */
+  modelCallId: uuidSchema.nullable(),
+  /** 确定性测试或真实模型；未整理时为空。 */
+  mode: z.enum(['test', 'model']).nullable(),
   /** 此人格版本创建的 UTC 时间。 */
   createdAt: utcDateTimeSchema,
 };

@@ -7,6 +7,30 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/persona-templates',
+      name: 'persona-templates',
+      component: () => import('@/views/companions/PersonaTemplatesView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/companions',
+      name: 'companions',
+      component: () => import('@/views/companions/CompanionsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/companions/new',
+      name: 'companion-create',
+      component: () => import('@/views/companions/CompanionCreateView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/companions/:id',
+      name: 'companion-detail',
+      component: () => import('@/views/companions/CompanionDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/',
       name: 'status',
       component: () => import('@/views/system/SystemView.vue'),

@@ -96,3 +96,6 @@ export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 export type SystemStatus = z.infer<typeof systemStatusSchema>;
 export * from './models';
 export * from './tasks';
+export * from './persona-templates';
+export * from './persona-document';
+export * from './personas';

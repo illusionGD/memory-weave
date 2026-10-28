@@ -3,10 +3,10 @@ import { z } from 'zod';
 /** 服务端及请求中的稳定 UUID 标识。 */
 export const uuidSchema = z.uuid();
 
-/** 版本、代次及已发布序号使用的正整数，不得超过 PostgreSQL integer 的上限。 */
+/** 版本、代次及已发布序号使用的正整数，不得超过 有符号 32 位整数 的上限。 */
 export const positiveIntegerSchema = z.number().int().positive().max(2_147_483_647);
 
-/** 尚无消息时的序号及分页起点允许为零，不得超过 PostgreSQL integer 的上限。 */
+/** 尚无消息时的序号及分页起点允许为零，不得超过 有符号 32 位整数 的上限。 */
 export const nonnegativeIntegerSchema = z.number().int().nonnegative().max(2_147_483_647);
 
 /** UTC ISO 时间字符串，必须使用 Z 时区，不接受本地时间或时区偏移。 */

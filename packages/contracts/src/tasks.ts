@@ -20,7 +20,12 @@ export const taskStatusSchema = z.enum([
   'cancelled',
 ]);
 /** 当前注册的任务种类，诊断不能写入真实经历。 */
-export const taskKindSchema = z.enum(['diagnostic', 'model_probe', 'memory_extraction']);
+export const taskKindSchema = z.enum([
+  'diagnostic',
+  'model_probe',
+  'memory_extraction',
+  'persona_initialization',
+]);
 const diagnosticTaskShape = {
   /** 客户端命令身份，同键同内容返回原任务。 */
   requestId: uuidSchema,

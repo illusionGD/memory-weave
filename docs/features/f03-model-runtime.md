@@ -140,3 +140,5 @@ pnpm models:config apply
 沿用现有 Node fetch、Zod、Drizzle，不增加 SDK 或编排框架依赖。相比直接采用供应商 SDK，本实现能保证每次实际 HTTP 尝试由同一处显式预留及计量，避免 SDK 自动重试绕过预算；代价是自行维护当前协议子集。供应商 SDK 可后续作为单次 adapter 引入，LangGraph 等编排框架需等实际持久流程复杂度证明必要性。
 
 2026-10-28 查阅 OpenAI 官方 [Chat Completions 类型](https://github.com/openai/openai-node/blob/master/src/resources/chat/completions/completions.ts)、[Embeddings 类型](https://github.com/openai/openai-node/blob/master/src/resources/embeddings.ts) 和 [重试说明](https://github.com/openai/openai-node#retries)。这支持当前请求格式、维度与用量字段的选择；不同兼容供应商支持程度、模型效果、完整费用与目标服务器容量仍待实际配置后验证。
+
+F05 接入补充：persona 的新安装默认定义与输入/输出上限已独立设置，既有配置仅在明确创建时升级旧占位定义并保留限额，详见 [F05 模型与恢复](f05-companion-personas.md#模型配置和恢复)。

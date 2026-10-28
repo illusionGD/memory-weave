@@ -21,3 +21,5 @@ description: 维护 F03 模型 adapter、任务配置版本、调用诊断和持
 迁移只追加新文件，MySQL DDL 失败规则沿用 data-foundation。修改后执行格式/lint/typecheck、相关测试、构建、必要浏览器和 Docker 升级/持久化验收。`verify:f03` 只用测试 adapter，写三条诊断且不修改用户配置；不在用户真实模型配置上强行切换以通过验收。
 
 功能交付更新 README、plan/progress 与本技能，在已授权的 dev 分支追加提交并推送，提供固定 SHA、比较基线、启动验收步骤，停在本次用户授权功能供 review；F04 任务集成维护同时阅读 durable-tasks。
+
+F05 人格整理已通过 execute 接入：persona 的新安装默认定义为 persona-initial-v1、输入/输出上限为 32768/4096；旧 probe-v1 占位仅在显式启用时追加定义绑定，不改模型、价格或限额。维护具体采用规则时阅读 companion-personas 技能；测试 adapter 不具备语义整理能力。

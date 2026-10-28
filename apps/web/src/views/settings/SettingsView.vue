@@ -3,6 +3,7 @@
     <header class="settings__header">
       <BrandMark />
       <nav class="settings__navigation" aria-label="个人空间">
+        <RouterLink class="button button--quiet" :to="{ name: 'companions' }">伴侣</RouterLink>
         <RouterLink class="button button--quiet" :to="{ name: 'status' }">运行状态</RouterLink>
         <button
           class="button button--quiet"

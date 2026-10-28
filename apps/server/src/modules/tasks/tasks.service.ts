@@ -63,7 +63,7 @@ export class TasksService {
         scope: { companionId: null, runtimeEpoch: null, conversationId: null },
         totalSteps: input.steps,
       });
-      return this.getIn(ownerId, id, tx);
+      return this.getInTransaction(ownerId, id, tx);
     });
   }
 
@@ -91,7 +91,7 @@ export class TasksService {
         scope: { companionId: null, runtimeEpoch: null, conversationId: null },
         totalSteps: 1,
       });
-      return this.getIn(ownerId, id, tx);
+      return this.getInTransaction(ownerId, id, tx);
     });
   }
 
@@ -106,7 +106,7 @@ export class TasksService {
   get(id: string): Promise<Task> {
     return this.store.locked(async (ownerId, tx, now) => {
       await this.expire(ownerId, tx, now, (await this.configuration.current(ownerId, tx)).config);
-      return this.getIn(ownerId, id, tx);
+      return this.getInTransaction(ownerId, id, tx);
     });
   }
 
@@ -154,7 +154,7 @@ export class TasksService {
           and(
             eq(tasks.ownerId, ownerId),
             inArray(tasks.status, ['queued', 'waiting']),
-            inArray(tasks.kind, ['diagnostic', 'model_probe']),
+            inArray(tasks.kind, ['diagnostic', 'model_probe', 'persona_initialization']),
             lte(tasks.availableAt, now),
           ),
         )
@@ -203,7 +203,7 @@ export class TasksService {
         deadlineAt: new Date(now.getTime() + current.config.attemptTimeoutMs),
       });
       return {
-        task: await this.getIn(ownerId, row.id, tx),
+        task: await this.getInTransaction(ownerId, row.id, tx),
         token,
         fence,
         input: row.input,
@@ -258,7 +258,7 @@ export class TasksService {
           updatedAt: now,
         })
         .where(eq(tasks.id, row.id));
-      return this.getIn(ownerId, row.id, tx);
+      return this.getInTransaction(ownerId, row.id, tx);
     });
   }
 
@@ -281,7 +281,7 @@ export class TasksService {
       const row = await this.requireLease(ownerId, tx, now, lease);
       if (row.totalSteps !== null && row.completedSteps !== row.totalSteps)
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT, '实际步骤尚未全部完成。');
-      if (row.kind === 'model_probe') {
+      if (row.kind === 'model_probe' || row.kind === 'persona_initialization') {
         const [call] = await tx
           .select()
           .from(modelCalls)
@@ -309,7 +309,7 @@ export class TasksService {
           updatedAt: committedAt,
         })
         .where(eq(tasks.id, row.id));
-      return this.getIn(ownerId, row.id, tx);
+      return this.getInTransaction(ownerId, row.id, tx);
     });
   }
 
@@ -355,7 +355,7 @@ export class TasksService {
           updatedAt: now,
         })
         .where(eq(tasks.id, row.id));
-      return this.getIn(ownerId, row.id, tx);
+      return this.getInTransaction(ownerId, row.id, tx);
     });
     if (action === 'cancel' && result.status === 'cancelled' && result.modelCallId)
       await this.models.cancel(result.modelCallId);
@@ -397,7 +397,7 @@ export class TasksService {
           updatedAt: now,
         })
         .where(eq(tasks.id, row.id));
-      return this.getIn(ownerId, row.id, tx);
+      return this.getInTransaction(ownerId, row.id, tx);
     });
   }
 
@@ -460,6 +460,21 @@ export class TasksService {
     const scope = row.scope;
     if (scope.companionId === null && scope.runtimeEpoch === null && scope.conversationId === null)
       return;
+    if (
+      row.kind === 'persona_initialization' &&
+      scope.companionId &&
+      scope.runtimeEpoch &&
+      scope.conversationId === null
+    ) {
+      const [companion] = await tx
+        .select({ epoch: companions.runtimeEpoch })
+        .from(companions)
+        .where(and(eq(companions.ownerId, ownerId), eq(companions.id, scope.companionId)))
+        .for('update');
+      if (!companion || companion.epoch !== scope.runtimeEpoch)
+        throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
+      return;
+    }
     if (!scope.companionId || !scope.runtimeEpoch || !scope.conversationId)
       throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     await tx
@@ -542,7 +557,8 @@ export class TasksService {
     return row;
   }
 
-  private async getIn(ownerId: string, id: string, tx: DatabaseTransaction): Promise<Task> {
+  /** 在调用者已有的调度事务内读取任务，避免嵌套加锁。 */
+  async getInTransaction(ownerId: string, id: string, tx: DatabaseTransaction): Promise<Task> {
     return this.view(await this.row(ownerId, id, tx), tx);
   }
 
@@ -554,7 +570,7 @@ export class TasksService {
       .orderBy(asc(taskAttempts.number))
       .limit(10);
     const [call] =
-      row.kind === 'model_probe'
+      row.kind === 'model_probe' || row.kind === 'persona_initialization'
         ? await tx
             .select({ id: modelCalls.id })
             .from(modelCalls)

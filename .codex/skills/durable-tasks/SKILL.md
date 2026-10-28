@@ -21,4 +21,6 @@ description: 维护 F04 MySQL 持久任务、outbox、租约、恢复和调度�
 - 修改后跑真实隔离 MySQL、HTTP/公开 worker 协议、本地供应商、必要的子进程强杀测试；不以直接读写内部表代替公开行为。新增领域处理器必须补入版本/失效与重复提交测试。
 - 验收脚本 verify:f04 仅创建两条诊断并调用一次 test，不改用户配置、不执行付费模型；不要为验收强行改真实配置。
 
-完成后同步功能说明、README、plan/progress 与技能，执行格式/lint/typecheck、完整相关测试、构建、必要浏览器和 Docker 升级/保留卷恢复验证。按已有授权在 dev 追加提交并推送，交付 SHA、比较基线和启动验收步骤；停在本功能供 review，不自行进入 F05。
+完成后同步功能说明、README、plan/progress 与技能，执行格式/lint/typecheck、完整相关测试、构建、必要浏览器和 Docker 升级/保留卷恢复验证。按已有授权在 dev 追加提交并推送，交付 SHA、比较基线和启动验收步骤；停在本功能供 review，不自行进入下一功能。
+
+F05 已接入 persona_initialization：允许实例+代次且无会话的受信任任务，仍验证实例代次；模型结果与人格采用通过 complete 回调原子提交。维护时同时阅读 companion-personas 技能，不能把诊断的空范围规则用于业务任务。

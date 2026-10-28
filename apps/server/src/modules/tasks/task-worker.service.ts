@@ -8,6 +8,7 @@ import { TasksService } from './tasks.service';
 import { TaskOutboxService } from './task-outbox.service';
 import { TaskConfigurationService, defaultTaskConfiguration } from './task-configuration.service';
 import type { TaskLease } from './task-types';
+import { CompanionPersonasService } from '../companions/companion-personas.service';
 
 /** 进程仅负责唤醒与执行，队列、租约、检查点和计量始终以数据库为准。 */
 @Injectable()
@@ -21,6 +22,7 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(TaskOutboxService) private readonly outbox: TaskOutboxService,
     @Inject(TaskConfigurationService) private readonly configuration: TaskConfigurationService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
+    @Inject(CompanionPersonasService) private readonly personas: CompanionPersonasService,
   ) {}
 
   /** 主进程监听后启动；测试或维护程序可以只创建 HTTP 应用而不自动消费。 */
@@ -104,6 +106,8 @@ export class TaskWorkerService implements OnModuleDestroy {
           await this.tasks.checkpoint(lease, { completedSteps: step, stage: 'steps' });
         }
         if (!leaseLost) await this.tasks.complete(lease);
+      } else if (lease.input.kind === 'persona_initialization') {
+        await this.personas.execute(lease);
       } else if (lease.input.kind === 'model_probe') {
         let call = await this.models.probe(lease.input.probe, (ownerId, tx) =>
           this.tasks.guardDispatch(ownerId, tx, lease),

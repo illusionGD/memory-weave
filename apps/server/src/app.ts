@@ -19,6 +19,10 @@ import { attachWebAssets } from './web-assets';
 import { DatabaseService } from './database/database.service';
 import { CompanionsController } from './modules/companions/companions.controller';
 import { CompanionsService } from './modules/companions/companions.service';
+import { PersonaTemplatesController } from './modules/companions/persona-templates.controller';
+import { PersonaTemplatesService } from './modules/companions/persona-templates.service';
+import { CompanionPersonasService } from './modules/companions/companion-personas.service';
+import { CompanionPersonasController } from './modules/companions/companion-personas.controller';
 import { ConversationsController } from './modules/conversations/conversations.controller';
 import { ConversationsService } from './modules/conversations/conversations.service';
 import { ReceivingController } from './modules/conversations/receiving.controller';
@@ -51,6 +55,8 @@ class ApplicationModule {
         SystemController,
         WorkspaceController,
         CompanionsController,
+        PersonaTemplatesController,
+        CompanionPersonasController,
         ConversationsController,
         ReceivingController,
         ModelsController,
@@ -63,6 +69,8 @@ class ApplicationModule {
         SystemService,
         DatabaseService,
         CompanionsService,
+        PersonaTemplatesService,
+        CompanionPersonasService,
         ConversationsService,
         ReceivingService,
         WorkspaceService,
@@ -104,6 +112,11 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
     }),
   );
   app.use(createOriginCheck(config.appOrigin));
+  // 人设原稿和明确约束可能包含较长中文文本；其他入口继续采用原有体积上限。
+  app.use(
+    ['/api/companion-creations', '/api/companions', '/api/persona-templates'],
+    express.json({ limit: '256kb' }),
+  );
   app.use(express.json({ limit: '16kb' }));
   app.use(handleBodyError);
   app.use(cookieParser());

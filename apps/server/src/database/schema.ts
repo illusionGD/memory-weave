@@ -28,6 +28,7 @@ import type {
   ModelCallStatus,
   ModelResult,
   ModelCallContext,
+  PersonaDocument,
 } from '@memory-weave/contracts';
 
 /** 创建时保留的初始设定，与后续当前人格版本分开存储。 */
@@ -244,6 +245,16 @@ export const personaVersions = mysqlTable(
     runtimeEpoch: int('runtime_epoch').notNull(),
     version: int('version').notNull(),
     profileText: text('profile_text').notNull(),
+    document: json('document').$type<PersonaDocument>(),
+    origin: varchar('origin', { length: 24 })
+      .$type<'initial_text' | 'initialization' | 'lock_revision'>()
+      .notNull()
+      .default('initial_text'),
+    parentVersionId: uuid('parent_version_id'),
+    modelCallId: uuid('model_call_id'),
+    mode: varchar('mode', { length: 12 }).$type<'test' | 'model'>(),
+    commandId: uuid('command_id'),
+    commandFingerprint: varchar('command_fingerprint', { length: 64 }),
     createdAt: createdAt(),
   },
   (table): MySqlTableExtraConfigValue[] => [
@@ -258,6 +269,17 @@ export const personaVersions = mysqlTable(
       table.runtimeEpoch,
       table.version,
     ),
+    unique('persona_versions_command').on(table.ownerId, table.companionId, table.commandId),
+    foreignKey({
+      name: 'persona_versions_parent',
+      columns: [table.ownerId, table.companionId, table.parentVersionId],
+      foreignColumns: [table.ownerId, table.companionId, table.id],
+    }),
+    foreignKey({
+      name: 'persona_versions_model_call',
+      columns: [table.ownerId, table.modelCallId],
+      foreignColumns: [modelCalls.ownerId, modelCalls.id],
+    }),
     foreignKey({
       name: 'persona_versions_ref_1',
       columns: [table.ownerId, table.companionId],
@@ -268,6 +290,85 @@ export const personaVersions = mysqlTable(
       'persona_versions_profile_length',
       sql`char_length(${table.profileText}) BETWEEN 1 AND 4000`,
     ),
+  ],
+);
+
+/** 模板身份与当前版本指针，不存放实例成长或私密经历。 */
+export const personaTemplates = mysqlTable(
+  'persona_templates',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    version: int('version').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+  },
+  (table) => [
+    unique('persona_templates_owner_id').on(table.ownerId, table.id),
+    unique('persona_templates_request').on(table.ownerId, table.requestId),
+    check('persona_templates_version_positive', sql`${table.version} > 0`),
+  ],
+);
+
+/** 模板只追加版本；伴侣创建时固定确切版本及内容。 */
+export const personaTemplateVersions = mysqlTable(
+  'persona_template_versions',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    templateId: uuid('template_id').notNull(),
+    version: int('version').notNull(),
+    name: varchar('name', { length: 80 }).notNull(),
+    initialProfile: text('initial_profile').notNull(),
+    lockedFeatures: json('locked_features').$type<string[]>().notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('template_versions_number').on(table.ownerId, table.templateId, table.version),
+    unique('template_versions_request').on(table.ownerId, table.templateId, table.requestId),
+    foreignKey({
+      name: 'template_versions_parent',
+      columns: [table.ownerId, table.templateId],
+      foreignColumns: [personaTemplates.ownerId, personaTemplates.id],
+    }),
+    check('template_versions_positive', sql`${table.version} > 0`),
+  ],
+);
+
+/** 初始整理的固定来源和首个采用版本，不随着当前人格更新。 */
+export const personaFoundations = mysqlTable(
+  'persona_foundations',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    nameOverride: varchar('name_override', { length: 80 }),
+    template: json('template').$type<{ id: string; version: number }>(),
+    explicitLocks: json('explicit_locks').$type<string[]>().notNull(),
+    taskId: uuid('task_id').notNull(),
+    initialPersonaVersionId: uuid('initial_persona_version_id'),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('persona_foundations_scope').on(table.ownerId, table.companionId, table.runtimeEpoch),
+    unique('persona_foundations_request').on(table.ownerId, table.requestId),
+    foreignKey({
+      name: 'persona_foundations_companion',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+    foreignKey({
+      name: 'persona_foundations_initial',
+      columns: [table.ownerId, table.companionId, table.initialPersonaVersionId],
+      foreignColumns: [personaVersions.ownerId, personaVersions.companionId, personaVersions.id],
+    }),
   ],
 );
 

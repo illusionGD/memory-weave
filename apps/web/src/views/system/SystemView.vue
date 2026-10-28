@@ -3,6 +3,7 @@
     <header class="workspace__header">
       <BrandMark />
       <nav class="workspace__navigation" aria-label="个人空间">
+        <RouterLink class="button button--quiet" :to="{ name: 'companions' }">伴侣</RouterLink>
         <RouterLink class="button button--quiet" :to="{ name: 'settings' }">个人设置</RouterLink>
         <button
           class="button button--quiet"
@@ -91,7 +92,7 @@
         <div>
           <h2 class="foundation-note__title">空间的起点</h2>
           <p class="foundation-note__description">
-            当前版本提供登录与运行检查。伴侣创建、聊天和记忆功能将逐步加入。
+            现在可以创建伴侣、保存初始人生并管理人设模板。聊天和记忆功能将逐步加入。
           </p>
         </div>
       </aside>
