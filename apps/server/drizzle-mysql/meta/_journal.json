@@ -15,6 +15,13 @@
       "when": 1793157635155,
       "tag": "0001_model_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1793189882946,
+      "tag": "0002_durable_tasks",
+      "breakpoints": true
     }
   ]
 }

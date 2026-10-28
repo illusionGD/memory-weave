@@ -20,3 +20,4 @@ tmp
 .tmp
 docs
 model-config.local.json
+task-config.local.json

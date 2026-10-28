@@ -2,7 +2,7 @@
 
 维护持续身份、记忆与成长的 AI 伴侣系统。后端保存状态，浏览器提供使用入口。
 
-**当前功能：F03 模型接入、集中配置与预算。** 已提供登录、运行检查、实例/会话/原文接口，以及独立任务模型配置、版本回查、调用诊断和持久用量。可使用不联网的确定性测试模型验收，也可配置 OpenAI 兼容的文本、结构化与 embedding 接口。伴侣创建页面、流式聊天、自动成长和记忆整理按后续阶段加入。MySQL 8.4.9 保存业务数据，Qdrant 1.18.3 已接通；业务向量索引与检索尚未实现。
+**当前功能：F04 持久任务、outbox 与恢复。** 已提供登录、运行检查、实例/会话/原文、模型配置与预算，以及自动任务执行、检查点、租约接管和失败诊断。任务和配置持久保存在 MySQL 8.4.9；Qdrant 1.18.3 已接通。伴侣创建页面、流式聊天、记忆提取、向量索引和自动成长按后续阶段加入。
 
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
@@ -10,6 +10,7 @@
 - [F01 验收与实现说明](docs/features/f01-foundation.md)
 - [F02 接口、迁移与验收说明](docs/features/f02-data-foundation.md)
 - [F03 模型配置、预算与验收说明](docs/features/f03-model-runtime.md)
+- [F04 持久任务、恢复与验收说明](docs/features/f04-durable-tasks.md)
 - [各终端共用的 HTTP 响应与错误约定](docs/api-conventions.md)
 
 ## 拉取与开发启动
@@ -48,6 +49,17 @@ pnpm verify:f03
 pnpm models:config show
 pnpm models:config usage
 ```
+
+F04 升级先停止旧应用并运行 `pnpm db:migrate`。worker 随后端自动启动，无需额外队列容器。另一个项目终端执行：
+
+```powershell
+pnpm verify:f04
+pnpm tasks:config list
+pnpm tasks:config outbox
+pnpm tasks:config show
+```
+
+F04 保存两条隔离诊断并调用一次 test 模型，验证自动执行、幂等、结果关联与计量。失败、暂停和取消详情，以及配置导出/发布方式见 [F04 说明](docs/features/f04-durable-tasks.md)。消息发布会登记每个接收实例的独立待处理任务；当前记忆提取处理器尚未实现，状态为 blocked，不表示已经整理或形成记忆。
 
 F03 验收脚本检查配置、文本/结构化/向量输出、幂等和计量，持久保存三条测试调用。默认无需真实密钥；脚本只允许 test adapter，不会替用户更换模型或调用付费服务。配置与预算目前通过 HTTP 和命令维护，模型管理页面后续加入。
 

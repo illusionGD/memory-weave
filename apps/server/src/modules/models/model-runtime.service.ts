@@ -26,7 +26,7 @@ import type { DatabaseTransaction } from '../../database/database.service';
 import { modelAttempts, modelCalls, modelUsageWindows } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint, parseInput } from '../shared/http';
-import type { ModelTaskDefinition, ModelTaskScope } from './model-task';
+import type { ModelTaskDefinition, ModelTaskScope, ModelDispatchGuard } from './model-task';
 import {
   requireCompanion,
   requireConversation,
@@ -52,9 +52,10 @@ export class ModelRuntimeService {
   /**
    * 使用当前部署配置进行隔离诊断；同键重试返回同一调用，不重发未知请求。
    * @param input 已通过公共契约校验的诊断命令。
+   * @param guard 后台模块提供的派发前租约检查，不参与模型调用身份。
    * @returns 持久调用及尝试记录；失败结果仅含受控原因。
    */
-  probe(input: ModelProbe): Promise<ModelCall> {
+  probe(input: ModelProbe, guard?: ModelDispatchGuard): Promise<ModelCall> {
     return this.invoke(
       input,
       {
@@ -69,6 +70,7 @@ export class ModelRuntimeService {
       },
       { companionId: null, runtimeEpoch: null, conversationId: null },
       'diagnostic',
+      guard,
     );
   }
 
@@ -77,14 +79,16 @@ export class ModelRuntimeService {
    * @param command 调用身份、输入和预期配置。
    * @param definition 领域模块拥有的提示词、版本及输出规范。
    * @param scope 实际关联实例及会话；统一入口在发送和采用候选前检查。
+   * @param guard 在派发事务内验证任务是否仍有效；不能执行外部操作。
    * @returns 持久候选与诊断，后续业务提交仍须校验版本及生命周期。
    */
   execute(
     command: ModelProbe,
     definition: ModelTaskDefinition,
     scope: ModelTaskScope = { companionId: null, runtimeEpoch: null, conversationId: null },
+    guard?: ModelDispatchGuard,
   ): Promise<ModelCall> {
-    return this.invoke(command, definition, scope, 'task');
+    return this.invoke(command, definition, scope, 'task', guard);
   }
 
   /** 两类入口共享同一配置、计量和幂等实现，诊断不能冒充真实经历。 */
@@ -93,6 +97,7 @@ export class ModelRuntimeService {
     definition: ModelTaskDefinition,
     scope: ModelTaskScope,
     kind: ModelCallContext['kind'],
+    guard?: ModelDispatchGuard,
   ): Promise<ModelCall> {
     const input = parseInput(modelProbeSchema, command);
     const context = parseInput(modelCallContextSchema, {
@@ -112,6 +117,7 @@ export class ModelRuntimeService {
       outputJsonSchema,
     });
     const prepared = await this.configuration.locked(async (ownerId, tx, current) => {
+      await guard?.(ownerId, tx);
       await expireAttempts(ownerId, tx);
       await assertScope(ownerId, tx, context);
       const [existing] = await tx
@@ -178,7 +184,7 @@ export class ModelRuntimeService {
           try {
             if (attempt.number > 1)
               await delay(task.retryDelayMs, undefined, { signal: cancellation.signal });
-            await this.checkDispatch(prepared.callId);
+            await this.checkDispatch(prepared.callId, guard);
             cancellation.signal.throwIfAborted();
             response = await this.providers.adapter(task.providerId, input.operation).invoke({
               operation: input.operation,
@@ -207,8 +213,9 @@ export class ModelRuntimeService {
   }
 
   /** 等待后重新检查版本、取消和范围，避免按旧配置继续发送重试。 */
-  private checkDispatch(id: string): Promise<void> {
+  private checkDispatch(id: string, guard?: ModelDispatchGuard): Promise<void> {
     return this.configuration.locked(async (ownerId, tx, current) => {
+      await guard?.(ownerId, tx);
       await expireAttempts(ownerId, tx);
       const call = await readCall(ownerId, tx, id);
       if (call.status !== 'running')

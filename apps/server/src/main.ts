@@ -1,3 +1,4 @@
+import { TaskWorkerService } from './modules/tasks/task-worker.service';
 import { createApplication } from './app';
 import { ConfigurationError, loadServerConfig } from './config';
 
@@ -7,6 +8,7 @@ async function bootstrap(): Promise<void> {
   const app = await createApplication(config);
   app.enableShutdownHooks();
   await app.listen(config.port, config.host);
+  await app.get(TaskWorkerService).start();
   console.info(JSON.stringify({ event: 'server.listening', port: config.port }));
 }
 

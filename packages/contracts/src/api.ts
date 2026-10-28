@@ -59,6 +59,10 @@ export const API_CODES = {
   MODEL_USAGE_UNKNOWN: 50203,
   /** 调用已取消，迟到结果不能作为成功结果发布。 */
   MODEL_CANCELLED: 40909,
+  /** 执行者租约已失效，旧检查点或结果不能提交。 */
+  TASK_LEASE_LOST: 40910,
+  /** 当前任务状态不允许此操作。 */
+  TASK_STATE_CONFLICT: 40911,
   /** 请求正文超出服务允许的体积。 */
   REQUEST_BODY_TOO_LARGE: 413,
   /** 请求使用了不受支持的正文编码或媒体类型。 */
@@ -90,6 +94,11 @@ export type ApiErrorCode = Exclude<ApiCode, typeof API_CODES.OK | typeof API_COD
  * 使用 API_CODES 关联状态和提示；客户端按 code 判断行为，不能匹配提示文字。
  */
 export const API_RESPONSES = {
+  [API_CODES.TASK_LEASE_LOST]: {
+    statusCode: 409,
+    message: '任务已被接管、暂停或取消，旧执行结果不能提交。',
+  },
+  [API_CODES.TASK_STATE_CONFLICT]: { statusCode: 409, message: '当前任务状态不允许此操作。' },
   [API_CODES.OK]: { statusCode: 200, message: '操作成功。' },
   [API_CODES.CREATED]: { statusCode: 201, message: '创建成功。' },
   [API_CODES.INVALID_REQUEST]: { statusCode: 400, message: '请求参数不符合接口约定。' },

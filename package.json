@@ -22,7 +22,9 @@
     "test": "pnpm --filter @memory-weave/contracts build && pnpm -r --if-present test",
     "test:e2e": "playwright test",
     "verify:f03": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f03.mjs",
-    "models:config": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/model-config.mjs"
+    "models:config": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/model-config.mjs",
+    "verify:f04": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f04.mjs",
+    "tasks:config": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/task-config.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

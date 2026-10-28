@@ -1,6 +1,6 @@
 import { API_CODES } from '@memory-weave/contracts';
 import { HttpException, Inject, Injectable } from '@nestjs/common';
-import type { OnModuleDestroy } from '@nestjs/common';
+import type { OnApplicationShutdown } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/mysql2';
 import type { MySql2Database } from 'drizzle-orm/mysql2';
@@ -21,7 +21,7 @@ export type DatabaseTransaction = Parameters<Parameters<Database['transaction']>
 
 /** 为业务提供当前部署归属、结构状态和脱敏后的数据库错误。 */
 @Injectable()
-export class DatabaseService implements OnModuleDestroy {
+export class DatabaseService implements OnApplicationShutdown {
   private readonly pool: Pool;
   readonly db: Database;
 
@@ -87,7 +87,7 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   /** 应用关闭时释放业务连接，不影响其他服务持有的连接。 */
-  async onModuleDestroy(): Promise<void> {
+  async onApplicationShutdown(): Promise<void> {
     await this.pool.end();
   }
 }

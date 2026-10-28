@@ -25,3 +25,9 @@ export interface ModelTaskScope {
   /** 关联会话标识，没有会话时为 null。 */
   conversationId: string | null;
 }
+
+/** 领域模块在同一派发事务中检查任务租约；不得在回调中执行外部操作。 */
+export type ModelDispatchGuard = (
+  ownerId: string,
+  tx: import('../../database/database.service').DatabaseTransaction,
+) => Promise<void>;

@@ -24,6 +24,8 @@ import {
   processingRanges,
   visibilityGrants,
 } from '../../database/schema';
+import { stageMessageOutbox } from '../tasks/task-outbox.service';
+import type { MessageOutboxInput } from '../tasks/task-types';
 import { fingerprint } from '../shared/http';
 import {
   requireCompanion,
@@ -355,6 +357,7 @@ export class ConversationsService {
                 eq(conversationMembers.kind, 'companion'),
               ),
             );
+          const outboxRecipients: MessageOutboxInput['recipients'] = [];
           for (const { member: recipient } of recipients) {
             try {
               await assertVisible(recipient, sequence, tx);
@@ -364,6 +367,11 @@ export class ConversationsService {
               throw error;
             }
             if (recipient.companionId === null || recipient.runtimeEpoch === null) continue;
+            outboxRecipients.push({
+              companionId: recipient.companionId,
+              runtimeEpoch: recipient.runtimeEpoch,
+              permissionVersion: recipient.permissionVersion,
+            });
             await tx.insert(processingRanges).values({
               ownerId,
               companionId: recipient.companionId,
@@ -376,6 +384,13 @@ export class ConversationsService {
               createdAt: publishedAt,
             });
           }
+          await stageMessageOutbox(ownerId, tx, {
+            conversationId,
+            messageId,
+            contentVersion: row.contentVersion,
+            sequence,
+            recipients: outboxRecipients,
+          });
           return toMessage(published, tx);
         },
         { isolationLevel: 'read committed' },

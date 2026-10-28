@@ -32,6 +32,13 @@ import { ModelConfigurationService } from './modules/models/model-configuration.
 import { ModelRuntimeService } from './modules/models/model-runtime.service';
 import { ModelProvidersService } from './modules/models/model-providers.service';
 
+import { TaskWorkerService } from './modules/tasks/task-worker.service';
+import { TaskOutboxService } from './modules/tasks/task-outbox.service';
+import { TaskStore } from './modules/tasks/task-store';
+import { TaskConfigurationService } from './modules/tasks/task-configuration.service';
+import { TasksService } from './modules/tasks/tasks.service';
+import { TasksController } from './modules/tasks/tasks.controller';
+
 @Module({})
 class ApplicationModule {
   static register(config: ServerConfig): DynamicModule {
@@ -47,6 +54,7 @@ class ApplicationModule {
         ConversationsController,
         ReceivingController,
         ModelsController,
+        TasksController,
       ],
       providers: [
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
@@ -61,6 +69,11 @@ class ApplicationModule {
         ModelConfigurationService,
         ModelRuntimeService,
         ModelProvidersService,
+        TasksService,
+        TaskStore,
+        TaskOutboxService,
+        TaskWorkerService,
+        TaskConfigurationService,
       ],
     };
   }

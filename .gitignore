@@ -13,3 +13,6 @@ data/
 *.log
 .DS_Store
 model-config.local.json
+
+# 本地调度配置发布命令
+task-config.local.json

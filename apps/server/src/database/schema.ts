@@ -1,3 +1,4 @@
+import type { TaskInput, MessageOutboxInput } from '../modules/tasks/task-types';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import {
@@ -16,6 +17,11 @@ import {
 } from 'drizzle-orm/mysql-core';
 import type { MySqlTableExtraConfigValue } from 'drizzle-orm/mysql-core';
 import type {
+  Task,
+  TaskKind,
+  TaskStatus,
+  TaskScope,
+  TaskConfiguration,
   ModelConfiguration,
   ModelTaskRole,
   ModelOperation,
@@ -663,5 +669,124 @@ export const receiveBatches = mysqlTable(
     }),
     check('receive_batches_epoch_positive', sql`${table.runtimeEpoch} > 0`),
     check('receive_batches_messages_array', sql`JSON_TYPE(${table.messages}) = 'ARRAY'`),
+  ],
+);
+
+/** 恢复权威记录；任务输入与进度保存在主库，领取不依赖进程内队列。 */
+export const tasks = mysqlTable(
+  'tasks',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    requestKey: varchar('request_key', { length: 180 }).notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    kind: varchar('kind', { length: 32 }).$type<TaskKind>().notNull(),
+    input: json('input').$type<TaskInput>().notNull(),
+    scope: json('scope').$type<TaskScope>().notNull(),
+    status: varchar('status', { length: 24 }).$type<TaskStatus>().notNull().default('queued'),
+    stage: varchar('stage', { length: 64 }).notNull().default('queued'),
+    completedSteps: int('completed_steps').notNull().default(0),
+    totalSteps: int('total_steps'),
+    reason: varchar('reason', { length: 64 }),
+    modelCallId: uuid('model_call_id'),
+    fence: int('fence').notNull().default(0),
+    leaseToken: uuid('lease_token'),
+    leaseExpiresAt: datetime('lease_expires_at', { fsp: 3 }),
+    availableAt: datetime('available_at', { fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    createdAt: createdAt(),
+    updatedAt: datetime('updated_at', { fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+  },
+  (table) => [
+    unique('tasks_owner_request').on(table.ownerId, table.requestKey),
+    index('tasks_dispatch').on(table.ownerId, table.status, table.availableAt),
+    index('tasks_expiry').on(table.ownerId, table.status, table.leaseExpiresAt),
+    check(
+      'tasks_progress_valid',
+      sql`${table.completedSteps} >= 0 AND ${table.fence} >= 0 AND (${table.totalSteps} IS NULL OR ${table.completedSteps} <= ${table.totalSteps})`,
+    ),
+  ],
+);
+
+/** 只追加的调度配置，使用 owner 行锁发布并选择最大版本。 */
+export const taskConfigurationVersions = mysqlTable(
+  'task_configuration_versions',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    version: int('version').notNull(),
+    source: varchar('source', { length: 24 }).$type<'default' | 'deployment'>().notNull(),
+    config: json('config').$type<TaskConfiguration>().notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('task_config_version').on(table.ownerId, table.version),
+    unique('task_config_request').on(table.ownerId, table.requestId),
+  ],
+);
+
+/** 每次领取都保留配置、截止时间和原因；检查点不覆盖旧尝试的诊断。 */
+export const taskAttempts = mysqlTable(
+  'task_attempts',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id),
+    number: int('number').notNull(),
+    configVersion: int('config_version').notNull(),
+    config: json('config').$type<TaskConfiguration>().notNull(),
+    status: varchar('status', { length: 24 }).$type<Task['attempts'][number]['status']>().notNull(),
+    reason: varchar('reason', { length: 64 }),
+    startedAt: datetime('started_at', { fsp: 3 }).notNull(),
+    deadlineAt: datetime('deadline_at', { fsp: 3 }).notNull(),
+    finishedAt: datetime('finished_at', { fsp: 3 }),
+  },
+  (table) => [unique('task_attempt_number').on(table.ownerId, table.taskId, table.number)],
+);
+
+/** 独立调度锁行，避免以 owner 外键行排他锁阻塞消息发布。 */
+export const taskSchedulerHeads = mysqlTable('task_scheduler_heads', {
+  ownerId: uuid('owner_id')
+    .primaryKey()
+    .references(() => owners.id),
+});
+
+/** 原文发布和待办在同一事务保存，转交任务也与完成标记同事务。 */
+export const taskOutbox = mysqlTable(
+  'task_outbox',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    eventKey: varchar('event_key', { length: 180 }).notNull(),
+    kind: varchar('kind', { length: 32 }).$type<'message_published'>().notNull(),
+    sourceId: uuid('source_id').notNull(),
+    sourceVersion: int('source_version').notNull(),
+    payload: json('payload').$type<MessageOutboxInput>().notNull(),
+    status: varchar('status', { length: 24 })
+      .$type<'pending' | 'dispatched' | 'blocked'>()
+      .notNull()
+      .default('pending'),
+    reason: varchar('reason', { length: 64 }),
+    createdAt: createdAt(),
+    dispatchedAt: datetime('dispatched_at', { fsp: 3 }),
+  },
+  (table) => [
+    unique('task_outbox_event').on(table.ownerId, table.eventKey),
+    index('task_outbox_dispatch').on(table.ownerId, table.status, table.createdAt),
   ],
 );
