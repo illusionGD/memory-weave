@@ -2,18 +2,19 @@
 
 维护持续身份、记忆与成长的 AI 伴侣系统。后端保存状态，浏览器提供使用入口。
 
-**当前功能：F02 数据与会话基础。** 已提供登录、运行检查、版本化数据库迁移，以及实例、会话、原文发布和独立接收的 HTTP 接口。伴侣创建页面、模型聊天、自动成长和记忆整理按后续阶段加入；本版本不需要大模型 API 密钥。当前使用 MySQL 8.4.9 保存业务数据，Qdrant 1.18.3 提供独立向量服务；记忆索引与检索尚未实现。
+**当前功能：F03 模型接入、集中配置与预算。** 已提供登录、运行检查、实例/会话/原文接口，以及独立任务模型配置、版本回查、调用诊断和持久用量。可使用不联网的确定性测试模型验收，也可配置 OpenAI 兼容的文本、结构化与 embedding 接口。伴侣创建页面、流式聊天、自动成长和记忆整理按后续阶段加入。MySQL 8.4.9 保存业务数据，Qdrant 1.18.3 已接通；业务向量索引与检索尚未实现。
 
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
 - [开发进度](docs/progress.md)
 - [F01 验收与实现说明](docs/features/f01-foundation.md)
 - [F02 接口、迁移与验收说明](docs/features/f02-data-foundation.md)
+- [F03 模型配置、预算与验收说明](docs/features/f03-model-runtime.md)
 - [各终端共用的 HTTP 响应与错误约定](docs/api-conventions.md)
 
 ## 拉取与开发启动
 
-准备 Node.js **22.20.0 或以上的 22.x**、pnpm **11.25.0**、Docker Engine 与 Compose v2。推荐使用 `.nvmrc` 中的 **22.23.4**，Docker 同步采用该版本；CI 同时验证最低版本与推荐版本。当前锁定工具链的版本要求合并后，以 22.20.0 为最低支持版本；较早的 22.x 需要先升级。使用 pnpm 锁文件安装依赖。
+准备 Node.js **22.20.0 或以上的 22.x**、pnpm **11.25.0**、Docker Engine 与 Compose **v2.24.0 或以上**。推荐使用 `.nvmrc` 中的 **22.23.4**，Docker 同步采用该版本；CI 同时验证最低版本与推荐版本。当前锁定工具链的版本要求合并后，以 22.20.0 为最低支持版本；较早的 22.x 需要先升级。使用 pnpm 锁文件安装依赖。
 
 ```bash
 git fetch origin
@@ -38,6 +39,29 @@ pnpm dev
 
 登录后可从页面顶部进入“个人设置”，修改用户的显示名称。默认名称为“用户”，去掉首尾空白后为 1～80 个字符；保存后刷新或重启仍保留。名称用于显示，不参与登录，也不会改变历史消息的用户身份关联。MySQL 初始结构已经包含资料字段。
 
+## 模型基础验收与配置
+
+服务运行后，在另一个项目终端执行：
+
+```powershell
+pnpm verify:f03
+pnpm models:config show
+pnpm models:config usage
+```
+
+F03 验收脚本检查配置、文本/结构化/向量输出、幂等和计量，持久保存三条测试调用。默认无需真实密钥；脚本只允许 test adapter，不会替用户更换模型或调用付费服务。配置与预算目前通过 HTTP 和命令维护，模型管理页面后续加入。
+
+使用真实或本地模型时，将 `deploy/models.env.example` 复制为根目录 `.env.models`，登记供应商和密钥引用，重启服务。dev、start 和 Docker app 都加载该可选文件；秘密文件不会提交或打入镜像。再导出普通配置，编辑 providerId、实际模型名、价格、预算和评估说明后发布：
+
+```powershell
+pnpm models:config providers
+pnpm models:config export
+# 编辑 model-config.local.json
+pnpm models:config apply
+```
+
+真实供应商价格不能留空，免费本地模型显式填零。配置发布不会重置用量；模型切换只影响所修改的任务。供应商兼容参数、金额单位、默认值及失败语义见 [F03 说明](docs/features/f03-model-runtime.md)。从 F02 升级需先停止旧应用、执行 `pnpm db:migrate`；新增五张表，不修改原有实例和会话表。
+
 ## 用 Docker 启动整套系统
 
 在上面安装配置步骤完成后运行：
@@ -51,7 +75,7 @@ docker compose --env-file .env -f deploy/compose.yaml ps
 
 服务器只有 Docker 时，可先复制 `.env.example` 为 `.env`，填写独立随机的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`QDRANT_API_KEY` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器数据库连接串，不依赖宿主配置中的 `DATABASE_URL`；在该方式下可以将其留空。其他环境变量仍按示例设置。
 
-MySQL、Qdrant 数据和快照、应用文件分别保存在 Compose 的持久卷中。Qdrant 可连接仅表示服务已接入，本版不会创建记忆集合或生成 embedding。普通停止使用：
+MySQL、Qdrant 数据和快照、应用文件分别保存在 Compose 的持久卷中。Qdrant 可连接仅表示服务已接入，本版不会创建记忆集合或索引；F03 的 embedding 诊断仅返回并保存调用结果，不写 Qdrant。普通停止使用：
 
 ```bash
 docker compose --env-file .env -f deploy/compose.yaml down

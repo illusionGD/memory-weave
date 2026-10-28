@@ -1,4 +1,6 @@
 import { resolve } from 'node:path';
+import { loadModelDeployment } from './modules/models/model-deployment';
+import type { ModelDeployment } from './modules/models/model-deployment';
 
 /** 由部署环境提供的服务端配置。 */
 export interface ServerConfig {
@@ -22,6 +24,8 @@ export interface ServerConfig {
   dataDir: string;
   /** 前端构建产物目录；为 null 时不启用静态页面托管。 */
   webDistDir: string | null;
+  /** 仅服务端持有的供应商、密钥与资源上限；省略时仅提供测试模型。 */
+  modelDeployment?: ModelDeployment;
 }
 
 /** 运行时各模块使用的配置，排除无需继续持有的明文登录密码。 */
@@ -125,6 +129,14 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   const host = environment.HOST?.trim() || '127.0.0.1';
   const dataDir = resolve(environment.DATA_DIR ?? './data');
   const webDistDir = environment.WEB_DIST_DIR ? resolve(environment.WEB_DIST_DIR) : null;
+  let modelDeployment: ModelDeployment;
+  try {
+    modelDeployment = loadModelDeployment(environment);
+  } catch {
+    throw new ConfigurationError(
+      '模型部署配置无效，请检查 MODEL_PROVIDERS_JSON、凭据引用和 MODEL_HARD_LIMITS_JSON。',
+    );
+  }
 
   return {
     host,
@@ -137,5 +149,6 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     cookieSecure,
     dataDir,
     webDistDir,
+    modelDeployment,
   };
 }

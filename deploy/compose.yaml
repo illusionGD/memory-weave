@@ -72,6 +72,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true
+    env_file:
+      - path: ../.env.models
+        required: false
     depends_on:
       migrate:
         condition: service_completed_successfully

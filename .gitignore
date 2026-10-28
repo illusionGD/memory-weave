@@ -12,3 +12,4 @@ data/
 *.tsbuildinfo
 *.log
 .DS_Store
+model-config.local.json

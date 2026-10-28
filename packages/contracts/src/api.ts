@@ -45,6 +45,20 @@ export const API_CODES = {
   VERSION_LIMIT_REACHED: 40906,
   /** 当前发言者已经离开会话。 */
   MEMBER_LEFT: 40907,
+  /** 模型调用所需的能力、价格或任务配置尚未就绪。 */
+  MODEL_NOT_CONFIGURED: 40908,
+  /** 当前全局或任务额度不足，未发送新的模型请求。 */
+  MODEL_BUDGET_EXCEEDED: 42901,
+  /** 当前交互或后台并发容量已占满。 */
+  MODEL_CAPACITY_EXCEEDED: 42902,
+  /** 模型返回内容未通过结构、完成状态或维度校验。 */
+  MODEL_OUTPUT_INVALID: 50201,
+  /** 外部模型返回明确失败；原始错误不向客户端输出。 */
+  MODEL_PROVIDER_FAILED: 50202,
+  /** 外部结果或消耗无法确认，保留预留且不自动补发。 */
+  MODEL_USAGE_UNKNOWN: 50203,
+  /** 调用已取消，迟到结果不能作为成功结果发布。 */
+  MODEL_CANCELLED: 40909,
   /** 请求正文超出服务允许的体积。 */
   REQUEST_BODY_TOO_LARGE: 413,
   /** 请求使用了不受支持的正文编码或媒体类型。 */
@@ -117,6 +131,22 @@ export const API_RESPONSES = {
     message: '会话或消息版本已达到当前存储上限。',
   },
   [API_CODES.MEMBER_LEFT]: { statusCode: 409, message: '发言者已离开会话。' },
+  [API_CODES.MODEL_NOT_CONFIGURED]: { statusCode: 409, message: '模型能力或价格配置尚未就绪。' },
+  [API_CODES.MODEL_BUDGET_EXCEEDED]: {
+    statusCode: 429,
+    message: '模型调用额度不足，未发送新请求。',
+  },
+  [API_CODES.MODEL_CAPACITY_EXCEEDED]: {
+    statusCode: 429,
+    message: '模型调用并发已满，请稍后重试。',
+  },
+  [API_CODES.MODEL_OUTPUT_INVALID]: { statusCode: 502, message: '模型输出未通过校验。' },
+  [API_CODES.MODEL_PROVIDER_FAILED]: { statusCode: 502, message: '模型服务返回失败。' },
+  [API_CODES.MODEL_USAGE_UNKNOWN]: {
+    statusCode: 502,
+    message: '模型调用结果或用量无法确认，已保留额度预留。',
+  },
+  [API_CODES.MODEL_CANCELLED]: { statusCode: 409, message: '模型调用已取消。' },
   [API_CODES.REQUEST_BODY_TOO_LARGE]: {
     statusCode: 413,
     message: '请求内容过大，请缩小后重试。',

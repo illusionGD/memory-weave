@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import {
   check,
+  bigint,
   foreignKey,
   index,
   int,
@@ -14,6 +15,14 @@ import {
   unique,
 } from 'drizzle-orm/mysql-core';
 import type { MySqlTableExtraConfigValue } from 'drizzle-orm/mysql-core';
+import type {
+  ModelConfiguration,
+  ModelTaskRole,
+  ModelOperation,
+  ModelCallStatus,
+  ModelResult,
+  ModelCallContext,
+} from '@memory-weave/contracts';
 
 /** 创建时保留的初始设定，与后续当前人格版本分开存储。 */
 export interface InitialSnapshot {
@@ -40,6 +49,136 @@ const createdAt = () =>
   datetime('created_at', { fsp: 3 })
     .notNull()
     .default(sql`CURRENT_TIMESTAMP(3)`);
+
+/** 模型配置的当前指针；行锁同时串行化配置切换与预算预留。 */
+export const modelConfigurationHeads = mysqlTable('model_configuration_heads', {
+  ownerId: uuid('owner_id')
+    .primaryKey()
+    .references(() => owners.id),
+  activeVersion: int('active_version').notNull().default(0),
+});
+
+/** 配置只追加不可变版本；回滚也创建新版本，不覆盖历史。 */
+export const modelConfigurationVersions = mysqlTable(
+  'model_configuration_versions',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    version: int('version').notNull(),
+    source: varchar('source', { length: 24 }).$type<'default' | 'deployment'>().notNull(),
+    config: json('config').$type<ModelConfiguration>().notNull(),
+    evaluationNote: varchar('evaluation_note', { length: 500 }).notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table): MySqlTableExtraConfigValue[] => [
+    unique('model_config_owner_version').on(table.ownerId, table.version),
+    unique('model_config_owner_request').on(table.ownerId, table.requestId),
+    unique('model_config_owner_id').on(table.ownerId, table.id),
+    check('model_config_version_positive', sql`${table.version} > 0`),
+  ],
+);
+
+/** 逻辑模型调用，保存已校验结果与诊断，不保存原始输入或外部错误。 */
+export const modelCalls = mysqlTable(
+  'model_calls',
+  {
+    context: json('context').$type<ModelCallContext>().notNull(),
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    configId: uuid('config_id').notNull(),
+    configVersion: int('config_version').notNull(),
+    role: varchar('role', { length: 32 }).$type<ModelTaskRole>().notNull(),
+    operation: varchar('operation', { length: 20 }).$type<ModelOperation>().notNull(),
+    lane: varchar('lane', { length: 20 }).$type<'interactive' | 'background'>().notNull(),
+    providerId: varchar('provider_id', { length: 48 }).notNull(),
+    model: varchar('model', { length: 120 }).notNull(),
+    status: varchar('status', { length: 20 }).$type<ModelCallStatus>().notNull(),
+    errorCode: int('error_code'),
+    result: json('result').$type<ModelResult>(),
+    createdAt: createdAt(),
+    finishedAt: datetime('finished_at', { fsp: 3 }),
+  },
+  (table): MySqlTableExtraConfigValue[] => [
+    unique('model_call_owner_request').on(table.ownerId, table.requestId),
+    unique('model_call_owner_id').on(table.ownerId, table.id),
+    index('model_call_owner_status').on(table.ownerId, table.status),
+    foreignKey({
+      name: 'model_call_config_fk',
+      columns: [table.ownerId, table.configId],
+      foreignColumns: [modelConfigurationVersions.ownerId, modelConfigurationVersions.id],
+    }),
+  ],
+);
+
+/** 每次实际请求的预留与结算；超时、取消和失败不删除计量。 */
+export const modelAttempts = mysqlTable(
+  'model_attempts',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    callId: uuid('call_id').notNull(),
+    number: int('number').notNull(),
+    role: varchar('role', { length: 32 }).$type<ModelTaskRole>().notNull(),
+    lane: varchar('lane', { length: 20 }).$type<'interactive' | 'background'>().notNull(),
+    day: varchar('day', { length: 10 }).notNull(),
+    status: varchar('status', { length: 20 }).$type<ModelCallStatus>().notNull(),
+    usageSource: varchar('usage_source', { length: 20 }).$type<'reported' | 'reserved'>().notNull(),
+    inputTokens: int('input_tokens'),
+    outputTokens: int('output_tokens'),
+    chargedTokens: bigint('charged_tokens', { mode: 'number' }).notNull(),
+    chargedCostMicros: bigint('charged_cost_micros', { mode: 'number' }).notNull(),
+    errorCode: int('error_code'),
+    actualModel: varchar('actual_model', { length: 160 }),
+    responseFingerprint: varchar('response_fingerprint', { length: 64 }),
+    startedAt: datetime('started_at', { fsp: 3 }).notNull(),
+    deadlineAt: datetime('deadline_at', { fsp: 3 }).notNull(),
+    finishedAt: datetime('finished_at', { fsp: 3 }),
+  },
+  (table): MySqlTableExtraConfigValue[] => [
+    unique('model_attempt_call_number').on(table.ownerId, table.callId, table.number),
+    index('model_attempt_running_deadline').on(table.ownerId, table.status, table.deadlineAt),
+    foreignKey({
+      name: 'model_attempt_call_fk',
+      columns: [table.ownerId, table.callId],
+      foreignColumns: [modelCalls.ownerId, modelCalls.id],
+    }),
+    check(
+      'model_attempt_charge_nonnegative',
+      sql`${table.chargedTokens} >= 0 AND ${table.chargedCostMicros} >= 0 AND ${table.number} > 0`,
+    ),
+  ],
+);
+
+/** 固定 UTC 日统计，global 与任务分别累计；不会随配置版本重建。 */
+export const modelUsageWindows = mysqlTable(
+  'model_usage_windows',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    day: varchar('day', { length: 10 }).notNull(),
+    scope: varchar('scope', { length: 32 }).notNull(),
+    requests: bigint('requests', { mode: 'number' }).notNull().default(0),
+    tokens: bigint('tokens', { mode: 'number' }).notNull().default(0),
+    costMicros: bigint('cost_micros', { mode: 'number' }).notNull().default(0),
+  },
+  (table): MySqlTableExtraConfigValue[] => [
+    unique('model_usage_owner_day_scope').on(table.ownerId, table.day, table.scope),
+    check(
+      'model_usage_nonnegative',
+      sql`${table.requests} >= 0 AND ${table.tokens} >= 0 AND ${table.costMicros} >= 0`,
+    ),
+  ],
+);
 
 /** 当前部署唯一的管理者；迁移生成身份，请求不能指定部署身份。 */
 export const owners = mysqlTable(

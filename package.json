@@ -13,14 +13,16 @@
     "db:migrate": "node --env-file-if-exists=.env scripts/database.mjs migrate",
     "db:status": "node --env-file-if-exists=.env scripts/database.mjs status",
     "verify:f02": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f02.mjs",
-    "dev": "node --env-file=.env scripts/dev.mjs",
-    "start": "node --env-file-if-exists=.env scripts/start.mjs",
+    "dev": "node --env-file=.env --env-file-if-exists=.env.models scripts/dev.mjs",
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.models scripts/start.mjs",
     "build": "pnpm -r build",
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
     "format:check": "prettier --check .",
     "test": "pnpm --filter @memory-weave/contracts build && pnpm -r --if-present test",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "verify:f03": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f03.mjs",
+    "models:config": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/model-config.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

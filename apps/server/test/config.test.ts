@@ -9,6 +9,28 @@ const BASE_ENV = {
 };
 
 describe('server bootstrap configuration', () => {
+  it('模型凭据只按部署环境引用读取，非法地址或直接内嵌密钥会被脱敏拒绝', () => {
+    const definition = {
+      id: 'local',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      apiKeyEnv: null,
+      capabilities: ['text', 'embedding'],
+    };
+    const config = loadServerConfig({
+      ...BASE_ENV,
+      MODEL_PROVIDERS_JSON: JSON.stringify([definition]),
+    });
+    expect(config.modelDeployment?.providers[0]).toMatchObject({ id: 'local', apiKey: null });
+    for (const invalid of [
+      { ...definition, baseUrl: 'https://private-key@provider.invalid/v1' },
+      { ...definition, apiKey: 'private-key' },
+      { ...definition, apiKeyEnv: 'DATABASE_URL' },
+    ]) {
+      expect(() =>
+        loadServerConfig({ ...BASE_ENV, MODEL_PROVIDERS_JSON: JSON.stringify([invalid]) }),
+      ).toThrow('模型部署配置无效');
+    }
+  });
   it('accepts MySQL and rejects the old PostgreSQL URL without echoing credentials', () => {
     expect(loadServerConfig(BASE_ENV).databaseUrl).toBe(BASE_ENV.DATABASE_URL);
     expect(() =>

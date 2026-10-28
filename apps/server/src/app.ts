@@ -27,6 +27,10 @@ import { WorkspaceController } from './modules/workspace/workspace.controller';
 import { WorkspaceService } from './modules/workspace/workspace.service';
 import { ApiExceptionFilter, assignRequestId } from './http/api-exception';
 import { ApiResponseInterceptor } from './http/api-response.interceptor';
+import { ModelsController } from './modules/models/models.controller';
+import { ModelConfigurationService } from './modules/models/model-configuration.service';
+import { ModelRuntimeService } from './modules/models/model-runtime.service';
+import { ModelProvidersService } from './modules/models/model-providers.service';
 
 @Module({})
 class ApplicationModule {
@@ -42,6 +46,7 @@ class ApplicationModule {
         CompanionsController,
         ConversationsController,
         ReceivingController,
+        ModelsController,
       ],
       providers: [
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
@@ -53,6 +58,9 @@ class ApplicationModule {
         ConversationsService,
         ReceivingService,
         WorkspaceService,
+        ModelConfigurationService,
+        ModelRuntimeService,
+        ModelProvidersService,
       ],
     };
   }
