@@ -7,6 +7,12 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/lifecycle/:id?',
+      name: 'lifecycle',
+      component: () => import('@/views/lifecycle/LifecycleView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/chats',
       name: 'chats',
       component: () => import('@/views/chats/ChatsView.vue'),

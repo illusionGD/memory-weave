@@ -236,7 +236,7 @@ describe('伴侣初始人格的公开命令与查询', () => {
       .expect(404);
     await agent
       .get(`/api/companions/${first.companion.id}/persona/versions/3?runtimeEpoch=2`)
-      .expect(404);
+      .expect(409);
     expect((await agent.get('/api/models/usage')).body.data.global.charged.requests).toBe(2);
   });
 

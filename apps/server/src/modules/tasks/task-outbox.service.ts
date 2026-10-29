@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt } from 'drizzle-orm';
+import { isNull, and, asc, eq, gt } from 'drizzle-orm';
 import type { IdPaginationQuery, TaskOutboxList } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import type { DatabaseTransaction } from '../../database/database.service';
@@ -99,6 +99,7 @@ export class TaskOutboxService {
               eq(messages.conversationId, payload.conversationId),
               eq(messages.contentVersion, payload.contentVersion),
               eq(messages.state, 'published'),
+              isNull(messages.deletedAt),
               eq(messages.sequence, payload.sequence),
             ),
           )
@@ -129,6 +130,7 @@ export class TaskOutboxService {
               ![
                 API_CODES.RESOURCE_NOT_FOUND,
                 API_CODES.RUNTIME_EPOCH_MISMATCH,
+                API_CODES.LIFECYCLE_RESTRICTED,
                 API_CODES.PERMISSION_VERSION_CONFLICT,
               ].some((code) => code === error.code)
             )

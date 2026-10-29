@@ -1,3 +1,4 @@
+import { lockTaskScheduler } from '../tasks/task-store';
 import { sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { API_CODES } from '@memory-weave/contracts';
@@ -11,7 +12,7 @@ import type {
   ReceiveMessagesResponse,
   SourceLookupQuery,
 } from '@memory-weave/contracts';
-import { and, asc, eq, gt, gte, inArray, lte, or } from 'drizzle-orm';
+import { isNull, and, asc, eq, gt, gte, inArray, lte, or } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
 import {
   conversationMembers,
@@ -79,6 +80,7 @@ export class ReceivingService {
             eq(messages.id, messageId),
             eq(messages.contentVersion, input.contentVersion),
             eq(messages.state, 'published'),
+            isNull(messages.deletedAt),
           ),
         )
         .limit(1);
@@ -197,6 +199,7 @@ export class ReceivingService {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
         async (tx) => {
+          await lockTaskScheduler(ownerId, tx);
           // 与发布共用会话锁，使并发重试取得同一份批次和首次读取时间。
           await requireConversation(ownerId, conversationId, tx, true);
           const member = await requireCompanionMember(
@@ -244,6 +247,7 @@ export class ReceivingService {
                     eq(messages.id, reference.messageId),
                     eq(messages.contentVersion, reference.contentVersion),
                     eq(messages.state, 'published'),
+                    isNull(messages.deletedAt),
                   ),
                 )
                 .limit(1);
@@ -361,6 +365,7 @@ export class ReceivingService {
           eq(messages.ownerId, member.ownerId),
           eq(messages.conversationId, member.conversationId),
           eq(messages.state, 'published'),
+          isNull(messages.deletedAt),
           gt(messages.sequence, afterSequence),
           or(...ranges),
         ),

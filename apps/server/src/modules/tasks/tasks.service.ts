@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, count, eq, gt, inArray, lte, sql } from 'drizzle-orm';
+import { isNull, and, asc, count, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { API_CODES } from '@memory-weave/contracts';
 import type {
   DiagnosticTask,
@@ -21,7 +21,12 @@ import {
   messages,
 } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
-import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
+import {
+  assertVisible,
+  requireCompanion,
+  requireConversation,
+  requireCompanionMember,
+} from '../conversations/conversation-access';
 import { fingerprint } from '../shared/http';
 import { ModelRuntimeService } from '../models/model-runtime.service';
 import { TaskStore, lockTaskScheduler, taskDatabaseTime } from './task-store';
@@ -146,7 +151,6 @@ export class TasksService {
         .select({ value: count() })
         .from(tasks)
         .where(and(eq(tasks.ownerId, ownerId), eq(tasks.status, 'running')));
-      if ((active?.value ?? 0) >= current.config.maxConcurrent) return null;
       const [row] = await tx
         .select()
         .from(tasks)
@@ -159,13 +163,33 @@ export class TasksService {
               'model_probe',
               'persona_initialization',
               'chat_reply',
+              'lifecycle_cleanup',
             ]),
             lte(tasks.availableAt, now),
           ),
         )
-        .orderBy(asc(tasks.availableAt), asc(tasks.id))
+        .orderBy(
+          sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 ELSE 1 END`,
+          asc(tasks.availableAt),
+          asc(tasks.id),
+        )
         .limit(1);
       if (!row) return null;
+      // 清理不调用外部模型，额外保留一个部署级位置，避免被尚未结束的旧调用挡住。
+      if (row.kind === 'lifecycle_cleanup') {
+        const [cleanup] = await tx
+          .select({ value: count() })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.ownerId, ownerId),
+              eq(tasks.status, 'running'),
+              eq(tasks.kind, 'lifecycle_cleanup'),
+            ),
+          );
+        if ((cleanup?.value ?? 0) > 0 || (active?.value ?? 0) >= current.config.maxConcurrent + 1)
+          return null;
+      } else if ((active?.value ?? 0) >= current.config.maxConcurrent) return null;
       if (row.fence >= current.config.maxAttempts) {
         await tx
           .update(tasks)
@@ -478,6 +502,7 @@ export class TasksService {
   /** 域状态及来源版本在提交事务中重查，诊断的空范围不获得任何伴侣权限。 */
   private async checkScope(ownerId: string, tx: DatabaseTransaction, row: TaskRow): Promise<void> {
     const scope = row.scope;
+    if (row.input.kind === 'redacted') throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
     if (scope.companionId === null && scope.runtimeEpoch === null && scope.conversationId === null)
       return;
     if (
@@ -491,6 +516,7 @@ export class TasksService {
         .from(companions)
         .where(and(eq(companions.ownerId, ownerId), eq(companions.id, scope.companionId)))
         .for('update');
+      await requireCompanion(ownerId, scope.companionId, scope.runtimeEpoch, tx);
       if (!companion || companion.epoch !== scope.runtimeEpoch)
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
       return;
@@ -518,6 +544,7 @@ export class TasksService {
         ),
       )
       .for('update');
+    await requireConversation(ownerId, scope.conversationId, tx);
     const member = await requireCompanionMember(
       ownerId,
       scope.companionId,
@@ -540,6 +567,7 @@ export class TasksService {
             eq(messages.contentVersion, row.input.contentVersion),
             eq(messages.sequence, row.input.sequence),
             eq(messages.state, 'published'),
+            isNull(messages.deletedAt),
           ),
         )
         .for('update');

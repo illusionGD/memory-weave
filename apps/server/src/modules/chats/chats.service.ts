@@ -24,6 +24,7 @@ import {
   chatThreads,
   chatSegments,
   conversations,
+  companions,
   messages,
   tasks,
 } from '../../database/schema';
@@ -216,7 +217,8 @@ export class ChatsService {
   /** 最近一页原文按时间正序展示，向前分页不一次加载全部聊天。 */
   history(id: string, input: ChatMessageQuery): Promise<ChatMessageList> {
     return this.store.locked(async (ownerId, tx) => {
-      await this.thread(ownerId, id, tx);
+      await this.thread(ownerId, id, tx, false);
+      await requireConversation(ownerId, id, tx);
       const rows = await tx
         .select()
         .from(messages)
@@ -245,7 +247,8 @@ export class ChatsService {
   /** 从确切发布序号之后读取事件，每次最多 50 条；不会推进送达状态。 */
   after(id: string, afterSequence: number): Promise<ChatMessage[]> {
     return this.store.locked(async (ownerId, tx) => {
-      await this.thread(ownerId, id, tx);
+      await this.thread(ownerId, id, tx, false);
+      await requireConversation(ownerId, id, tx);
       const rows = await tx
         .select()
         .from(messages)
@@ -266,7 +269,8 @@ export class ChatsService {
   /** 逐条核对本会话原文版本，所有回执同事务提交，重复确认不更新时间。 */
   acknowledge(id: string, input: ChatDelivery): Promise<null> {
     return this.store.locked(async (ownerId, tx) => {
-      await this.thread(ownerId, id, tx);
+      await this.thread(ownerId, id, tx, false);
+      await requireConversation(ownerId, id, tx);
       const rows = await tx
         .select()
         .from(messages)
@@ -370,28 +374,50 @@ export class ChatsService {
     ownerId: string,
     id: string,
     tx: DatabaseTransaction,
+    active = true,
   ): Promise<typeof chatThreads.$inferSelect> {
     const [thread] = await tx
       .select()
       .from(chatThreads)
       .where(and(eq(chatThreads.ownerId, ownerId), eq(chatThreads.conversationId, id)));
     if (!thread) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-    await requireCompanion(ownerId, thread.companionId, thread.runtimeEpoch, tx);
+    if (active) {
+      await requireCompanion(ownerId, thread.companionId, thread.runtimeEpoch, tx);
+      await requireConversation(ownerId, id, tx);
+    }
     return thread;
   }
 
   private async read(ownerId: string, id: string, tx: DatabaseTransaction): Promise<Chat> {
-    const thread = await this.thread(ownerId, id, tx);
+    const thread = await this.thread(ownerId, id, tx, false);
+    const [companion] = await tx
+      .select()
+      .from(companions)
+      .where(and(eq(companions.ownerId, ownerId), eq(companions.id, thread.companionId)));
     const [conversation] = await tx
       .select()
       .from(conversations)
       .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, id)));
+    const availability = conversation!.lifecycleOperationId
+      ? 'cleaning'
+      : !companion || companion.deletedAt || companion.runtimeEpoch !== thread.runtimeEpoch
+        ? 'archived'
+        : companion.lifecycleOperationId
+          ? 'cleaning'
+          : 'active';
     return {
       id,
+      availability,
+      contentRevision: conversation!.contentRevision + (companion?.version ?? 0),
+      lifecycleOperationId:
+        conversation!.lifecycleOperationId ?? companion?.lifecycleOperationId ?? null,
       title: conversation!.title,
       companionId: thread.companionId,
       runtimeEpoch: thread.runtimeEpoch,
-      currentRun: thread.currentRunId ? await this.run(ownerId, thread.currentRunId, tx) : null,
+      currentRun:
+        availability === 'active' && thread.currentRunId
+          ? await this.run(ownerId, thread.currentRunId, tx)
+          : null,
       lastSequence: conversation!.lastSequence,
       createdAt: thread.createdAt.toISOString(),
     };

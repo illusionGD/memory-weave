@@ -1,5 +1,7 @@
 /** 持久输入由所属模块解释，客户端不能任意注册处理器。 */
 export type TaskInput =
+  | { kind: 'lifecycle_cleanup'; operationId: string }
+  | { kind: 'redacted' }
   | { kind: 'chat_reply'; runId: string }
   | {
       kind: 'persona_initialization';

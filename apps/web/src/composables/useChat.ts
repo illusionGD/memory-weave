@@ -2,10 +2,11 @@ import { computed, nextTick, onScopeDispose, ref, watch } from 'vue';
 import type { ComputedRef, Ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { getApiResponseDefinition } from '@memory-weave/contracts';
-import type { Chat, ChatMessage, SendChatMessage } from '@memory-weave/contracts';
+import type { Chat, ChatMessage, SendChatMessage, LifecycleCommand } from '@memory-weave/contracts';
 import { acknowledgeChat, chatHistory, getChat, sendChatMessage, stopChat } from '@/services/chats';
 import { readChatEvents } from '@/services/chat-events';
 import type { ChatEvent } from '@/services/chat-events';
+import { createLifecycle, getLifecycleConversation } from '@/services/lifecycle';
 import { ApiError } from '@/services/http';
 import { useAuthStore } from '@/stores/auth';
 
@@ -19,6 +20,8 @@ export interface ChatBubble {
   text: string;
   /** 首段正式发布时间。 */
   time: string;
+  /** 当前显示且尚未删除的确切片段，最多一页。 */
+  targets: { messageId: string; contentVersion: number }[];
 }
 /** 页面只保存当前页及连接状态，不在浏览器长期保存私密原文。 */
 export interface ChatPageState {
@@ -56,6 +59,8 @@ export interface ChatPageState {
   latest(): Promise<void>;
   /** 首次读取失败后重新打开当前私聊。 */
   reload(): Promise<void>;
+  /** 删除确切选择的原文和依赖内容。 */
+  remove(bubble: ChatBubble): Promise<void>;
 }
 
 /** 消息按身份去重，序号只在事件处理成功后推进；离开或切换会话丢弃迟到结果。 */
@@ -78,18 +83,25 @@ export function useChat(id: Ref<string>): ChatPageState {
   let recentEvents: ChatMessage[] = [];
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingCommand: SendChatMessage | null = null;
+  let pendingDelete: Extract<LifecycleCommand, { kind: 'delete_messages' }> | null = null;
   const acknowledged = new Set<string>();
   const pendingAcknowledgements = new Map<string, { messageId: string; contentVersion: number }>();
   let acknowledgementRunning = false;
   const bubbles = computed<ChatBubble[]>(() => {
     const result: ChatBubble[] = [];
     for (const item of items.value) {
-      const key = item.runId ?? item.message.id;
+      const key = item.message.deletedAt ? item.message.id : (item.runId ?? item.message.id);
+      const targets = item.message.deletedAt
+        ? []
+        : [{ messageId: item.message.id, contentVersion: item.message.contentVersion }];
       const previous = result.at(-1);
-      if (previous?.id === key) previous.text += item.message.text;
-      else
+      if (previous?.id === key) {
+        previous.text += item.message.text;
+        previous.targets.push(...targets);
+      } else
         result.push({
           id: key,
+          targets,
           text: item.message.text,
           user: item.message.speaker.kind === 'user',
           time: item.message.publishedAt ?? item.message.receivedAt,
@@ -100,11 +112,14 @@ export function useChat(id: Ref<string>): ChatPageState {
   const canLoadEarlier = computed(() => nextBefore.value !== null);
   const canStop = computed(() =>
     Boolean(
-      chat.value?.currentRun &&
+      chat.value?.availability === 'active' &&
+      chat.value.currentRun &&
       ['queued', 'running', 'waiting', 'paused'].includes(chat.value.currentRun.status),
     ),
   );
   const statusLabel = computed(() => {
+    if (chat.value?.availability === 'cleaning') return '正在清理，暂时停止使用';
+    if (chat.value?.availability === 'archived') return '历史会话 · 只读';
     const labels: Record<string, string> = {
       queued: '等待回复',
       running: '正在回复',
@@ -133,6 +148,16 @@ export function useChat(id: Ref<string>): ChatPageState {
   /** HTTP 与事件可能交错，持久序号和任务更新时间较旧的快照不能倒退界面。 */
   function adoptState(state: Chat): void {
     const current = chat.value;
+    if (current && state.contentRevision < current.contentRevision) return;
+    if (
+      current &&
+      (state.contentRevision !== current.contentRevision ||
+        state.availability !== current.availability)
+    ) {
+      // 立即清空旧展示并使所有在途读取失效，不能继续使用旧页或旧回执缓存。
+      void open();
+      return;
+    }
     if (
       current &&
       (state.lastSequence < current.lastSequence ||
@@ -160,9 +185,9 @@ export function useChat(id: Ref<string>): ChatPageState {
   /** 只确认实际呈现在当前页的原文；回执失败不假装已送达，下次取得时可重试。 */
   async function acknowledge(token: number): Promise<void> {
     await nextTick();
-    if (token !== generation) return;
+    if (token !== generation || chat.value?.availability === 'cleaning') return;
     for (const item of items.value)
-      if (!acknowledged.has(item.message.id))
+      if (!item.message.deletedAt && !acknowledged.has(item.message.id))
         pendingAcknowledgements.set(item.message.id, {
           messageId: item.message.id,
           contentVersion: item.message.contentVersion,
@@ -246,6 +271,7 @@ export function useChat(id: Ref<string>): ChatPageState {
     if (retryTimer) clearTimeout(retryTimer);
     controller = new AbortController();
     pendingCommand = null;
+    pendingDelete = null;
     recentEvents = [];
     acknowledged.clear();
     pendingAcknowledgements.clear();
@@ -259,8 +285,20 @@ export function useChat(id: Ref<string>): ChatPageState {
     saving.value = false;
     try {
       const state = await getChat(id.value);
-      const history = await chatHistory(id.value);
       if (token !== generation) return;
+      const history =
+        state.availability === 'cleaning'
+          ? { items: [], nextBeforeSequence: null }
+          : await chatHistory(id.value);
+      const verified = await getChat(id.value);
+      if (token !== generation) return;
+      if (
+        verified.contentRevision !== state.contentRevision ||
+        verified.availability !== state.availability
+      ) {
+        await open();
+        return;
+      }
       chat.value = state;
       items.value = history.items;
       nextBefore.value = history.nextBeforeSequence;
@@ -279,8 +317,14 @@ export function useChat(id: Ref<string>): ChatPageState {
     const token = generation;
     loading.value = true;
     try {
+      const revision = chat.value?.contentRevision;
       const result = await chatHistory(id.value, before);
+      const verified = await getChat(id.value);
       if (token !== generation) return;
+      if (verified.contentRevision !== revision || verified.availability === 'cleaning') {
+        await open();
+        return;
+      }
       historical.value = before !== undefined;
       items.value = result.items;
       nextBefore.value = result.nextBeforeSequence;
@@ -306,7 +350,7 @@ export function useChat(id: Ref<string>): ChatPageState {
 
   /** 发送失败保留文字和命令身份；确认保存后再次发送相同文字属于新命令。 */
   async function send(): Promise<void> {
-    if (saving.value || !draft.value.trim() || !chat.value) return;
+    if (saving.value || !draft.value.trim() || chat.value?.availability !== 'active') return;
     const token = generation;
     saving.value = true;
     error.value = null;
@@ -347,6 +391,37 @@ export function useChat(id: Ref<string>): ChatPageState {
       if (token === generation) saving.value = false;
     }
   }
+  /** 删除沿用确切选择和命令身份；网络超时重试不会扩大范围。 */
+  async function remove(bubble: ChatBubble): Promise<void> {
+    if (saving.value || !bubble.targets.length || chat.value?.availability === 'cleaning') return;
+    const token = generation;
+    saving.value = true;
+    error.value = null;
+    try {
+      const sameTargets =
+        pendingDelete && JSON.stringify(pendingDelete.messages) === JSON.stringify(bubble.targets);
+      if (!sameTargets) {
+        const detail = await getLifecycleConversation(id.value);
+        if (token !== generation) return;
+        pendingDelete = {
+          requestId: crypto.randomUUID(),
+          kind: 'delete_messages',
+          conversationId: id.value,
+          expectedVersion: detail.conversation.version,
+          messages: bubble.targets,
+        };
+      }
+      const operation = await createLifecycle(pendingDelete!);
+      // 自己提交清理后，事件可能已经让页面重新读取；仍允许转到同一操作进度。
+      if (id.value !== operation.conversationId) return;
+      await router.push({ name: 'lifecycle', params: { id: operation.id } });
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) pendingDelete = null;
+      await report(cause, token);
+    } finally {
+      if (token === generation) saving.value = false;
+    }
+  }
   watch(
     id,
     () => {
@@ -377,5 +452,6 @@ export function useChat(id: Ref<string>): ChatPageState {
     earlier,
     latest,
     reload: open,
+    remove,
   };
 }

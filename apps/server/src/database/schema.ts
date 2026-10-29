@@ -112,6 +112,7 @@ export const modelCalls = mysqlTable(
     status: varchar('status', { length: 20 }).$type<ModelCallStatus>().notNull(),
     errorCode: int('error_code'),
     result: json('result').$type<ModelResult>(),
+    invalidatedAt: datetime('invalidated_at', { fsp: 3 }),
     createdAt: createdAt(),
     finishedAt: datetime('finished_at', { fsp: 3 }),
   },
@@ -218,7 +219,9 @@ export const companions = mysqlTable(
     name: varchar('name', { length: 80 }).notNull(),
     runtimeEpoch: int('runtime_epoch').notNull().default(1),
     version: int('version').notNull().default(1),
-    initialSnapshot: json('initial_snapshot').$type<InitialSnapshot>().notNull(),
+    initialSnapshot: json('initial_snapshot').$type<InitialSnapshot>(),
+    deletedAt: datetime('deleted_at', { fsp: 3 }),
+    lifecycleOperationId: uuid('lifecycle_operation_id'),
     currentPersonaVersionId: uuid('current_persona_version_id'),
     requestId: uuid('request_id').notNull(),
     fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
@@ -249,7 +252,7 @@ export const personaVersions = mysqlTable(
     profileText: text('profile_text').notNull(),
     document: json('document').$type<PersonaDocument>(),
     origin: varchar('origin', { length: 24 })
-      .$type<'initial_text' | 'initialization' | 'lock_revision'>()
+      .$type<'initial_text' | 'initialization' | 'lock_revision' | 'reset'>()
       .notNull()
       .default('initial_text'),
     parentVersionId: uuid('parent_version_id'),
@@ -354,7 +357,7 @@ export const personaFoundations = mysqlTable(
     nameOverride: varchar('name_override', { length: 80 }),
     template: json('template').$type<{ id: string; version: number }>(),
     explicitLocks: json('explicit_locks').$type<string[]>().notNull(),
-    taskId: uuid('task_id').notNull(),
+    taskId: uuid('task_id'),
     initialPersonaVersionId: uuid('initial_persona_version_id'),
     createdAt: createdAt(),
   },
@@ -386,6 +389,8 @@ export const conversations = mysqlTable(
     title: varchar('title', { length: 80 }).notNull(),
     version: int('version').notNull().default(1),
     lastSequence: int('last_sequence').notNull().default(0),
+    lifecycleOperationId: uuid('lifecycle_operation_id'),
+    contentRevision: int('content_revision').notNull().default(1),
     requestId: uuid('request_id').notNull(),
     fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
     createdAt: createdAt(),
@@ -416,6 +421,7 @@ export const conversationMembers = mysqlTable(
     joinedSequence: int('joined_sequence').notNull().default(1),
     leftSequence: int('left_sequence'),
     permissionVersion: int('permission_version').notNull().default(1),
+    deletedAt: datetime('deleted_at', { fsp: 3 }),
   },
   (table) => [
     unique('conversation_members_owner_id_unique').on(table.ownerId, table.id),
@@ -501,6 +507,7 @@ export const messages = mysqlTable(
     contentVersion: int('content_version').notNull().default(1),
     revision: int('revision').notNull().default(1),
     text: text('text').notNull(),
+    deletedAt: datetime('deleted_at', { fsp: 3 }),
     state: varchar('state', { length: 32, enum: ['draft', 'published'] })
       .notNull()
       .default('draft'),
@@ -571,7 +578,10 @@ export const messages = mysqlTable(
       'messages_versions_positive',
       sql`${table.schemaVersion} > 0 AND ${table.contentVersion} > 0 AND ${table.revision} > 0`,
     ),
-    check('messages_text_length', sql`char_length(${table.text}) BETWEEN 1 AND 4000`),
+    check(
+      'messages_text_length',
+      sql`(${table.deletedAt} IS NULL AND char_length(${table.text}) BETWEEN 1 AND 4000) OR (${table.deletedAt} IS NOT NULL AND char_length(${table.text}) = 0)`,
+    ),
     check(
       'messages_publication_valid',
       sql`(${table.state} = 'draft' AND ${table.sequence} IS NULL AND ${table.publishedAt} IS NULL AND ${table.publishRequestId} IS NULL AND ${table.publishFingerprint} IS NULL) OR (${table.state} = 'published' AND ${table.sequence} IS NOT NULL AND ${table.sequence} > 0 AND ${table.publishedAt} IS NOT NULL AND ${table.publishRequestId} IS NOT NULL AND ${table.publishFingerprint} IS NOT NULL)`,
@@ -1010,6 +1020,82 @@ export const chatDeliveries = mysqlTable(
     ),
     foreignKey({
       name: 'chat_deliveries_message_ref',
+      columns: [table.ownerId, table.messageId, table.contentVersion],
+      foreignColumns: [messages.ownerId, messages.id, messages.contentVersion],
+    }),
+  ],
+);
+
+/** 最小生命周期日志与业务正文分离，完成清理后仍保留限制依据。 */
+export const lifecycleOperations = mysqlTable(
+  'lifecycle_operations',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    requestId: uuid('request_id').notNull(),
+    taskId: uuid('task_id').notNull(),
+    protocolVersion: int('protocol_version').notNull().default(1),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    kind: varchar('kind', { length: 32 })
+      .$type<'reset_companion' | 'delete_companion' | 'delete_messages'>()
+      .notNull(),
+    companionId: uuid('companion_id'),
+    conversationId: uuid('conversation_id'),
+    previousEpoch: int('previous_epoch'),
+    nextEpoch: int('next_epoch'),
+    stage: int('stage').notNull().default(0),
+    processedRecords: int('processed_records').notNull().default(0),
+    createdAt: createdAt(),
+    completedAt: datetime('completed_at', { fsp: 3 }),
+  },
+  (table) => [unique('lifecycle_owner_request').on(table.ownerId, table.requestId)],
+);
+
+/** 删除传播只记录原文身份；正文始终只在原文表中保存。 */
+export const lifecycleMessageTargets = mysqlTable(
+  'lifecycle_message_targets',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    operationId: uuid('operation_id').notNull(),
+    messageId: uuid('message_id').notNull(),
+    contentVersion: int('content_version').notNull(),
+    kind: varchar('kind', { length: 16 }).$type<'selected' | 'derived'>().notNull(),
+  },
+  (table) => [
+    unique('lifecycle_message_target').on(table.ownerId, table.operationId, table.messageId),
+    foreignKey({
+      name: 'lifecycle_target_operation',
+      columns: [table.operationId],
+      foreignColumns: [lifecycleOperations.id],
+    }),
+  ],
+);
+
+/** 已发布回复的来源图只保存精确原文身份，实例清理不能抹掉共同原文的删除传播路径。 */
+export const chatRunSources = mysqlTable(
+  'chat_run_sources',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    messageId: uuid('message_id').notNull(),
+    contentVersion: int('content_version').notNull(),
+  },
+  (table) => [
+    unique('chat_run_source').on(table.ownerId, table.runId, table.messageId),
+    index('chat_run_source_message').on(table.ownerId, table.messageId),
+    foreignKey({
+      name: 'chat_run_source_run',
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [chatRuns.ownerId, chatRuns.id],
+    }),
+    foreignKey({
+      name: 'chat_run_source_message_ref',
       columns: [table.ownerId, table.messageId, table.contentVersion],
       foreignColumns: [messages.ownerId, messages.id, messages.contentVersion],
     }),

@@ -57,7 +57,10 @@
         tabindex="0"
         @scroll="trackScroll"
       >
-        <div v-if="!bubbles.length && !loading" class="chat-view__empty">
+        <div
+          v-if="!bubbles.length && !loading && chat?.availability === 'active'"
+          class="chat-view__empty"
+        >
           <span aria-hidden="true">✳</span>
           <h2>从今天想聊的开始</h2>
           <p>一句近况，一个念头，或只是打个招呼。</p>
@@ -73,6 +76,14 @@
             <time :datetime="bubble.time">{{ displayTime(bubble.time) }}</time>
           </p>
           <p class="chat-view__text">{{ bubble.text }}</p>
+          <button
+            v-if="bubble.targets.length && chat?.availability !== 'cleaning'"
+            class="button button--quiet"
+            :disabled="saving"
+            @click="deleteMessage(bubble)"
+          >
+            删除这条消息
+          </button>
         </article>
       </div>
       <div class="chat-view__status">
@@ -81,6 +92,15 @@
           停止回复
         </button>
       </div>
+      <RouterLink
+        v-if="chat?.lifecycleOperationId"
+        class="button button--secondary"
+        :to="`/lifecycle/${chat.lifecycleOperationId}`"
+        >查看清理进度</RouterLink
+      >
+      <p v-if="chat?.availability === 'archived'" class="chat-view__mode">
+        这个会话属于已结束的人生阶段。请从伴侣页面开始新的私聊。
+      </p>
       <p v-if="replyHint" class="notice notice--error" role="status">{{ replyHint }}</p>
       <form class="chat-view__composer" @submit.prevent="send">
         <label class="chat-view__label" for="chat-message">消息</label>
@@ -90,7 +110,7 @@
           class="chat-view__input"
           rows="3"
           maxlength="4000"
-          :disabled="!chat"
+          :disabled="chat?.availability !== 'active'"
           placeholder="想说什么都可以，也可以随时补充…"
           @keydown="handleKeydown"
         />
@@ -99,7 +119,7 @@
           <button
             class="button button--primary"
             type="submit"
-            :disabled="saving || !chat || !draft.trim()"
+            :disabled="saving || chat?.availability !== 'active' || !draft.trim()"
           >
             {{ saving ? '正在保存…' : '发送' }}
           </button>
@@ -114,6 +134,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import CompanionLayout from '@/components/CompanionLayout.vue';
 import { useChat } from '@/composables/useChat';
+import type { ChatBubble } from '@/composables/useChat';
 const route = useRoute();
 const id = computed(() => String(route.params.id));
 const {
@@ -134,10 +155,21 @@ const {
   earlier,
   latest,
   reload,
+  remove,
 } = useChat(id);
 const log = ref<HTMLElement | null>(null);
 let following = true;
 
+/** 选中的已显示片段以及依赖输出会被清除，独立原文保留。 */
+async function deleteMessage(bubble: ChatBubble): Promise<void> {
+  if (
+    !window.confirm(
+      '确定删除这条消息中当前显示的片段及其依赖内容吗？清理期间会暂停本会话，独立原文保留。此操作不能撤销。',
+    )
+  )
+    return;
+  await remove(bubble);
+}
 /** 用户向上翻看时不强行滚回底部。 */
 function trackScroll(): void {
   const element = log.value;

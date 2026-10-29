@@ -29,6 +29,7 @@ export async function requireConversation(
     .limit(1);
   const [row] = await (lock ? query.for('update') : query);
   if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+  if (row.lifecycleOperationId) throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
   return row;
 }
 
@@ -45,7 +46,9 @@ export async function requireCompanion(
     .where(and(eq(companions.ownerId, ownerId), eq(companions.id, companionId)))
     .limit(1);
   if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+  if (row.deletedAt) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   if (row.runtimeEpoch !== runtimeEpoch) throw new ApiException(API_CODES.RUNTIME_EPOCH_MISMATCH);
+  if (row.lifecycleOperationId) throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
   return row;
 }
 
@@ -58,6 +61,7 @@ export async function requireCompanionMember(
   db: QueryDatabase,
 ): Promise<typeof conversationMembers.$inferSelect> {
   await requireCompanion(ownerId, companionId, runtimeEpoch, db);
+  await requireConversation(ownerId, conversationId, db);
   const [member] = await db
     .select()
     .from(conversationMembers)
@@ -132,6 +136,7 @@ export function toMember(row: typeof conversationMembers.$inferSelect): Conversa
     return {
       ...common,
       kind: 'companion',
+      deletedAt: row.deletedAt?.toISOString() ?? null,
       userId: null,
       companionId: row.companionId,
       runtimeEpoch: row.runtimeEpoch,
@@ -158,6 +163,9 @@ export async function toMessage(
     .limit(1);
   if (!speakerRow) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
   const member = toMember(speakerRow);
+  // 尚未发布的内容属于实例私有状态，限制生效后立即停止读取。
+  if (row.state === 'draft' && !row.deletedAt && member.kind === 'companion')
+    await requireCompanion(row.ownerId, member.companionId, member.runtimeEpoch, db);
   const sourceRows = await db
     .select()
     .from(messageSources)
@@ -179,7 +187,8 @@ export async function toMessage(
     schemaVersion: 1 as const,
     contentVersion: row.contentVersion,
     revision: row.revision,
-    text: row.text,
+    text: row.deletedAt ? '内容已删除' : row.text,
+    deletedAt: row.deletedAt?.toISOString() ?? null,
     occurredAt: row.occurredAt?.toISOString() ?? null,
     receivedAt: row.receivedAt.toISOString(),
     validFrom: row.validFrom?.toISOString() ?? null,

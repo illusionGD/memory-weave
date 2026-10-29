@@ -1,7 +1,7 @@
 import { API_CODES } from '@memory-weave/contracts';
 import type { ChatContext, ModelConfigurationVersion } from '@memory-weave/contracts';
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { isNull, and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatRuns,
@@ -9,6 +9,7 @@ import {
   messages,
   owners,
   personaVersions,
+  personaFoundations,
   readReceipts,
 } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
@@ -63,6 +64,19 @@ export class ChatContextService {
         ),
       );
     if (!persona) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    const [foundation] = !persona.document
+      ? await tx
+          .select()
+          .from(personaFoundations)
+          .where(
+            and(
+              eq(personaFoundations.ownerId, ownerId),
+              eq(personaFoundations.companionId, companion.id),
+              eq(personaFoundations.runtimeEpoch, scope.runtimeEpoch!),
+            ),
+          )
+      : [];
+
     const rows = context
       ? await tx
           .select()
@@ -87,13 +101,14 @@ export class ChatContextService {
                 eq(messages.ownerId, ownerId),
                 eq(messages.conversationId, scope.conversationId!),
                 eq(messages.state, 'published'),
+                isNull(messages.deletedAt),
               ),
             )
             .orderBy(desc(messages.sequence))
             .limit(run.configuration.historyMessages)
         ).reverse();
     for (const row of rows) {
-      if (row.sequence === null || row.state !== 'published')
+      if (row.deletedAt || row.sequence === null || row.state !== 'published')
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       await assertVisible(member, row.sequence, tx);
     }
@@ -129,6 +144,7 @@ export class ChatContextService {
     }
     const snapshot: ChatContext = context ?? {
       personaVersionId: persona.id,
+      explicitLocks: persona.document ? [] : (foundation?.explicitLocks ?? []),
       sources: [],
       omittedThroughSequence: Math.max(0, (selected[0]?.sequence ?? 1) - 1),
       environment: 'web',
@@ -140,6 +156,9 @@ export class ChatContextService {
           name: persona.document?.name ?? companion.name,
           document: persona.document,
           originalProfile: persona.document ? null : persona.profileText,
+          ...(snapshot.explicitLocks === undefined
+            ? {}
+            : { explicitLocks: snapshot.explicitLocks }),
         },
         userName: snapshot.userName,
         environment: { terminal: 'web', tools: [] },

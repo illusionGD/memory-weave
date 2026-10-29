@@ -5,6 +5,8 @@ export const REQUEST_ID_HEADER = 'X-Request-Id';
 
 /** 各终端共用的常用数字响应码；通用码沿用 HTTP 数值，已登记业务码使用五位数字。 */
 export const API_CODES = {
+  /** 生命周期限制已生效，须等待清理完成或使用新会话。 */
+  LIFECYCLE_RESTRICTED: 40913,
   /** 查询、更新、登录及无业务数据的操作成功。 */
   OK: 200,
   /** 创建、发布及接收成功，含幂等重放。 */
@@ -98,6 +100,10 @@ export type ApiErrorCode = Exclude<ApiCode, typeof API_CODES.OK | typeof API_COD
  * 使用 API_CODES 关联状态和提示；客户端按 code 判断行为，不能匹配提示文字。
  */
 export const API_RESPONSES = {
+  [API_CODES.LIFECYCLE_RESTRICTED]: {
+    statusCode: 409,
+    message: '内容正在清理或已进入历史状态，请查看处理进度。',
+  },
   [API_CODES.CHAT_CONTEXT_LIMIT]: {
     statusCode: 400,
     message: '当前人格、明确约束与本轮输入超过聊天预算，请调整输入或 chat 模型预算。',

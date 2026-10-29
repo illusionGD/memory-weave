@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatRuns,
+  chatRunSources,
   chatSegments,
   chatThreads,
   companions,
@@ -46,7 +47,11 @@ export class ChatExecutionService {
     const prepared = await this.store.locked(async (ownerId, tx) => {
       const run = await this.guard(ownerId, tx, lease);
       const built = await this.contexts.prepare(ownerId, tx, lease, run, config);
-      if (!run.context)
+      if (!run.context) {
+        await tx
+          .insert(chatRunSources)
+          .values(built.context.sources.map((source) => ({ ownerId, runId: run.id, ...source })))
+          .onDuplicateKeyUpdate({ set: { runId: run.id } });
         await tx
           .update(chatRuns)
           .set({
@@ -58,6 +63,7 @@ export class ChatExecutionService {
               : 'buffered',
           })
           .where(and(eq(chatRuns.ownerId, ownerId), eq(chatRuns.id, run.id)));
+      }
       return {
         run,
         inputText: built.inputText,

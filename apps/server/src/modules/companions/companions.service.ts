@@ -1,3 +1,4 @@
+import { lockTaskScheduler } from '../tasks/task-store';
 import { API_CODES } from '@memory-weave/contracts';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
@@ -7,7 +8,7 @@ import type {
   IdPaginationQuery,
   CreateCompanionRequest,
 } from '@memory-weave/contracts';
-import { and, asc, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
 import { companions, personaVersions } from '../../database/schema';
@@ -38,6 +39,7 @@ export class CompanionsService {
     tx: DatabaseTransaction,
     input: CreateCompanionRequest,
   ): Promise<CompanionDetail> {
+    await lockTaskScheduler(ownerId, tx);
     const id = randomUUID();
     const personaId = randomUUID();
     const createdAt = new Date();
@@ -117,6 +119,7 @@ export class CompanionsService {
         .where(
           and(
             eq(companions.ownerId, ownerId),
+            isNull(companions.deletedAt),
             query.afterId ? gt(companions.id, query.afterId) : undefined,
           ),
         )
@@ -147,7 +150,9 @@ export class CompanionsService {
           eq(personaVersions.id, companions.currentPersonaVersionId),
         ),
       )
-      .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)))
+      .where(
+        and(eq(companions.ownerId, ownerId), eq(companions.id, id), isNull(companions.deletedAt)),
+      )
       .limit(1);
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return this.toDetail(row);
@@ -164,7 +169,8 @@ export class CompanionsService {
       name: row.companion.name,
       runtimeEpoch: row.companion.runtimeEpoch,
       version: row.companion.version,
-      initialSnapshot: row.companion.initialSnapshot,
+      initialSnapshot: row.companion.initialSnapshot!,
+      lifecycleOperationId: row.companion.lifecycleOperationId,
       currentPersonaVersionId: row.persona.id,
       currentPersonaVersion: toPersonaVersion(row.persona),
       createdAt: row.companion.createdAt.toISOString(),

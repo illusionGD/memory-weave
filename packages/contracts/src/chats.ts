@@ -51,6 +51,8 @@ const chatContextSourceShape = {
 const chatContextSourceSchema: z.ZodObject<typeof chatContextSourceShape> =
   z.object(chatContextSourceShape);
 const chatContextShape = {
+  /** 原稿阶段的显式初始约束；旧轮次缺省以保持其模型输入身份。 */
+  explicitLocks: z.array(z.string()).optional(),
   /** 本轮固定的当前人格版本；不重复注入旧初始人格。 */
   personaVersionId: uuidSchema,
   /** 按发布顺序固定的原文集合。 */
@@ -92,6 +94,12 @@ export const chatRunSchema: z.ZodObject<typeof chatRunShape> = z.object(chatRunS
 /** 可观察的回复轮次。 */
 export type ChatRun = z.infer<typeof chatRunSchema>;
 const chatShape = {
+  /** 重置或删除实例后的旧对话只读；清理中的对话暂不可读取正文。 */
+  availability: z.enum(['active', 'archived', 'cleaning']).default('active'),
+  /** 生命周期变更后使终端缓存失效，与消息发布序号独立。 */
+  contentRevision: z.number().int().positive().max(4_294_967_294).default(1),
+  /** 清理中的操作身份，便于查看进度。 */
+  lifecycleOperationId: uuidSchema.nullable().default(null),
   /** 稳定会话身份，与原文会话标识一致。 */
   id: uuidSchema,
   /** 本会话的唯一伴侣实例。 */

@@ -30,6 +30,8 @@ export interface ServerConfig {
   modelDeployment?: ModelDeployment;
   /** 集中聊天参数；每轮固定快照，部署变更不重解释正在运行的轮次。 */
   chatConfiguration?: ChatConfiguration;
+  /** 每个生命周期清理事务的最多记录数，默认 100。 */
+  lifecycleBatchSize?: number;
 }
 
 /** 运行时各模块使用的配置，排除无需继续持有的明文登录密码。 */
@@ -142,6 +144,9 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     );
   }
 
+  const lifecycleBatchSize = Number(environment.LIFECYCLE_BATCH_SIZE || '100');
+  if (!Number.isInteger(lifecycleBatchSize) || lifecycleBatchSize < 1 || lifecycleBatchSize > 500)
+    throw new ConfigurationError('LIFECYCLE_BATCH_SIZE 必须为 1 到 500 的整数。');
   let chatConfiguration: ChatConfiguration;
   try {
     chatConfiguration = chatConfigurationSchema.parse(
@@ -153,6 +158,7 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
 
   return {
     chatConfiguration,
+    lifecycleBatchSize,
     host,
     port,
     databaseUrl,

@@ -1,3 +1,4 @@
+import { lockTaskScheduler } from '../tasks/task-store';
 import { API_CODES } from '@memory-weave/contracts';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
@@ -13,7 +14,7 @@ import type {
   SequencePaginationQuery,
   SpeakerRequest,
 } from '@memory-weave/contracts';
-import { and, asc, eq, gt, sql } from 'drizzle-orm';
+import { isNull, and, asc, eq, gt, sql } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { DatabaseService } from '../../database/database.service';
 import {
@@ -61,6 +62,7 @@ export class ConversationsService {
     tx: DatabaseTransaction,
     input: CreateConversationRequest,
   ): Promise<ConversationDetail> {
+    await lockTaskScheduler(ownerId, tx);
     for (const member of input.companions)
       await requireCompanion(ownerId, member.companionId, member.runtimeEpoch, tx);
     const requestFingerprint = fingerprint({
@@ -157,6 +159,7 @@ export class ConversationsService {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
         async (tx) => {
+          await lockTaskScheduler(ownerId, tx);
           await this.assertUnmanaged(ownerId, tx, conversationId);
           return this.saveInTransaction(ownerId, tx, conversationId, input);
         },
@@ -291,6 +294,7 @@ export class ConversationsService {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
         async (tx) => {
+          await lockTaskScheduler(ownerId, tx);
           await this.assertUnmanaged(ownerId, tx, conversationId);
           return this.publishInTransaction(ownerId, tx, conversationId, messageId, input);
         },
@@ -334,6 +338,7 @@ export class ConversationsService {
       expectedRevision: input.expectedRevision,
       expectedConversationVersion: input.expectedConversationVersion,
     });
+    if (row.deletedAt) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     if (row.state === 'published') {
       if (
         row.publishRequestId !== input.requestId.toLowerCase() ||
@@ -389,6 +394,8 @@ export class ConversationsService {
           eq(companions.ownerId, conversationMembers.ownerId),
           eq(companions.id, conversationMembers.companionId),
           eq(companions.runtimeEpoch, conversationMembers.runtimeEpoch),
+          isNull(companions.deletedAt),
+          isNull(companions.lifecycleOperationId),
         ),
       )
       .where(
@@ -533,6 +540,7 @@ export class ConversationsService {
             eq(messages.conversationId, conversationId),
             eq(messages.id, reference.messageId),
             eq(messages.state, 'published'),
+            isNull(messages.deletedAt),
             reference.contentVersion === undefined
               ? undefined
               : eq(messages.contentVersion, reference.contentVersion),

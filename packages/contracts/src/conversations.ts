@@ -113,6 +113,8 @@ export const userMembershipSchema: z.ZodObject<typeof userMembershipShape> =
   z.object(userMembershipShape);
 
 const companionMembershipShape = {
+  /** 原实例已删除，仅保留共同事件所需的历史身份。 */
+  deletedAt: utcDateTimeSchema.nullable().default(null),
   ...membershipCommonShape,
   /** 伴侣成员，运行代次与稳定实例标识分别记录。 */
   kind: z.literal('companion'),

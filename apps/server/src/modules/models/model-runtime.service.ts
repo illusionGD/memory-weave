@@ -188,6 +188,7 @@ export class ModelRuntimeService {
         status: 'running',
         errorCode: null,
         result: null,
+        invalidatedAt: null,
         createdAt: new Date(),
         finishedAt: null,
       };
@@ -383,7 +384,7 @@ export class ModelRuntimeService {
         tokens - saved.chargedTokens,
         cost - saved.chargedCostMicros,
       );
-      let scopeError: number | null = null;
+      let scopeError: number | null = call.invalidatedAt ? API_CODES.LIFECYCLE_RESTRICTED : null;
       try {
         await assertScope(ownerId, tx, call.context);
       } catch (error) {
@@ -712,6 +713,13 @@ async function readCall(ownerId: string, tx: DatabaseTransaction, id: string): P
     .from(modelCalls)
     .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.id, id)));
   if (!call) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+  let invalidated = Boolean(call.invalidatedAt);
+  try {
+    await assertScope(ownerId, tx, call.context);
+  } catch (error) {
+    if (!(error instanceof ApiException)) throw error;
+    invalidated = true;
+  }
   const rows = await tx
     .select()
     .from(modelAttempts)
@@ -745,7 +753,7 @@ async function readCall(ownerId: string, tx: DatabaseTransaction, id: string): P
     model: call.model,
     status: call.status,
     errorCode: call.errorCode,
-    result: call.result,
+    result: invalidated ? null : call.result,
     attempts,
     createdAt: call.createdAt.toISOString(),
     finishedAt: call.finishedAt?.toISOString() ?? null,

@@ -6,6 +6,7 @@
         <RouterLink class="button button--quiet" to="/chats">私聊</RouterLink>
         <RouterLink class="button button--quiet" to="/companions">伴侣</RouterLink>
         <RouterLink class="button button--quiet" to="/persona-templates">人设模板</RouterLink>
+        <RouterLink class="button button--quiet" to="/lifecycle">清理记录</RouterLink>
         <RouterLink class="button button--quiet" to="/">运行状态</RouterLink>
         <button
           class="button button--quiet"

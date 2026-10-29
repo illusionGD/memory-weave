@@ -37,3 +37,5 @@ HTTP 响应统一为 `{ code, data, message }`，数字常用码通过 contracts
 完成后运行相关格式、lint、类型、真实 HTTP/迁移、构建、浏览器和部署检查。更新功能说明/进度，删除临时任务计划；在已授权的 dev 分支提交推送，交付固定 SHA 和比较基线，停在本功能供 review。
 
 F06 增加 model_output 来源和私聊表；create/save/publishInTransaction 供领域命令在已有事务中复用原文规则。已启用聊天的会话只允许从私聊发送入口写入，基础管理保存/发布返回 CHAT_MANAGED_CONVERSATION；查询继续兼容。终端回执独立于 read_receipts，后者仍只表示实例实际取得正文，详情见 private-chat。
+
+F07 已接入生命周期限制与清理。涉及消息来源、实例代次、任务恢复、模型候选或人格版本的改动，需同时阅读 [lifecycle](../lifecycle/SKILL.md)，接入读取/派发/提交检查及分批清理协议，保留共享原文和全局计量边界。

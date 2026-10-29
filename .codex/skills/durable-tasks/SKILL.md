@@ -26,3 +26,5 @@ description: 维护 F04 MySQL 持久任务、outbox、租约、恢复和调度�
 F05 已接入 persona_initialization：允许实例+代次且无会话的受信任任务，仍验证实例代次；模型结果与人格采用通过 complete 回调原子提交。维护时同时阅读 companion-personas 技能，不能把诊断的空范围规则用于业务任务。
 
 F06 注册 chat_reply 处理器，模型身份同样固定为 task ID；任务视图在检查点前也能按 requestId 找到模型调用。聊天原文、旧租约撤销和新任务在同一事务，领域服务使用 controlInTransaction 后在事务外取消外部等待。TaskWorker 调用 ChatExecutionService，具体发布、上下文和未知结果边界见 private-chat。
+
+F07 已接入生命周期限制与清理。涉及消息来源、实例代次、任务恢复、模型候选或人格版本的改动，需同时阅读 [lifecycle](../lifecycle/SKILL.md)，接入读取/派发/提交检查及分批清理协议，保留共享原文和全局计量边界。

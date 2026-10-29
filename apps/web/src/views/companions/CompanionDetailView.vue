@@ -7,7 +7,11 @@
         <section class="persona-page__intro">
           <p class="eyebrow">A life, with its beginning kept</p>
           <h1 class="persona-page__title">{{ state.companion.name }}</h1>
-          <button class="button button--primary" :disabled="saving" @click="startChat">
+          <button
+            class="button button--primary"
+            :disabled="saving || !!state.companion.lifecycleOperationId"
+            @click="startChat"
+          >
             开始聊天
           </button>
           <p class="persona-page__muted">初始人生作为长期起点保存，当前人格使用独立版本。</p>
@@ -130,6 +134,25 @@
             来自人设模板的第 {{ state.template.version }} 版，后续模板更新不会覆盖此处。
           </p>
         </section>
+        <section class="persona-page__panel" aria-label="实例管理">
+          <h2>实例管理</h2>
+          <p class="persona-page__muted">
+            重置会保留初始人生并清除私有成长；删除会移除整个实例。已发布的共同原文仍保留，若需删除原文，请在聊天中单独选择。
+          </p>
+          <RouterLink
+            v-if="state.companion.lifecycleOperationId"
+            :to="`/lifecycle/${state.companion.lifecycleOperationId}`"
+            >查看正在进行的清理</RouterLink
+          >
+          <div v-else class="persona-page__toolbar">
+            <button class="button button--secondary" :disabled="saving" @click="resetCompanion">
+              重置伴侣
+            </button>
+            <button class="button button--quiet" :disabled="saving" @click="deleteCompanion">
+              删除伴侣
+            </button>
+          </div>
+        </section>
       </template>
       <button v-else-if="!loading" class="button button--secondary" @click="refresh">
         重新读取伴侣
@@ -139,9 +162,10 @@
 </template>
 
 <script setup lang="ts">
+import { createLifecycle } from '@/services/lifecycle';
 import { createChat } from '@/services/chats';
 import { computed, onScopeDispose, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { revisePersonaLocksSchema } from '@memory-weave/contracts';
 import type { CompanionPersonaState, PersonaVersion } from '@memory-weave/contracts';
 import CompanionLayout from '@/components/CompanionLayout.vue';
@@ -160,6 +184,7 @@ const { loading, saving, error, run } = usePersonaPage();
 const identifyLocks = useCommandIdentity();
 const identifyInitialization = useCommandIdentity();
 const identifyChat = useCommandIdentity();
+const identifyLifecycle = useCommandIdentity();
 const state = ref<CompanionPersonaState | null>(null);
 const selection = ref<'current' | 'initial' | 'history'>('current');
 const history = ref<PersonaVersion | null>(null);
@@ -353,7 +378,7 @@ async function cancel(): Promise<void> {
 const chatRouter = useRouter();
 /** 点击才创建新私聊；网络重试保留同一身份，普通查看伴侣不触发模型。 */
 async function startChat(): Promise<void> {
-  if (!state.value) return;
+  if (!state.value || state.value.companion.lifecycleOperationId) return;
   const companion = state.value.companion;
   const chat = await run(
     () =>
@@ -369,6 +394,41 @@ async function startChat(): Promise<void> {
     true,
   );
   if (chat) await chatRouter.push({ name: 'chat', params: { id: chat.id } });
+}
+/** 确认目标与影响后提交已看到的实例版本；不自动扩大到其他实例。 */
+async function manageCompanion(kind: 'reset_companion' | 'delete_companion'): Promise<void> {
+  const companion = state.value?.companion;
+  if (!companion || saving.value || companion.lifecycleOperationId) return;
+  const action = kind === 'reset_companion' ? '重置' : '删除';
+  const scope =
+    kind === 'reset_companion'
+      ? '清除私有成长，保留初始人生，并从新会话开始。'
+      : '移除该实例及其私有人格。';
+  if (
+    !window.confirm(
+      `确定${action}“${companion.name}”吗？${scope}已发布的共同原文会保留。此操作不能撤销。`,
+    )
+  )
+    return;
+  const value = {
+    kind,
+    companionId: companion.id,
+    runtimeEpoch: companion.runtimeEpoch,
+    expectedVersion: companion.version,
+  };
+  const result = await run(
+    () => createLifecycle({ ...value, requestId: identifyLifecycle(value) }),
+    true,
+  );
+  if (result) await chatRouter.push({ name: 'lifecycle', params: { id: result.id } });
+}
+/** 重置当前实例，沿用创建时的初始人生。 */
+async function resetCompanion(): Promise<void> {
+  await manageCompanion('reset_companion');
+}
+/** 删除当前实例，保留共同原文的最小历史身份。 */
+async function deleteCompanion(): Promise<void> {
+  await manageCompanion('delete_companion');
 }
 </script>
 

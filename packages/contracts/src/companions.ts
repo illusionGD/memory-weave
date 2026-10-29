@@ -50,7 +50,7 @@ const personaVersionShape = {
   /** 整理后的人格文档；尚未整理的原稿版本为 null。 */
   document: personaDocumentSchema.nullable(),
   /** 版本产生原因，自动成长将独立扩展。 */
-  origin: z.enum(['initial_text', 'initialization', 'lock_revision']),
+  origin: z.enum(['initial_text', 'initialization', 'lock_revision', 'reset']),
   /** 前一版记录标识；原稿首版为空。 */
   parentVersionId: uuidSchema.nullable(),
   /** 整理使用的模型调用；人工约束修订不产生新模型调用。 */
@@ -66,6 +66,8 @@ export const personaVersionSchema: z.ZodObject<typeof personaVersionShape> =
   z.object(personaVersionShape);
 
 const companionDetailShape = {
+  /** 清理期间不能生成或修改；通过操作身份查看实际进度。 */
+  lifecycleOperationId: uuidSchema.nullable().default(null),
   /** 实例的稳定标识；未来代次变化仍使用此标识。 */
   id: uuidSchema,
   /** 所属部署的持久 owner 标识，只由服务端决定。 */

@@ -100,3 +100,4 @@ export * from './persona-templates';
 export * from './persona-document';
 export * from './personas';
 export * from './chats';
+export * from './lifecycle';

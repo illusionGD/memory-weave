@@ -42,7 +42,6 @@ export class ChatEventsService implements OnModuleDestroy {
     });
     response.flushHeaders();
     let stateHash = '';
-    let checkedAt = 0;
     let heartbeatAt = Date.now();
     const write = async (text: string): Promise<void> => {
       if (connection.signal.aborted) return;
@@ -61,19 +60,25 @@ export class ChatEventsService implements OnModuleDestroy {
           );
           break;
         }
-        const items = await this.chats.after(id, cursor);
+        const state = await this.chats.get(id);
+        const next = JSON.stringify(state);
+        if (next !== stateHash) {
+          await event('state', state);
+          stateHash = next;
+        }
+        // 先发送失效状态，让在线终端清空缓存；清理期间不重放原文。
+        const items = state.availability === 'cleaning' ? [] : await this.chats.after(id, cursor);
+        if (items.length) {
+          const latest = await this.chats.get(id);
+          if (
+            latest.contentRevision !== state.contentRevision ||
+            latest.availability !== state.availability
+          )
+            continue;
+        }
         for (const item of items) {
           await event('message', item, item.message.sequence!);
           cursor = item.message.sequence!;
-        }
-        if (Date.now() - checkedAt >= 1000 || items.length) {
-          const state = await this.chats.get(id);
-          const next = JSON.stringify(state);
-          if (next !== stateHash) {
-            await event('state', state);
-            stateHash = next;
-          }
-          checkedAt = Date.now();
         }
         if (Date.now() - heartbeatAt >= 10000) {
           await write(': heartbeat\n\n');

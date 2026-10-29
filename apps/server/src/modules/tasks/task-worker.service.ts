@@ -1,3 +1,4 @@
+import { LifecycleExecutionService } from '../lifecycle/lifecycle-execution.service';
 import { ChatExecutionService } from '../chats/chat-execution.service';
 import { Inject, Injectable } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
@@ -19,6 +20,7 @@ export class TaskWorkerService implements OnModuleDestroy {
   private loop: Promise<void> | null = null;
 
   constructor(
+    @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
     @Inject(ChatExecutionService) private readonly chats: ChatExecutionService,
     @Inject(TasksService) private readonly tasks: TasksService,
     @Inject(TaskOutboxService) private readonly outbox: TaskOutboxService,
@@ -56,7 +58,7 @@ export class TaskWorkerService implements OnModuleDestroy {
         pollMs = current.config.pollMs;
         if (current.config.enabled) {
           await this.outbox.dispatch();
-          while (!signal.aborted && this.active.size < current.config.maxConcurrent) {
+          while (!signal.aborted && this.active.size < current.config.maxConcurrent + 1) {
             const lease = await this.tasks.claim();
             if (!lease) break;
             const execution = this.execute(lease);
@@ -108,6 +110,8 @@ export class TaskWorkerService implements OnModuleDestroy {
           await this.tasks.checkpoint(lease, { completedSteps: step, stage: 'steps' });
         }
         if (!leaseLost) await this.tasks.complete(lease);
+      } else if (lease.input.kind === 'lifecycle_cleanup') {
+        await this.lifecycle.execute(lease);
       } else if (lease.input.kind === 'chat_reply') {
         await this.chats.execute(lease);
       } else if (lease.input.kind === 'persona_initialization') {

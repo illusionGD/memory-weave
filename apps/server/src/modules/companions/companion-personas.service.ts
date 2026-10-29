@@ -1,3 +1,4 @@
+import { requireCompanion } from '../conversations/conversation-access';
 import { API_CODES, personaDocumentSchema } from '@memory-weave/contracts';
 import type {
   CompanionCreation,
@@ -156,6 +157,7 @@ export class CompanionPersonasService {
         return;
       }
       const companion = await this.instances.readInTransaction(tx, ownerId, id);
+      await requireCompanion(ownerId, id, input.runtimeEpoch, tx);
       if (
         companion.runtimeEpoch !== input.runtimeEpoch ||
         companion.currentPersonaVersion.version !== input.expectedPersonaVersion
@@ -173,7 +175,7 @@ export class CompanionPersonasService {
             eq(personaFoundations.runtimeEpoch, input.runtimeEpoch),
           ),
         );
-      if (foundation) {
+      if (foundation?.taskId) {
         const previous = await this.jobs.getInTransaction(ownerId, foundation.taskId, tx);
         if (!['failed', 'cancelled'].includes(previous.status))
           throw new ApiException(
@@ -268,7 +270,9 @@ export class CompanionPersonasService {
       return {
         companion,
         initialPersonaVersion: initial ? toPersonaVersion(initial) : null,
-        task: foundation ? await this.jobs.getInTransaction(ownerId, foundation.taskId, tx) : null,
+        task: foundation?.taskId
+          ? await this.jobs.getInTransaction(ownerId, foundation.taskId, tx)
+          : null,
         template: foundation?.template ?? null,
       };
     });
@@ -277,6 +281,7 @@ export class CompanionPersonasService {
   /** 精确查询所属实例、代次与版本，不能仅凭版本标识跨实例读取。 */
   version(id: string, runtimeEpoch: number, version: number): Promise<PersonaVersion> {
     return this.database.withOwner(async (ownerId, db) => {
+      await requireCompanion(ownerId, id, runtimeEpoch, db);
       const [row] = await db
         .select()
         .from(personaVersions)
@@ -296,6 +301,7 @@ export class CompanionPersonasService {
   /** 管理者显式修改约束时追加版本；不改原稿、初始人格或其他人格内容。 */
   reviseLocks(id: string, input: RevisePersonaLocks): Promise<PersonaVersion> {
     return this.store.locked(async (ownerId, tx) => {
+      await requireCompanion(ownerId, id, input.runtimeEpoch, tx);
       const hash = fingerprint(input);
       const [replay] = await tx
         .select()

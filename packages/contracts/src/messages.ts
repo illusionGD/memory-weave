@@ -148,6 +148,8 @@ export const publishMessageRequestSchema: z.ZodObject<
 > = z.object(publishMessageRequestShape).strict();
 
 const messageCommonShape = {
+  /** 已删除正文仅显示占位；原文身份仍供去重和历史引用使用。 */
+  deletedAt: utcDateTimeSchema.nullable().default(null),
   /** 单份共同原文的稳定消息标识，不按接收伴侣复制。 */
   id: uuidSchema,
   /** 原文所属部署的持久 owner 标识。 */

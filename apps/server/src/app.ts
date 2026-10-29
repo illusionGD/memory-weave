@@ -1,3 +1,6 @@
+import { LifecycleController } from './modules/lifecycle/lifecycle.controller';
+import { LifecycleService } from './modules/lifecycle/lifecycle.service';
+import { LifecycleExecutionService } from './modules/lifecycle/lifecycle-execution.service';
 import { ChatEventsService } from './modules/chats/chat-events.service';
 import 'reflect-metadata';
 import { ChatExecutionService } from './modules/chats/chat-execution.service';
@@ -56,6 +59,7 @@ class ApplicationModule {
       module: ApplicationModule,
       controllers: [
         AuthController,
+        LifecycleController,
         ChatsController,
         HealthController,
         SystemController,
@@ -73,6 +77,8 @@ class ApplicationModule {
         { provide: AuthService, useFactory: () => AuthService.create(adminPassword) },
         { provide: APP_GUARD, useClass: AuthGuard },
         SystemService,
+        LifecycleService,
+        LifecycleExecutionService,
         ChatsService,
         ChatExecutionService,
         ChatEventsService,
