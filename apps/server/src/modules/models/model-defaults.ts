@@ -1,3 +1,4 @@
+import { MEMORY_DEFINITION_VERSION } from '../memories/memory-definition';
 import { MODEL_TASK_ROLES } from '@memory-weave/contracts';
 import type { ModelConfiguration, ModelTaskConfig } from '@memory-weave/contracts';
 import { PERSONA_DEFINITION_VERSION } from '../companions/persona-definition';
@@ -13,22 +14,27 @@ export function defaultModelConfiguration(): ModelConfiguration {
         providerId: 'test',
         model: role === 'embedding' ? 'test-embedding-v1' : 'test-generation-v1',
         promptVersion:
-          role === 'persona'
-            ? PERSONA_DEFINITION_VERSION
-            : role === 'chat'
-              ? CHAT_DEFINITION_VERSION
-              : 'probe-v1',
+          role === 'memory'
+            ? MEMORY_DEFINITION_VERSION
+            : role === 'persona'
+              ? PERSONA_DEFINITION_VERSION
+              : role === 'chat'
+                ? CHAT_DEFINITION_VERSION
+                : 'probe-v1',
         preprocessingVersion: 'utf8-v1',
         schemaVersion:
-          role === 'persona'
-            ? PERSONA_DEFINITION_VERSION
-            : role === 'chat'
-              ? CHAT_DEFINITION_VERSION
-              : role === 'embedding'
-                ? 'vector-v1'
-                : 'probe-v1',
-        maxInputTokens: role === 'persona' || role === 'chat' ? 32768 : 8192,
-        maxOutputTokens: role === 'embedding' ? 0 : role === 'persona' ? 4096 : 512,
+          role === 'memory'
+            ? MEMORY_DEFINITION_VERSION
+            : role === 'persona'
+              ? PERSONA_DEFINITION_VERSION
+              : role === 'chat'
+                ? CHAT_DEFINITION_VERSION
+                : role === 'embedding'
+                  ? 'vector-v1'
+                  : 'probe-v1',
+        maxInputTokens: role === 'persona' || role === 'chat' || role === 'memory' ? 32768 : 8192,
+        maxOutputTokens:
+          role === 'embedding' ? 0 : role === 'persona' || role === 'memory' ? 4096 : 512,
         timeoutMs: 30_000,
         maxAttempts: 1,
         retryDelayMs: 250,

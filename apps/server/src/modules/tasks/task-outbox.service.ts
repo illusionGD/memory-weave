@@ -1,15 +1,13 @@
-import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { isNull, and, asc, eq, gt } from 'drizzle-orm';
 import type { IdPaginationQuery, TaskOutboxList } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import type { DatabaseTransaction } from '../../database/database.service';
-import { messages, tasks, taskOutbox } from '../../database/schema';
+import { messages, taskOutbox } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { TaskStore } from './task-store';
 import { TaskConfigurationService } from './task-configuration.service';
-import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
 import type { MessageOutboxInput } from './task-types';
 
 /** 在调用方业务事务内登记，重复事件不能替换已经保存的接收范围。 */
@@ -111,66 +109,7 @@ export class TaskOutboxService {
             .where(eq(taskOutbox.id, event.id));
           continue;
         }
-        for (const recipient of payload.recipients) {
-          let reason = 'handler_unavailable';
-          try {
-            const member = await requireCompanionMember(
-              ownerId,
-              recipient.companionId,
-              recipient.runtimeEpoch,
-              payload.conversationId,
-              tx,
-            );
-            if (member.permissionVersion !== recipient.permissionVersion)
-              throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
-            await assertVisible(member, payload.sequence, tx);
-          } catch (error) {
-            if (
-              !(error instanceof ApiException) ||
-              ![
-                API_CODES.RESOURCE_NOT_FOUND,
-                API_CODES.RUNTIME_EPOCH_MISMATCH,
-                API_CODES.LIFECYCLE_RESTRICTED,
-                API_CODES.PERMISSION_VERSION_CONFLICT,
-              ].some((code) => code === error.code)
-            )
-              throw error;
-            reason = 'scope_changed';
-          }
-          const requestKey = `memory:${recipient.companionId}:${recipient.runtimeEpoch}:${payload.messageId}:${payload.contentVersion}`;
-          const [existing] = await tx
-            .select({ id: tasks.id })
-            .from(tasks)
-            .where(and(eq(tasks.ownerId, ownerId), eq(tasks.requestKey, requestKey)));
-          if (existing) continue;
-          const input = {
-            kind: 'memory_extraction' as const,
-            messageId: payload.messageId,
-            contentVersion: payload.contentVersion,
-            sequence: payload.sequence,
-            permissionVersion: recipient.permissionVersion,
-          };
-          const scope = {
-            companionId: recipient.companionId,
-            runtimeEpoch: recipient.runtimeEpoch,
-            conversationId: payload.conversationId,
-          };
-          await tx.insert(tasks).values({
-            id: randomUUID(),
-            ownerId,
-            requestKey,
-            fingerprint: fingerprint({ input, scope }),
-            kind: 'memory_extraction',
-            input,
-            scope,
-            status: 'blocked',
-            stage: 'awaiting_handler',
-            reason,
-            availableAt: now,
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
+        // F08 以已持久登记的 processingRanges 组成批次，不再为每条消息创建占位任务。
         await tx
           .update(taskOutbox)
           .set({ status: 'dispatched', reason: null, dispatchedAt: now })

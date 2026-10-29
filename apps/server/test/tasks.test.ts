@@ -449,25 +449,18 @@ describe('持久任务的公开控制与恢复边界', () => {
       app.get(TaskOutboxService).dispatch(),
       app.get(TaskOutboxService).dispatch(),
     ]);
-    const jobs = (await agent.get('/api/tasks').expect(200)).body.data.items;
-    expect(jobs).toHaveLength(2);
+    // F08 由持久范围组成批次，outbox 转交本身不再创建逐条模型任务。
+    expect((await agent.get('/api/tasks').expect(200)).body.data.items).toEqual([]);
     for (const companion of companions) {
-      const owned = jobs.filter(
-        (job: { scope: { companionId: string } }) =>
-          job.scope.companionId === companion.companionId,
-      );
-      expect(owned).toHaveLength(1);
-      expect(owned[0]).toMatchObject({
-        kind: 'memory_extraction',
-        status: 'blocked',
-        reason: 'handler_unavailable',
-        scope: { ...companion, conversationId: conversation.id },
-        progress: { completedSteps: 0, totalSteps: null },
-        attempts: [],
-      });
-      expect(
-        (await agent.get(`/api/tasks?companionId=${companion.companionId}`)).body.data.items,
-      ).toEqual(owned);
+      const progress = (
+        await agent
+          .get(
+            `/api/companions/${companion.companionId}/conversations/${conversation.id}/progress?runtimeEpoch=1`,
+          )
+          .expect(200)
+      ).body.data;
+      expect(progress.items).toHaveLength(1);
+      expect(progress.items[0].processing).toBe('pending');
     }
     expect((await agent.get('/api/tasks/outbox')).body.data.items[0]).toMatchObject({
       status: 'dispatched',

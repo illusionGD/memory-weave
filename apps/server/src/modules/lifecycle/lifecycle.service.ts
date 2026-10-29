@@ -27,7 +27,7 @@ import { ModelConfigurationService } from '../models/model-configuration.service
 import { fingerprint } from '../shared/http';
 import { lockTaskScheduler, TaskStore } from '../tasks/task-store';
 import { TasksService } from '../tasks/tasks.service';
-import { LIFECYCLE_STAGES } from './lifecycle-cleanup';
+import { LIFECYCLE_STAGES, lifecycleStages } from './lifecycle-cleanup';
 
 /** 先持久记录限制与任务，清理成功之前不能继续使用被停止的状态。 */
 @Injectable()
@@ -95,6 +95,7 @@ export class LifecycleService {
           requestId: input.requestId,
           taskId: id,
           fingerprint: hash,
+          protocolVersion: 2,
           kind: input.kind,
           conversationId: conversation.id,
         });
@@ -140,6 +141,7 @@ export class LifecycleService {
         requestId: input.requestId,
         taskId: id,
         fingerprint: hash,
+        protocolVersion: 2,
         kind: input.kind,
         companionId: companion.id,
         previousEpoch: companion.runtimeEpoch,
@@ -264,8 +266,8 @@ export class LifecycleService {
         input: { kind: 'lifecycle_cleanup', operationId: id },
         scope: { companionId: null, runtimeEpoch: null, conversationId: null },
         completedSteps: operation.stage,
-        totalSteps: LIFECYCLE_STAGES.length,
-        stage: LIFECYCLE_STAGES[operation.stage] ?? 'cleanup_complete',
+        totalSteps: lifecycleStages(operation.protocolVersion).length,
+        stage: lifecycleStages(operation.protocolVersion)[operation.stage] ?? 'cleanup_complete',
       });
       await tx.update(lifecycleOperations).set({ taskId }).where(eq(lifecycleOperations.id, id));
       return this.read(ownerId, tx, id);
@@ -319,10 +321,10 @@ export class LifecycleService {
       previousEpoch: row.previousEpoch,
       nextEpoch: row.nextEpoch,
       status: row.completedAt ? 'completed' : 'pending',
-      stage: LIFECYCLE_STAGES[row.stage] ?? 'completed',
+      stage: lifecycleStages(row.protocolVersion)[row.stage] ?? 'completed',
       processedRecords: row.processedRecords,
       completedStages: row.stage,
-      totalStages: LIFECYCLE_STAGES.length,
+      totalStages: lifecycleStages(row.protocolVersion).length,
       task: await this.jobs.getInTransaction(ownerId, row.taskId, tx),
       createdAt: row.createdAt.toISOString(),
       completedAt: row.completedAt?.toISOString() ?? null,

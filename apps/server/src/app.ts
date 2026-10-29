@@ -1,3 +1,6 @@
+import { MemoriesController } from './modules/memories/memories.controller';
+import { MemoriesService } from './modules/memories/memories.service';
+import { MemoryExecutionService } from './modules/memories/memory-execution.service';
 import { LifecycleController } from './modules/lifecycle/lifecycle.controller';
 import { LifecycleService } from './modules/lifecycle/lifecycle.service';
 import { LifecycleExecutionService } from './modules/lifecycle/lifecycle-execution.service';
@@ -58,6 +61,7 @@ class ApplicationModule {
     return {
       module: ApplicationModule,
       controllers: [
+        MemoriesController,
         AuthController,
         LifecycleController,
         ChatsController,
@@ -76,6 +80,8 @@ class ApplicationModule {
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
         { provide: AuthService, useFactory: () => AuthService.create(adminPassword) },
         { provide: APP_GUARD, useClass: AuthGuard },
+        MemoriesService,
+        MemoryExecutionService,
         SystemService,
         LifecycleService,
         LifecycleExecutionService,

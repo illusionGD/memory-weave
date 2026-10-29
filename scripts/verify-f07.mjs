@@ -6,6 +6,7 @@ import {
   messageSchema,
   lifecycleOperationSchema,
   taskConfigurationVersionSchema,
+  modelConfigurationVersionSchema,
 } from '../packages/contracts/dist/index.js';
 import { createModelClient, ModelClientError, reportModelClientError } from './model-client.mjs';
 
@@ -26,9 +27,15 @@ async function finish(api, operation) {
   }
   throw new ModelClientError(`清理 ${operation.id} 仍在等待，请查看清理记录。`);
 }
-/** 所有删除目标都来自本次创建返回值；不调用模型，不改变部署配置。 */
+/** 所有删除目标都来自本次创建返回值；不直接调用模型、不改变部署配置；F08 后台最多使用 test。 */
 async function main() {
   const api = await createModelClient();
+  const memory = modelConfigurationVersionSchema.parse(await api('/models/config')).config.tasks
+    .memory;
+  if (memory.enabled && memory.providerId !== 'test')
+    throw new ModelClientError(
+      '记忆后台使用真实模型，请在隔离验收部署运行本脚本，避免测试原文触发真实提取。',
+    );
   if (!taskConfigurationVersionSchema.parse(await api('/tasks/config')).config.enabled)
     throw new ModelClientError('调度已停用，请按实际需要启用后再验收。');
   const create = async (name) =>

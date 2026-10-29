@@ -43,6 +43,13 @@
       "when": 1793260846130,
       "tag": "0005_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1793269085467,
+      "tag": "0006_memory_organization",
+      "breakpoints": true
     }
   ]
 }

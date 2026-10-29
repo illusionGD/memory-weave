@@ -1,3 +1,5 @@
+import { MemoryExecutionService } from '../memories/memory-execution.service';
+import { MemoriesService } from '../memories/memories.service';
 import { LifecycleExecutionService } from '../lifecycle/lifecycle-execution.service';
 import { ChatExecutionService } from '../chats/chat-execution.service';
 import { Inject, Injectable } from '@nestjs/common';
@@ -20,6 +22,8 @@ export class TaskWorkerService implements OnModuleDestroy {
   private loop: Promise<void> | null = null;
 
   constructor(
+    @Inject(MemoryExecutionService) private readonly memoryExecution: MemoryExecutionService,
+    @Inject(MemoriesService) private readonly memories: MemoriesService,
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
     @Inject(ChatExecutionService) private readonly chats: ChatExecutionService,
     @Inject(TasksService) private readonly tasks: TasksService,
@@ -58,7 +62,8 @@ export class TaskWorkerService implements OnModuleDestroy {
         pollMs = current.config.pollMs;
         if (current.config.enabled) {
           await this.outbox.dispatch();
-          while (!signal.aborted && this.active.size < current.config.maxConcurrent + 1) {
+          await this.memories.schedule();
+          while (!signal.aborted && this.active.size < current.config.maxConcurrent + 2) {
             const lease = await this.tasks.claim();
             if (!lease) break;
             const execution = this.execute(lease);
@@ -110,6 +115,8 @@ export class TaskWorkerService implements OnModuleDestroy {
           await this.tasks.checkpoint(lease, { completedSteps: step, stage: 'steps' });
         }
         if (!leaseLost) await this.tasks.complete(lease);
+      } else if (lease.input.kind === 'memory_batch') {
+        await this.memoryExecution.execute(lease);
       } else if (lease.input.kind === 'lifecycle_cleanup') {
         await this.lifecycle.execute(lease);
       } else if (lease.input.kind === 'chat_reply') {

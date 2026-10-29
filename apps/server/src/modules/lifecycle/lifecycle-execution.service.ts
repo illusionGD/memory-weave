@@ -8,7 +8,7 @@ import { ApiException } from '../../http/api-exception';
 import { ModelConfigurationService } from '../models/model-configuration.service';
 import { TasksService } from '../tasks/tasks.service';
 import type { TaskLease } from '../tasks/task-types';
-import { cleanupLifecyclePage, LIFECYCLE_STAGES } from './lifecycle-cleanup';
+import { cleanupLifecyclePage, lifecycleStages } from './lifecycle-cleanup';
 
 /** 分批清理与进度同事务提交，重启后从已提交阶段继续。 */
 @Injectable()
@@ -34,8 +34,8 @@ export class LifecycleExecutionService {
           );
         if (!operation) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
         if (operation.taskId !== lease.task.id) throw new ApiException(API_CODES.TASK_LEASE_LOST);
-        if (operation.protocolVersion !== 1) throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
-        if (operation.stage >= LIFECYCLE_STAGES.length) return true;
+        const stages = lifecycleStages(operation.protocolVersion);
+        if (operation.stage >= stages.length) return true;
         const result = await cleanupLifecyclePage(
           ownerId,
           tx,
@@ -51,12 +51,12 @@ export class LifecycleExecutionService {
           .update(tasks)
           .set({
             completedSteps: stage,
-            stage: LIFECYCLE_STAGES[stage] ?? 'cleanup_complete',
+            stage: stages[stage] ?? 'cleanup_complete',
             updatedAt: new Date(),
           })
           .where(eq(tasks.id, lease.task.id));
         await this.jobs.guardDispatch(ownerId, tx, lease);
-        return stage >= LIFECYCLE_STAGES.length;
+        return stage >= stages.length;
       });
       if (done) break;
     }

@@ -1,3 +1,5 @@
+import type { MemoryBatchInput, MemoryBatchConfiguration } from '../modules/memories/memory-types';
+import type { MemoryBatch } from '@memory-weave/contracts';
 import type { TaskInput, MessageOutboxInput } from '../modules/tasks/task-types';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
@@ -699,7 +701,8 @@ export const processingRanges = mysqlTable(
     stage: varchar('stage', { length: 32, enum: ['memory_extraction'] })
       .notNull()
       .default('memory_extraction'),
-    status: varchar('status', { length: 32, enum: ['pending'] })
+    batchId: uuid('batch_id'),
+    status: varchar('status', { length: 32, enum: ['pending', 'processing', 'processed'] })
       .notNull()
       .default('pending'),
     createdAt: createdAt(),
@@ -712,6 +715,14 @@ export const processingRanges = mysqlTable(
       table.messageId,
       table.contentVersion,
       table.stage,
+    ),
+    index('processing_ranges_pending_idx').on(
+      table.ownerId,
+      table.status,
+      table.companionId,
+      table.runtimeEpoch,
+      table.conversationId,
+      table.createdAt,
     ),
     index('processing_ranges_conversation_sequence_idx').on(
       table.ownerId,
@@ -741,7 +752,7 @@ export const processingRanges = mysqlTable(
     ),
     check(
       'processing_ranges_stage_valid',
-      sql`${table.stage} = 'memory_extraction' AND ${table.status} = 'pending'`,
+      sql`${table.stage} = 'memory_extraction' AND ${table.status} IN ('pending', 'processing', 'processed')`,
     ),
   ],
 );
@@ -1099,5 +1110,216 @@ export const chatRunSources = mysqlTable(
       columns: [table.ownerId, table.messageId, table.contentVersion],
       foreignColumns: [messages.ownerId, messages.id, messages.contentVersion],
     }),
+  ],
+);
+
+/** 固定的记忆批次；任务与逐条进度同事务登记和提交。 */
+export const memoryBatches = mysqlTable(
+  'memory_batches',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    taskId: uuid('task_id'),
+    input: json('input').$type<MemoryBatchInput>(),
+    configuration: json('configuration').$type<MemoryBatchConfiguration>().notNull(),
+    configVersion: int('config_version').notNull(),
+    mode: varchar('mode', { length: 10 }).$type<'test' | 'model'>().notNull(),
+    sequences: json('sequences').$type<number[]>().notNull(),
+    outcomes: json('outcomes').$type<MemoryBatch['outcomes']>(),
+    createdAt: createdAt(),
+    completedAt: datetime('completed_at', { fsp: 3 }),
+  },
+  (table) => [
+    unique('memory_batch_owner_request').on(table.ownerId, table.requestId),
+    unique('memory_batch_owner_id').on(table.ownerId, table.id),
+    foreignKey({
+      name: 'memory_batch_companion_fk',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+    foreignKey({
+      name: 'memory_batch_conversation_fk',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+    check(
+      'memory_batch_epoch_positive',
+      sql`${table.runtimeEpoch} > 0 AND ${table.configVersion} > 0`,
+    ),
+    index('memory_batch_scope').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.conversationId,
+      table.completedAt,
+    ),
+    unique('memory_batch_task').on(table.ownerId, table.taskId),
+  ],
+);
+
+/** 稳定记忆头，当前失效时不能自动回退旧事实。 */
+export const memoryEntries = mysqlTable(
+  'memory_entries',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    currentVersionId: uuid('current_version_id').notNull(),
+    version: int('version').notNull(),
+    status: varchar('status', { length: 16 })
+      .$type<'active' | 'disputed' | 'invalidated'>()
+      .notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('memory_entry_owner_id').on(table.ownerId, table.id),
+    foreignKey({
+      name: 'memory_entry_companion_fk',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+    foreignKey({
+      name: 'memory_entry_conversation_fk',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+    check(
+      'memory_entry_state_valid',
+      sql`${table.version} > 0 AND ${table.runtimeEpoch} > 0 AND ${table.status} IN ('active','disputed','invalidated')`,
+    ),
+    index('memory_entry_scope').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.conversationId,
+      table.id,
+    ),
+  ],
+);
+
+/** 只追加语义版本；显式清理会抹除正文而保留无内容身份。 */
+export const memoryVersions = mysqlTable(
+  'memory_versions',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    memoryId: uuid('memory_id')
+      .notNull()
+      .references(() => memoryEntries.id),
+    version: int('version').notNull(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => memoryBatches.id),
+    document: json('document').$type<import('@memory-weave/contracts').MemoryDocument>(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    operation: varchar('operation', { length: 16 })
+      .$type<'add' | 'merge' | 'change' | 'correction' | 'conflict'>()
+      .notNull(),
+    previousVersionId: uuid('previous_version_id'),
+    reason: varchar('reason', { length: 400 }),
+    mode: varchar('mode', { length: 10 }).$type<'test' | 'model'>().notNull(),
+    createdAt: createdAt(),
+    invalidatedAt: datetime('invalidated_at', { fsp: 3 }),
+  },
+  (table) => [
+    unique('memory_version_owner_id').on(table.ownerId, table.id),
+    foreignKey({
+      name: 'memory_version_entry_fk',
+      columns: [table.ownerId, table.memoryId],
+      foreignColumns: [memoryEntries.ownerId, memoryEntries.id],
+    }),
+    foreignKey({
+      name: 'memory_version_batch_fk',
+      columns: [table.ownerId, table.batchId],
+      foreignColumns: [memoryBatches.ownerId, memoryBatches.id],
+    }),
+    check('memory_version_positive', sql`${table.version} > 0`),
+    unique('memory_version_number').on(table.ownerId, table.memoryId, table.version),
+    index('memory_version_fingerprint').on(table.ownerId, table.fingerprint),
+  ],
+);
+
+/** 精确证据及保守上下文依赖，不拷贝原文；清理可沿消息 ID 失效版本。 */
+export const memoryEvidence = mysqlTable(
+  'memory_evidence',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => memoryVersions.id),
+    messageId: uuid('message_id').notNull(),
+    contentVersion: int('content_version').notNull(),
+    startOffset: int('start_offset').notNull(),
+    endOffset: int('end_offset').notNull(),
+    kind: varchar('kind', { length: 12 }).$type<'quote' | 'context'>().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'memory_evidence_version_fk',
+      columns: [table.ownerId, table.versionId],
+      foreignColumns: [memoryVersions.ownerId, memoryVersions.id],
+    }),
+    foreignKey({
+      name: 'memory_evidence_message_fk',
+      columns: [table.ownerId, table.messageId, table.contentVersion],
+      foreignColumns: [messages.ownerId, messages.id, messages.contentVersion],
+    }),
+    check(
+      'memory_evidence_range_valid',
+      sql`${table.contentVersion} > 0 AND ${table.startOffset} >= 0 AND ${table.endOffset} >= ${table.startOffset} AND ${table.kind} IN ('quote','context')`,
+    ),
+    unique('memory_evidence_exact').on(
+      table.ownerId,
+      table.versionId,
+      table.messageId,
+      table.contentVersion,
+      table.startOffset,
+      table.endOffset,
+      table.kind,
+    ),
+    index('memory_evidence_source').on(table.ownerId, table.messageId, table.contentVersion),
+    index('memory_evidence_version').on(table.ownerId, table.versionId),
+  ],
+);
+
+/** 版本之间的有向依赖，只引用已存在的旧版本，避免复制全部祖先来源。 */
+export const memoryDependencies = mysqlTable(
+  'memory_dependencies',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    versionId: uuid('version_id').notNull(),
+    sourceVersionId: uuid('source_version_id').notNull(),
+  },
+  (table) => [
+    unique('memory_dependency_pair').on(table.ownerId, table.versionId, table.sourceVersionId),
+    index('memory_dependency_source').on(table.ownerId, table.sourceVersionId),
+    foreignKey({
+      name: 'memory_dependency_version_fk',
+      columns: [table.ownerId, table.versionId],
+      foreignColumns: [memoryVersions.ownerId, memoryVersions.id],
+    }),
+    foreignKey({
+      name: 'memory_dependency_source_fk',
+      columns: [table.ownerId, table.sourceVersionId],
+      foreignColumns: [memoryVersions.ownerId, memoryVersions.id],
+    }),
+    check('memory_dependency_no_self', sql`${table.versionId} <> ${table.sourceVersionId}`),
   ],
 );

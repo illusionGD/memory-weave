@@ -678,6 +678,11 @@ describe('生命周期公共命令与恢复', () => {
         expectedRevision: next.revision,
       })
       .expect(201);
+    // F08 按批次调度，不再因单条发布立刻产生任务；显式唤醒 B 验证其仍可继续处理。
+    await agent
+      .post(`/api/companions/${b.id}/memories/organize`)
+      .send({ requestId: randomUUID(), runtimeEpoch: 1, conversationId: group.id })
+      .expect(201);
     let laterB;
     for (let i = 0; i < 100; i++) {
       laterB = (await agent.get(`/api/tasks?companionId=${b.id}&limit=100`).expect(200)).body.data

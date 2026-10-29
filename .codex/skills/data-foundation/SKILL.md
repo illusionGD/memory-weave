@@ -39,3 +39,5 @@ HTTP 响应统一为 `{ code, data, message }`，数字常用码通过 contracts
 F06 增加 model_output 来源和私聊表；create/save/publishInTransaction 供领域命令在已有事务中复用原文规则。已启用聊天的会话只允许从私聊发送入口写入，基础管理保存/发布返回 CHAT_MANAGED_CONVERSATION；查询继续兼容。终端回执独立于 read_receipts，后者仍只表示实例实际取得正文，详情见 private-chat。
 
 F07 已接入生命周期限制与清理。涉及消息来源、实例代次、任务恢复、模型候选或人格版本的改动，需同时阅读 [lifecycle](../lifecycle/SKILL.md)，接入读取/派发/提交检查及分批清理协议，保留共享原文和全局计量边界。
+
+F08 已接入批量记忆整理。涉及记忆来源、processing_ranges、后台并发或生命周期派生清理时，同时阅读 [memory-organization](../memory-organization/SKILL.md)。记忆和清理各有独立执行位置；旧 v1 生命周期阶段保留，新增操作使用 v2。0006 交付后同样不可改写。

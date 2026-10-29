@@ -1,6 +1,7 @@
+import { requireMemoryBatch } from '../memories/memory-access';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { isNull, and, asc, count, eq, gt, inArray, lte, sql } from 'drizzle-orm';
+import { isNull, and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { API_CODES } from '@memory-weave/contracts';
 import type {
   DiagnosticTask,
@@ -147,10 +148,19 @@ export class TasksService {
       const current = await this.configuration.current(ownerId, tx);
       await this.expire(ownerId, tx, now, current.config);
       if (!current.config.enabled) return null;
-      const [active] = await tx
-        .select({ value: count() })
+      const active = await tx
+        .select({ kind: tasks.kind })
         .from(tasks)
         .where(and(eq(tasks.ownerId, ownerId), eq(tasks.status, 'running')));
+      const ordinary = active.filter(
+        (row) => row.kind !== 'lifecycle_cleanup' && row.kind !== 'memory_extraction',
+      ).length;
+      const kinds: Task['kind'][] = [];
+      if (ordinary < current.config.maxConcurrent)
+        kinds.push('diagnostic', 'model_probe', 'persona_initialization', 'chat_reply');
+      if (!active.some((row) => row.kind === 'memory_extraction')) kinds.push('memory_extraction');
+      if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
+      if (!kinds.length) return null;
       const [row] = await tx
         .select()
         .from(tasks)
@@ -158,38 +168,18 @@ export class TasksService {
           and(
             eq(tasks.ownerId, ownerId),
             inArray(tasks.status, ['queued', 'waiting']),
-            inArray(tasks.kind, [
-              'diagnostic',
-              'model_probe',
-              'persona_initialization',
-              'chat_reply',
-              'lifecycle_cleanup',
-            ]),
+            inArray(tasks.kind, kinds),
             lte(tasks.availableAt, now),
           ),
         )
         .orderBy(
-          sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 ELSE 1 END`,
+          sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 1 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 ELSE 2 END`,
           asc(tasks.availableAt),
           asc(tasks.id),
         )
         .limit(1);
       if (!row) return null;
-      // 清理不调用外部模型，额外保留一个部署级位置，避免被尚未结束的旧调用挡住。
-      if (row.kind === 'lifecycle_cleanup') {
-        const [cleanup] = await tx
-          .select({ value: count() })
-          .from(tasks)
-          .where(
-            and(
-              eq(tasks.ownerId, ownerId),
-              eq(tasks.status, 'running'),
-              eq(tasks.kind, 'lifecycle_cleanup'),
-            ),
-          );
-        if ((cleanup?.value ?? 0) > 0 || (active?.value ?? 0) >= current.config.maxConcurrent + 1)
-          return null;
-      } else if ((active?.value ?? 0) >= current.config.maxConcurrent) return null;
+      // 记忆使用独立单位置，不能占满聊天队列；模型容量仍由 F03 全局限制。
       if (row.fence >= current.config.maxAttempts) {
         await tx
           .update(tasks)
@@ -313,7 +303,8 @@ export class TasksService {
       if (
         row.kind === 'model_probe' ||
         row.kind === 'persona_initialization' ||
-        row.kind === 'chat_reply'
+        row.kind === 'chat_reply' ||
+        row.input.kind === 'memory_batch'
       ) {
         const [call] = await tx
           .select()
@@ -552,6 +543,10 @@ export class TasksService {
       scope.conversationId,
       tx,
     );
+    if (row.input.kind === 'memory_batch') {
+      const batch = await requireMemoryBatch(ownerId, row.input.batchId, tx);
+      if (batch.taskId !== row.id) throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
+    }
     if (row.input.kind === 'memory_extraction') {
       if (member.permissionVersion !== row.input.permissionVersion)
         throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
@@ -620,7 +615,8 @@ export class TasksService {
     const [call] =
       row.kind === 'model_probe' ||
       row.kind === 'persona_initialization' ||
-      row.kind === 'chat_reply'
+      row.kind === 'chat_reply' ||
+      row.input.kind === 'memory_batch'
         ? await tx
             .select({ id: modelCalls.id })
             .from(modelCalls)

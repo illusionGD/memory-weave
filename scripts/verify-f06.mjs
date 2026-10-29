@@ -34,6 +34,10 @@ async function ready(api, id) {
 async function main() {
   const api = await createModelClient();
   const config = modelConfigurationVersionSchema.parse(await api('/models/config'));
+  if (config.config.tasks.memory.enabled && config.config.tasks.memory.providerId !== 'test')
+    throw new ModelClientError(
+      '记忆后台使用真实模型，请在隔离验收部署运行本脚本，避免测试原文触发真实提取。',
+    );
   if (config.config.tasks.chat.providerId !== 'test')
     throw new ModelClientError('本脚本只允许 chat 使用 test，不会切换你的模型或发起付费调用。');
   if (!taskConfigurationVersionSchema.parse(await api('/tasks/config')).config.enabled)

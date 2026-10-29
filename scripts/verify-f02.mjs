@@ -5,6 +5,7 @@ import {
   apiErrorResponseSchema,
   REQUEST_ID_HEADER,
   uuidSchema,
+  modelConfigurationVersionSchema,
 } from '../packages/contracts/dist/index.js';
 
 /** 仅输出脚本主动构造的错误说明，避免响应正文、Cookie 或凭据进入日志。 */
@@ -203,13 +204,14 @@ function progress(companion, conversationId) {
   );
 }
 
-/** 读取进度时始终检查整理与交付没有被接收操作误标为完成。 */
+/** F08 后台可独立推进整理；读取/接收仍不能冒充用户终端交付。 */
 function messageProgress(page, messageId) {
   const item = page.items?.find((entry) => entry.messageId === messageId);
   check(item, '实例进度缺少可见已发布消息。');
   check(
-    item.processing === 'pending' && item.delivery === 'not_recorded',
-    '查询或接收错误地改变了记忆整理或用户交付状态。',
+    ['pending', 'processing', 'processed'].includes(item.processing) &&
+      item.delivery === 'not_recorded',
+    '整理状态不符合约定，或查询/接收误标了终端交付。',
   );
   return item;
 }
@@ -251,6 +253,13 @@ async function main() {
     '工作区 owner 不稳定。',
   );
   pass('未登录被拒绝，登录后可读取稳定的工作区 owner。');
+  const memory = modelConfigurationVersionSchema.parse(
+    await api('检查记忆后台配置', '/models/config'),
+  ).config.tasks.memory;
+  check(
+    !memory.enabled || memory.providerId === 'test',
+    '记忆后台使用真实模型，请在隔离验收部署运行，避免测试原文触发真实提取。',
+  );
 
   const companions = {};
   const companionRequests = {};

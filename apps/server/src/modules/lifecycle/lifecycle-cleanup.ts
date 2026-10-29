@@ -1,3 +1,4 @@
+import { cleanupMemoryPage } from '../memories/memory-cleanup';
 import { and, asc, eq, inArray, isNull, isNotNull, lte, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
@@ -24,7 +25,7 @@ import {
 } from '../../database/schema';
 
 /** 清理协议 v1 的有序阶段，新增派生模块必须增加自己的清理阶段与读取围栏。 */
-export const LIFECYCLE_STAGES = [
+const LIFECYCLE_STAGES_V1 = [
   'propagation',
   'outbox',
   'tasks',
@@ -39,6 +40,21 @@ export const LIFECYCLE_STAGES = [
   'drafts',
   'messages',
 ] as const;
+/** v1 的阶段编号保持不变，v2 在擦除原文前清理新增派生模块。 */
+export const LIFECYCLE_STAGES = [
+  ...LIFECYCLE_STAGES_V1.slice(0, 6),
+  'memory_versions',
+  'memory_requeue',
+  'memory_evidence',
+  'memory_batches',
+  ...LIFECYCLE_STAGES_V1.slice(6),
+] as const;
+/** 按操作创建时的协议恢复，升级不能重解释旧检查点。 */
+export function lifecycleStages(version: number): readonly string[] {
+  if (version === 1) return LIFECYCLE_STAGES_V1;
+  if (version === 2) return LIFECYCLE_STAGES;
+  throw new Error('不支持的生命周期协议版本。');
+}
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */
 export type LifecycleRecord = typeof lifecycleOperations.$inferSelect;
 /** 每批只报告已提交数量和是否完成，失败时与进度一起回滚。 */
@@ -70,7 +86,8 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
         eq(lifecycleMessageTargets.operationId, operation.id),
       ),
     );
-  const stage = LIFECYCLE_STAGES[operation.stage];
+  const stage = lifecycleStages(operation.protocolVersion)[operation.stage];
+  if (stage?.startsWith('memory_')) return cleanupMemoryPage(ownerId, tx, operation, stage, limit);
   const now = new Date();
   if (stage === 'propagation') {
     if (!content) return { done: true, changed: 0 };

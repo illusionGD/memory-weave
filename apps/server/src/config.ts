@@ -1,3 +1,5 @@
+import { memoryConfigurationSchema } from '@memory-weave/contracts';
+import type { MemoryConfiguration } from '@memory-weave/contracts';
 import { chatConfigurationSchema } from '@memory-weave/contracts';
 import type { ChatConfiguration } from '@memory-weave/contracts';
 import { resolve } from 'node:path';
@@ -32,6 +34,8 @@ export interface ServerConfig {
   chatConfiguration?: ChatConfiguration;
   /** 每个生命周期清理事务的最多记录数，默认 100。 */
   lifecycleBatchSize?: number;
+  /** 集中记忆整理参数，每批固定快照。 */
+  memoryConfiguration?: MemoryConfiguration;
 }
 
 /** 运行时各模块使用的配置，排除无需继续持有的明文登录密码。 */
@@ -156,7 +160,16 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     throw new ConfigurationError('聊天配置无效，请检查 CHAT_CONFIG_JSON。');
   }
 
+  let memoryConfiguration: MemoryConfiguration;
+  try {
+    memoryConfiguration = memoryConfigurationSchema.parse(
+      JSON.parse(environment.MEMORY_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('记忆配置无效，请检查 MEMORY_CONFIG_JSON。');
+  }
   return {
+    memoryConfiguration,
     chatConfiguration,
     lifecycleBatchSize,
     host,

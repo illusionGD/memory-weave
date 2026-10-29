@@ -101,3 +101,5 @@ export * from './persona-document';
 export * from './personas';
 export * from './chats';
 export * from './lifecycle';
+
+export * from './memories';

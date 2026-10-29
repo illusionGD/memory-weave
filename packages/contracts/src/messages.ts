@@ -280,8 +280,8 @@ const processingRangeShape = {
   endSequence: positiveIntegerSchema,
   /** 目标阶段为记忆提取，F02 尚不执行此阶段。 */
   stage: z.literal('memory_extraction'),
-  /** F02 只登记 pending，不提供伪造整理完成的命令。 */
-  status: z.literal('pending'),
+  /** 只有记忆结果与确切区间原子提交后才成为 processed。 */
+  status: z.enum(['pending', 'processing', 'processed']),
   /** 随消息正式发布而登记此区间的 UTC 时间。 */
   createdAt: utcDateTimeSchema,
 };
@@ -340,7 +340,7 @@ const messageProgressShape = {
   /** 本伴侣实际取得该版本完整正文的记录；尚未取得时为 null。 */
   readReceipt: readReceiptSchema.nullable(),
   /** F02 所有可见已发布原文均待整理；取得正文不会改变此值。 */
-  processing: z.literal('pending'),
+  processing: z.enum(['pending', 'processing', 'processed']),
   /** 尚未记录用户终端交付；不能由已发布或已读状态推断交付成功。 */
   delivery: z.literal('not_recorded'),
 };

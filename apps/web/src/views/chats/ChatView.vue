@@ -17,6 +17,16 @@
             }}
           </p>
         </div>
+        <RouterLink
+          v-if="chat?.availability === 'active'"
+          class="button button--quiet"
+          :to="{
+            name: 'memories',
+            params: { id: chat.companionId, conversationId: chat.id },
+            query: { runtimeEpoch: chat.runtimeEpoch },
+          }"
+          >这段对话的记忆</RouterLink
+        >
         <RouterLink class="button button--quiet" to="/chats">全部私聊</RouterLink>
       </header>
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
