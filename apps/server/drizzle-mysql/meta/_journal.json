@@ -29,6 +29,13 @@
       "when": 1793198278282,
       "tag": "0003_persona_foundations",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1793248673248,
+      "tag": "0004_private_chat",
+      "breakpoints": true
     }
   ]
 }

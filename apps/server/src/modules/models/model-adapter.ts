@@ -16,6 +16,8 @@ export interface ModelAdapterRequest {
   testOutput?: unknown;
   /** 外部调用取消或超时信号。 */
   signal: AbortSignal;
+  /** 流式文本增量；调用方完成持久发布后才继续读取，形成背压。 */
+  onText?: (delta: string) => Promise<void>;
 }
 
 /** 供应商输出仍视为不可信；统一入口负责结构与维度校验。 */
@@ -43,7 +45,7 @@ export class DeterministicModelAdapter implements ModelAdapter {
   async invoke(request: ModelAdapterRequest): Promise<ModelAdapterResponse> {
     request.signal.throwIfAborted();
     const text = `测试模型已收到：${request.inputText}`;
-    return {
+    const response: ModelAdapterResponse = {
       value:
         request.testOutput !== undefined
           ? request.operation === 'structured'
@@ -59,5 +61,12 @@ export class DeterministicModelAdapter implements ModelAdapter {
       actualModel: request.task.model,
       responseId: null,
     };
+    if (request.onText && typeof response.value === 'string') {
+      for (const part of response.value.match(/.{1,32}/gsu) ?? []) {
+        request.signal.throwIfAborted();
+        await request.onText(part);
+      }
+    }
+    return response;
   }
 }

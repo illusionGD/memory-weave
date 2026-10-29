@@ -28,6 +28,7 @@ const providerSchema = z
       .regex(/^MODEL_[A-Z0-9_]+$/)
       .nullable(),
     capabilities: z.array(modelOperationSchema).min(1).max(3),
+    streaming: z.boolean().default(false),
     outputTokenParameter: z
       .enum(['max_completion_tokens', 'max_tokens'])
       .default('max_completion_tokens'),

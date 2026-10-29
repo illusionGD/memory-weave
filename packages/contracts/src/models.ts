@@ -132,7 +132,7 @@ export const updateModelConfigurationSchema: z.ZodObject<
 /** 发布配置的命令。 */
 export type UpdateModelConfiguration = z.infer<typeof updateModelConfigurationSchema>;
 
-/** 本阶段声明支持非流式文本、固定诊断结构和向量编码。 */
+/** 文本（可按供应商能力流式传输）、结构化输出和向量编码。 */
 export const modelOperationSchema = z.enum(['text', 'structured', 'embedding']);
 /** 模型调用类别。 */
 export type ModelOperation = z.infer<typeof modelOperationSchema>;
@@ -352,8 +352,8 @@ const modelProviderInfoShape = {
   capabilities: z.array(modelOperationSchema),
   /** 需要的凭据是否已配置；不返回值、环境变量名或私有地址。 */
   credentialConfigured: z.boolean(),
-  /** 本阶段不提供流式传输，后续 F06 接入。 */
-  streaming: z.literal(false),
+  /** 部署者是否声明文本流式能力；未声明时整段返回。 */
+  streaming: z.boolean(),
   /** 本阶段不发送工具定义或执行工具调用。 */
   tools: z.literal(false),
   /** 本阶段不发送图片内容。 */

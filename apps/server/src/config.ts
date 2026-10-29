@@ -1,3 +1,5 @@
+import { chatConfigurationSchema } from '@memory-weave/contracts';
+import type { ChatConfiguration } from '@memory-weave/contracts';
 import { resolve } from 'node:path';
 import { loadModelDeployment } from './modules/models/model-deployment';
 import type { ModelDeployment } from './modules/models/model-deployment';
@@ -26,6 +28,8 @@ export interface ServerConfig {
   webDistDir: string | null;
   /** 仅服务端持有的供应商、密钥与资源上限；省略时仅提供测试模型。 */
   modelDeployment?: ModelDeployment;
+  /** 集中聊天参数；每轮固定快照，部署变更不重解释正在运行的轮次。 */
+  chatConfiguration?: ChatConfiguration;
 }
 
 /** 运行时各模块使用的配置，排除无需继续持有的明文登录密码。 */
@@ -138,7 +142,17 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     );
   }
 
+  let chatConfiguration: ChatConfiguration;
+  try {
+    chatConfiguration = chatConfigurationSchema.parse(
+      JSON.parse(environment.CHAT_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('聊天配置无效，请检查 CHAT_CONFIG_JSON。');
+  }
+
   return {
+    chatConfiguration,
     host,
     port,
     databaseUrl,

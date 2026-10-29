@@ -35,3 +35,5 @@ HTTP 响应统一为 `{ code, data, message }`，数字常用码通过 contracts
 真实测试必须显式提供独立 MySQL 的 `TEST_DATABASE_URL`、`TEST_QDRANT_URL` 与 `TEST_QDRANT_API_KEY`，使用 `test/support/database.ts` 创建并仅清理自己的临时数据库。领域测试经 HTTP 观察行为；迁移测试经维护命令验证。不可在未运行数据库用例时宣称通过。按已确认 seam 逐行为红绿验证，无需重新请求用户确认。
 
 完成后运行相关格式、lint、类型、真实 HTTP/迁移、构建、浏览器和部署检查。更新功能说明/进度，删除临时任务计划；在已授权的 dev 分支提交推送，交付固定 SHA 和比较基线，停在本功能供 review。
+
+F06 增加 model_output 来源和私聊表；create/save/publishInTransaction 供领域命令在已有事务中复用原文规则。已启用聊天的会话只允许从私聊发送入口写入，基础管理保存/发布返回 CHAT_MANAGED_CONVERSATION；查询继续兼容。终端回执独立于 read_receipts，后者仍只表示实例实际取得正文，详情见 private-chat。

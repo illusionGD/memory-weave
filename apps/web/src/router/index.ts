@@ -7,6 +7,18 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/chats',
+      name: 'chats',
+      component: () => import('@/views/chats/ChatsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/chats/:id',
+      name: 'chat',
+      component: () => import('@/views/chats/ChatView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/persona-templates',
       name: 'persona-templates',
       component: () => import('@/views/companions/PersonaTemplatesView.vue'),

@@ -1,9 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('一段人设自动创建，刷新后可查初始人格并保留约束修订历史', async ({ page }, testInfo) => {
   await page.goto('/');
-  await page.getByLabel('部署密码').fill('Memory-Weave-E2E-Only-2026');
-  await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('link', { name: '伴侣', exact: true }).click();
   await page.getByRole('link', { name: '创建伴侣', exact: true }).click();
   const name = `小夜 ${testInfo.project.name} ${Date.now()}`;
@@ -32,8 +30,6 @@ test('一段人设自动创建，刷新后可查初始人格并保留约束修�
 
 test('模板保留版本，编辑后仍可从旧版本创建独立伴侣', async ({ page }, testInfo) => {
   await page.goto('/');
-  await page.getByLabel('部署密码').fill('Memory-Weave-E2E-Only-2026');
-  await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('link', { name: '伴侣', exact: true }).click();
   await page.getByRole('link', { name: '人设模板', exact: true }).click();
   await page.getByRole('button', { name: '新建模板', exact: true }).click();

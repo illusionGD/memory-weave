@@ -2,6 +2,7 @@ import { API_CODES } from '@memory-weave/contracts';
 import { z } from 'zod';
 import type { ModelAdapter, ModelAdapterRequest, ModelAdapterResponse } from './model-adapter';
 import type { ModelProvider } from './model-deployment';
+import { readModelStream } from './openai-stream';
 
 /** 外部失败只携带受控分类，不能把 URL、凭据或响应正文传到日志。 */
 export class ModelProviderError extends Error {
@@ -29,7 +30,8 @@ export class OpenAiCompatibleAdapter implements ModelAdapter {
         }
       : {
           model: request.task.model,
-          stream: false,
+          stream: Boolean(request.onText),
+          ...(request.onText ? { stream_options: { include_usage: true } } : {}),
           messages: [
             {
               role: 'system',
@@ -78,6 +80,7 @@ export class OpenAiCompatibleAdapter implements ModelAdapter {
         [429, 500, 502, 503, 504].includes(response.status),
       );
     }
+    if (request.onText) return readModelStream(response, request.onText);
     const data = await readJson(response);
     const common = z
       .object({

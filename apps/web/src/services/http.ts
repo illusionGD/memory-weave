@@ -50,7 +50,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
  * @param response 已收到的失败响应，正文读取仍受整次请求的超时限制。
  * @returns 含安全提示、原始状态、可用业务码和追踪编号的错误。
  */
-async function readApiError(response: Response): Promise<ApiError> {
+export async function readApiError(response: Response): Promise<ApiError> {
   const headerId = uuidSchema.safeParse(response.headers.get(REQUEST_ID_HEADER));
   const requestId = headerId.success ? headerId.data : null;
   const fallback = API_RESPONSES[defaultApiErrorCode(response.status)];

@@ -34,7 +34,7 @@ export class ModelProvidersService {
           kind: 'test',
           capabilities: ['text', 'structured', 'embedding'],
           credentialConfigured: true,
-          streaming: false,
+          streaming: true,
           tools: false,
           vision: false,
         },
@@ -43,7 +43,7 @@ export class ModelProvidersService {
           kind: 'openai-compatible' as const,
           capabilities: provider.capabilities,
           credentialConfigured: provider.apiKeyEnv === null || provider.apiKey !== null,
-          streaming: false as const,
+          streaming: provider.streaming,
           tools: false as const,
           vision: false as const,
         })),
@@ -102,5 +102,12 @@ export class ModelProvidersService {
     )
       throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
     return new OpenAiCompatibleAdapter(provider);
+  }
+
+  /** 只按部署声明使用流式协议，不通过额外探测请求消耗预算。 */
+  supportsStreaming(id: string): boolean {
+    return (
+      id === 'test' || this.deployment.providers.some((item) => item.id === id && item.streaming)
+    );
   }
 }

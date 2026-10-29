@@ -71,7 +71,10 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
     return agent;
   }
 
-  async function connectProvider(handler: (req: IncomingMessage, res: ServerResponse) => void) {
+  async function connectProvider(
+    handler: (req: IncomingMessage, res: ServerResponse) => void,
+    streaming = false,
+  ) {
     provider = createServer(handler);
     await new Promise<void>((resolve) => provider!.listen(0, '127.0.0.1', resolve));
     const address = provider.address();
@@ -89,6 +92,7 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
           baseUrl: `http://127.0.0.1:${address.port}/v1`,
           apiKeyEnv: 'MODEL_FIXTURE_KEY',
           capabilities: ['text', 'structured', 'embedding'],
+          streaming,
         },
       ]),
       MODEL_FIXTURE_KEY: 'private-fixture-key',
@@ -119,6 +123,76 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
         .expect(200)
     ).body.data;
   }
+
+  it('流式业务调用在供应商结束前取得首段，完整结果结算并且同键重放不再次发送', async () => {
+    let response: ServerResponse | undefined;
+    let ended = false;
+    let requests = 0;
+    const agent = await connectProvider((req, res) => {
+      requests++;
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+      req.on('end', () => {
+        expect(JSON.parse(body)).toMatchObject({
+          stream: true,
+          stream_options: { include_usage: true },
+        });
+        response = res;
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        const frame = Buffer.from(
+          'data: {"id":"s1","model":"fixed-model-v1","choices":[{"index":0,"delta":{"content":"你好，"},"finish_reason":null}]}\r\n\r\n',
+        );
+        const offset = frame.indexOf(Buffer.from('你')) + 1;
+        res.write(frame.subarray(0, offset));
+        res.write(frame.subarray(offset));
+      });
+    }, true);
+    const current = await useProvider(agent);
+    const runtime = app.get(ModelRuntimeService);
+    const command = {
+      requestId: randomUUID(),
+      expectedConfigVersion: current.version,
+      role: 'chat' as const,
+      operation: 'text' as const,
+      lane: 'interactive' as const,
+      inputText: '你好',
+    };
+    const definition = {
+      promptVersion: 'chat-v1',
+      schemaVersion: 'chat-v1',
+      preprocessingVersion: 'utf8-v1',
+      systemPrompt: '协议测试。',
+    };
+    const chunks: string[] = [];
+    const result = await runtime.executeStreaming(command, definition, async (delta: string) => {
+      chunks.push(delta);
+      if (chunks.length === 1) {
+        expect(ended).toBe(false);
+        expect(delta).toBe('你好，');
+        ended = true;
+        response!.end(
+          'data: {"choices":[{"index":0,"delta":{"content":"世界。"},"finish_reason":"stop"}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":6}}\n\ndata: [DONE]\n\n',
+        );
+      }
+    });
+    expect(chunks).toEqual(['你好，', '世界。']);
+    expect(result).toMatchObject({
+      status: 'succeeded',
+      result: { kind: 'text', text: '你好，世界。' },
+    });
+    expect(result.attempts[0]).toMatchObject({
+      usageSource: 'reported',
+      inputTokens: 20,
+      outputTokens: 6,
+    });
+    const replay = await runtime.executeStreaming(command, definition, async () => {
+      throw new Error('重放不能再次发送片段');
+    });
+    expect(replay).toEqual(result);
+    expect(requests).toBe(1);
+  });
 
   it('默认配置独立记录各任务，更新保留历史、拒绝过期版本，重启后仍生效', async () => {
     await request(app.getHttpServer()).get('/api/models/config').expect(401);

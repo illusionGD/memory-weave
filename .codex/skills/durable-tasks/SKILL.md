@@ -24,3 +24,5 @@ description: 维护 F04 MySQL 持久任务、outbox、租约、恢复和调度�
 完成后同步功能说明、README、plan/progress 与技能，执行格式/lint/typecheck、完整相关测试、构建、必要浏览器和 Docker 升级/保留卷恢复验证。按已有授权在 dev 追加提交并推送，交付 SHA、比较基线和启动验收步骤；停在本功能供 review，不自行进入下一功能。
 
 F05 已接入 persona_initialization：允许实例+代次且无会话的受信任任务，仍验证实例代次；模型结果与人格采用通过 complete 回调原子提交。维护时同时阅读 companion-personas 技能，不能把诊断的空范围规则用于业务任务。
+
+F06 注册 chat_reply 处理器，模型身份同样固定为 task ID；任务视图在检查点前也能按 requestId 找到模型调用。聊天原文、旧租约撤销和新任务在同一事务，领域服务使用 controlInTransaction 后在事务外取消外部等待。TaskWorker 调用 ChatExecutionService，具体发布、上下文和未知结果边界见 private-chat。

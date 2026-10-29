@@ -25,6 +25,7 @@ export const taskKindSchema = z.enum([
   'model_probe',
   'memory_extraction',
   'persona_initialization',
+  'chat_reply',
 ]);
 const diagnosticTaskShape = {
   /** 客户端命令身份，同键同内容返回原任务。 */

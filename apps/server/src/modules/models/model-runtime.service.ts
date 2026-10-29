@@ -26,7 +26,12 @@ import type { DatabaseTransaction } from '../../database/database.service';
 import { modelAttempts, modelCalls, modelUsageWindows } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint, parseInput } from '../shared/http';
-import type { ModelTaskDefinition, ModelTaskScope, ModelDispatchGuard } from './model-task';
+import type {
+  ModelTaskDefinition,
+  ModelTaskScope,
+  ModelDispatchGuard,
+  ModelTextSink,
+} from './model-task';
 import {
   requireCompanion,
   requireConversation,
@@ -91,6 +96,26 @@ export class ModelRuntimeService {
     return this.invoke(command, definition, scope, 'task', guard);
   }
 
+  /**
+   * 流式业务入口仍使用同一调用身份和预算；重放只返回持久结果，不再次发送增量。
+   * @param command 文本调用及预期配置。
+   * @param definition 服务端拥有的提示词与版本。
+   * @param onText 接收候选增量，发布是否仍有效由领域模块检查。
+   * @param scope 当前实例和会话范围。
+   * @param guard 派发前的租约校验。
+   * @returns 持久结果及真实尝试；中断不自动重发已经输出的回复。
+   */
+  executeStreaming(
+    command: ModelProbe,
+    definition: ModelTaskDefinition,
+    onText: ModelTextSink,
+    scope: ModelTaskScope = { companionId: null, runtimeEpoch: null, conversationId: null },
+    guard?: ModelDispatchGuard,
+  ): Promise<ModelCall> {
+    if (command.operation !== 'text') throw new ApiException(API_CODES.INVALID_REQUEST);
+    return this.invoke(command, definition, scope, 'task', guard, onText);
+  }
+
   /** 两类入口共享同一配置、计量和幂等实现，诊断不能冒充真实经历。 */
   private async invoke(
     command: ModelProbe,
@@ -98,8 +123,14 @@ export class ModelRuntimeService {
     scope: ModelTaskScope,
     kind: ModelCallContext['kind'],
     guard?: ModelDispatchGuard,
+    onText?: ModelTextSink,
   ): Promise<ModelCall> {
-    const input = parseInput(modelProbeSchema, command);
+    const input = parseInput(
+      kind === 'task'
+        ? modelProbeSchema.extend({ inputText: z.string().min(1).max(65536) })
+        : modelProbeSchema,
+      command,
+    );
     const context = parseInput(modelCallContextSchema, {
       ...scope,
       kind,
@@ -115,6 +146,7 @@ export class ModelRuntimeService {
       context,
       systemPrompt: definition.systemPrompt,
       outputJsonSchema,
+      ...(onText ? { streaming: true } : {}),
     });
     const prepared = await this.configuration.locked(async (ownerId, tx, current) => {
       await guard?.(ownerId, tx);
@@ -194,7 +226,23 @@ export class ModelRuntimeService {
               testOutput: definition.testOutput?.(input.inputText),
               task,
               signal: AbortSignal.any([AbortSignal.timeout(task.timeoutMs), cancellation.signal]),
+              ...(onText && this.providers.supportsStreaming(task.providerId)
+                ? { onText: (delta: string) => onText(delta, prepared.callId) }
+                : {}),
             });
+            if (
+              onText &&
+              !this.providers.supportsStreaming(task.providerId) &&
+              response.completed
+            ) {
+              const result = validatedResult(
+                input.operation,
+                response.value,
+                task.dimensions,
+                definition.outputSchema,
+              );
+              if (result?.kind === 'text') await onText(result.text, prepared.callId);
+            }
           } catch (error) {
             failure =
               error instanceof ModelProviderError
@@ -203,7 +251,7 @@ export class ModelRuntimeService {
                     error instanceof ApiException ? error.code : API_CODES.MODEL_USAGE_UNKNOWN,
                   );
           }
-          attempt = await this.settle(attempt, task, input, response, failure, definition);
+          attempt = await this.settle(attempt, task, input, response, failure, definition, !onText);
         }
       } finally {
         this.cancellations.delete(prepared.callId);
@@ -305,6 +353,7 @@ export class ModelRuntimeService {
     response: ModelAdapterResponse | null,
     failure: ModelProviderError | null,
     definition: ModelTaskDefinition,
+    allowRetry = true,
   ): Promise<AttemptRow | null> {
     return this.configuration.locked(async (ownerId, tx, current) => {
       const [saved] = await tx
@@ -392,7 +441,13 @@ export class ModelRuntimeService {
         })
         .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.id, saved.id)));
       let next: AttemptRow | null = null;
-      if (!closed && !result && failure?.retryable && saved.number < task.maxAttempts) {
+      if (
+        allowRetry &&
+        !closed &&
+        !result &&
+        failure?.retryable &&
+        saved.number < task.maxAttempts
+      ) {
         try {
           // 新配置或停用不能让旧任务继续按旧策略派发。
           if (current.version !== call.configVersion)
@@ -426,7 +481,7 @@ export class ModelRuntimeService {
 }
 
 /** 使用不依赖供应商 tokenizer 的保守输入上界；协议和提示词额外预留 512。 */
-function inputReservation(
+export function modelInputReservation(
   text: string,
   definition: ModelTaskDefinition,
   operation: ModelProbe['operation'],
@@ -454,7 +509,7 @@ function assertRunnable(
     throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
   if ((input.role === 'embedding') !== (input.operation === 'embedding'))
     throw new ApiException(API_CODES.INVALID_REQUEST);
-  if (inputReservation(input.inputText, definition, input.operation) > task.maxInputTokens)
+  if (modelInputReservation(input.inputText, definition, input.operation) > task.maxInputTokens)
     throw new ApiException(API_CODES.INVALID_REQUEST, '输入超过此任务的单次预算。');
 }
 
@@ -482,7 +537,7 @@ async function reserveAttempt(
       active.filter((a) => a.lane === 'background').length >= current.config.backgroundConcurrent)
   )
     throw new ApiException(API_CODES.MODEL_CAPACITY_EXCEEDED);
-  const inputTokens = inputReservation(inputText, definition, call.operation);
+  const inputTokens = modelInputReservation(inputText, definition, call.operation);
   const tokens = inputTokens + task.maxOutputTokens;
   const cost = costMicros(inputTokens, task.maxOutputTokens, task);
   const now = new Date();

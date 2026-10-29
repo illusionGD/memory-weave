@@ -13,6 +13,10 @@ export const API_CODES = {
   INVALID_REQUEST: 400,
   /** 请求正文不能解析为 JSON，不回显正文。 */
   INVALID_JSON: 40001,
+  /** 当前人格、约束与待回应原文无法完整放入聊天预算。 */
+  CHAT_CONTEXT_LIMIT: 40003,
+  /** 管理聊天的原文必须经过发送与打断协议。 */
+  CHAT_MANAGED_CONVERSATION: 40912,
   /** 外键、非空、检查约束或数据库字段格式不合法。 */
   DATA_CONSTRAINT_VIOLATION: 40002,
   /** 会话缺失、过期或已撤销，需要重新登录。 */
@@ -94,6 +98,14 @@ export type ApiErrorCode = Exclude<ApiCode, typeof API_CODES.OK | typeof API_COD
  * 使用 API_CODES 关联状态和提示；客户端按 code 判断行为，不能匹配提示文字。
  */
 export const API_RESPONSES = {
+  [API_CODES.CHAT_CONTEXT_LIMIT]: {
+    statusCode: 400,
+    message: '当前人格、明确约束与本轮输入超过聊天预算，请调整输入或 chat 模型预算。',
+  },
+  [API_CODES.CHAT_MANAGED_CONVERSATION]: {
+    statusCode: 409,
+    message: '请通过私聊发送入口发布，以保持回复打断与上下文一致。',
+  },
   [API_CODES.TASK_LEASE_LOST]: {
     statusCode: 409,
     message: '任务已被接管、暂停或取消，旧执行结果不能提交。',

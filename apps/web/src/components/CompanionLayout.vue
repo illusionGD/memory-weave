@@ -3,6 +3,7 @@
     <header class="companion-layout__header">
       <BrandMark />
       <nav class="companion-layout__nav" aria-label="个人空间">
+        <RouterLink class="button button--quiet" to="/chats">私聊</RouterLink>
         <RouterLink class="button button--quiet" to="/companions">伴侣</RouterLink>
         <RouterLink class="button button--quiet" to="/persona-templates">人设模板</RouterLink>
         <RouterLink class="button button--quiet" to="/">运行状态</RouterLink>

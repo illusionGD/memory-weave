@@ -178,8 +178,8 @@ const messageCommonShape = {
   epistemicKind: z.enum(['statement', 'report', 'inference', 'setting']),
   /** 内容的现实属性：未指定、现实或虚构。 */
   reality: z.enum(['unspecified', 'real', 'fictional']),
-  /** user_input 为用户输入；admin_companion_input 为管理者代理伴侣输入。 */
-  sourceKind: z.enum(['user_input', 'admin_companion_input']),
+  /** user_input 为用户输入；admin_companion_input 为管理者代理输入；model_output 为模型正式发布。 */
+  sourceKind: z.enum(['user_input', 'admin_companion_input', 'model_output']),
   /** 被回复的消息标识；无回复对象时为 null。 */
   replyToMessageId: uuidSchema.nullable(),
   /** 经权限校验的原文来源引用，最多十条。 */

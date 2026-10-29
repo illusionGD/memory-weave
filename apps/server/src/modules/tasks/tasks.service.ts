@@ -154,7 +154,12 @@ export class TasksService {
           and(
             eq(tasks.ownerId, ownerId),
             inArray(tasks.status, ['queued', 'waiting']),
-            inArray(tasks.kind, ['diagnostic', 'model_probe', 'persona_initialization']),
+            inArray(tasks.kind, [
+              'diagnostic',
+              'model_probe',
+              'persona_initialization',
+              'chat_reply',
+            ]),
             lte(tasks.availableAt, now),
           ),
         )
@@ -281,7 +286,11 @@ export class TasksService {
       const row = await this.requireLease(ownerId, tx, now, lease);
       if (row.totalSteps !== null && row.completedSteps !== row.totalSteps)
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT, '实际步骤尚未全部完成。');
-      if (row.kind === 'model_probe' || row.kind === 'persona_initialization') {
+      if (
+        row.kind === 'model_probe' ||
+        row.kind === 'persona_initialization' ||
+        row.kind === 'chat_reply'
+      ) {
         const [call] = await tx
           .select()
           .from(modelCalls)
@@ -315,51 +324,62 @@ export class TasksService {
 
   /** 管理者改变任务运行状态；租约立即失效，外部已发出的动作仍需核对。 */
   async control(id: string, action: 'pause' | 'resume' | 'cancel'): Promise<Task> {
-    const result = await this.store.locked(async (ownerId, tx, now) => {
-      const current = await this.configuration.current(ownerId, tx);
-      await this.expire(ownerId, tx, now, current.config);
-      const row = await this.row(ownerId, id, tx);
-      if (action === 'cancel') {
-        if (['succeeded', 'cancelled'].includes(row.status)) return this.view(row, tx);
-      } else if (action === 'pause') {
-        if (row.status === 'paused') return this.view(row, tx);
-        if (!['queued', 'waiting', 'running'].includes(row.status))
-          throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
-      } else {
-        if (row.status === 'queued') return this.view(row, tx);
-        if (row.status !== 'paused' || row.fence >= current.config.maxAttempts)
-          throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
-      }
-      const status = action === 'cancel' ? 'cancelled' : action === 'pause' ? 'paused' : 'queued';
-      if (row.status === 'running')
-        await this.finishAttempt(
-          ownerId,
-          tx,
-          row,
-          now,
-          action === 'pause' ? 'paused' : 'cancelled',
-          action === 'pause' ? 'operator_paused' : 'operator_cancelled',
-        );
-      await tx
-        .update(tasks)
-        .set({
-          status,
-          reason:
-            action === 'resume'
-              ? null
-              : action === 'pause'
-                ? 'operator_paused'
-                : 'operator_cancelled',
-          availableAt: now,
-          leaseExpiresAt: null,
-          updatedAt: now,
-        })
-        .where(eq(tasks.id, row.id));
-      return this.getInTransaction(ownerId, row.id, tx);
-    });
+    const result = await this.store.locked((ownerId, tx, now) =>
+      this.controlInTransaction(ownerId, tx, now, id, action),
+    );
     if (action === 'cancel' && result.status === 'cancelled' && result.modelCallId)
       await this.models.cancel(result.modelCallId);
     return result;
+  }
+
+  /** 域命令在已有调度事务内撤销租约；外部取消须在提交后另行执行。 */
+  async controlInTransaction(
+    ownerId: string,
+    tx: DatabaseTransaction,
+    now: Date,
+    id: string,
+    action: 'pause' | 'resume' | 'cancel',
+  ): Promise<Task> {
+    const current = await this.configuration.current(ownerId, tx);
+    await this.expire(ownerId, tx, now, current.config);
+    const row = await this.row(ownerId, id, tx);
+    if (action === 'cancel') {
+      if (['succeeded', 'cancelled'].includes(row.status)) return this.view(row, tx);
+    } else if (action === 'pause') {
+      if (row.status === 'paused') return this.view(row, tx);
+      if (!['queued', 'waiting', 'running'].includes(row.status))
+        throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
+    } else {
+      if (row.status === 'queued') return this.view(row, tx);
+      if (row.status !== 'paused' || row.fence >= current.config.maxAttempts)
+        throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
+    }
+    const status = action === 'cancel' ? 'cancelled' : action === 'pause' ? 'paused' : 'queued';
+    if (row.status === 'running')
+      await this.finishAttempt(
+        ownerId,
+        tx,
+        row,
+        now,
+        action === 'pause' ? 'paused' : 'cancelled',
+        action === 'pause' ? 'operator_paused' : 'operator_cancelled',
+      );
+    await tx
+      .update(tasks)
+      .set({
+        status,
+        reason:
+          action === 'resume'
+            ? null
+            : action === 'pause'
+              ? 'operator_paused'
+              : 'operator_cancelled',
+        availableAt: now,
+        leaseExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(eq(tasks.id, row.id));
+    return this.getInTransaction(ownerId, row.id, tx);
   }
 
   /** 明确可恢复的失败才安排重试；未知外部结果由 block 保留待核对。 */
@@ -570,7 +590,9 @@ export class TasksService {
       .orderBy(asc(taskAttempts.number))
       .limit(10);
     const [call] =
-      row.kind === 'model_probe' || row.kind === 'persona_initialization'
+      row.kind === 'model_probe' ||
+      row.kind === 'persona_initialization' ||
+      row.kind === 'chat_reply'
         ? await tx
             .select({ id: modelCalls.id })
             .from(modelCalls)

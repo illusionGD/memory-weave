@@ -85,6 +85,7 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: '3000'
+      CHAT_CONFIG_JSON: '${CHAT_CONFIG_JSON:-}'
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set an ADMIN_PASSWORD of at least 12 characters}
       APP_ORIGIN: ${DEPLOY_APP_ORIGIN:-http://localhost:8080}
       COOKIE_SECURE: ${DEPLOY_COOKIE_SECURE:-false}

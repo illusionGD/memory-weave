@@ -31,3 +31,6 @@ export type ModelDispatchGuard = (
   ownerId: string,
   tx: import('../../database/database.service').DatabaseTransaction,
 ) => Promise<void>;
+
+/** 领域模块收到候选增量后，仍须用调用身份与任务租约检查是否可以发布。 */
+export type ModelTextSink = (delta: string, callId: string) => Promise<void>;

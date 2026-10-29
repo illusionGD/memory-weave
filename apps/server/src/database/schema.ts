@@ -29,6 +29,8 @@ import type {
   ModelResult,
   ModelCallContext,
   PersonaDocument,
+  ChatContext,
+  ChatConfiguration,
 } from '@memory-weave/contracts';
 
 /** 创建时保留的初始设定，与后续当前人格版本分开存储。 */
@@ -521,7 +523,7 @@ export const messages = mysqlTable(
       .default('unspecified'),
     sourceKind: varchar('source_kind', {
       length: 32,
-      enum: ['user_input', 'admin_companion_input'],
+      enum: ['user_input', 'admin_companion_input', 'model_output'],
     }).notNull(),
     replyToMessageId: uuid('reply_to_message_id'),
     requestId: uuid('request_id').notNull(),
@@ -585,7 +587,7 @@ export const messages = mysqlTable(
     check('messages_reality_valid', sql`${table.reality} IN ('unspecified', 'real', 'fictional')`),
     check(
       'messages_source_kind_valid',
-      sql`${table.sourceKind} IN ('user_input', 'admin_companion_input')`,
+      sql`${table.sourceKind} IN ('user_input', 'admin_companion_input', 'model_output')`,
     ),
   ],
 );
@@ -804,6 +806,7 @@ export const tasks = mysqlTable(
       .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (table) => [
+    unique('tasks_owner_id').on(table.ownerId, table.id),
     unique('tasks_owner_request').on(table.ownerId, table.requestKey),
     index('tasks_dispatch').on(table.ownerId, table.status, table.availableAt),
     index('tasks_expiry').on(table.ownerId, table.status, table.leaseExpiresAt),
@@ -889,5 +892,126 @@ export const taskOutbox = mysqlTable(
   (table) => [
     unique('task_outbox_event').on(table.ownerId, table.eventKey),
     index('task_outbox_dispatch').on(table.ownerId, table.status, table.createdAt),
+  ],
+);
+
+/** 用户与单个伴侣的聊天运行指针；原文仍保存在 conversations/messages。 */
+export const chatThreads = mysqlTable(
+  'chat_threads',
+  {
+    conversationId: uuid('conversation_id').primaryKey(),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    currentRunId: uuid('current_run_id'),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('chat_threads_owner_conversation').on(table.ownerId, table.conversationId),
+    foreignKey({
+      name: 'chat_threads_conversation_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+    foreignKey({
+      name: 'chat_threads_companion_ref',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+    check('chat_threads_epoch_positive', sql`${table.runtimeEpoch} > 0`),
+  ],
+);
+
+/** 一条输入对应的持久回复轮次；模型、任务与原文各自保留稳定身份。 */
+export const chatRuns = mysqlTable(
+  'chat_runs',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: uuid('owner_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    triggerMessageId: uuid('trigger_message_id').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    interruptedAt: datetime('interrupted_at', { fsp: 3 }),
+    firstUserSequence: int('first_user_sequence').notNull(),
+    batchStartedAt: datetime('batch_started_at', { fsp: 3 }).notNull(),
+    configuration: json('configuration').$type<ChatConfiguration>().notNull(),
+    context: json('context').$type<ChatContext>(),
+    modelConfigVersion: int('model_config_version'),
+    mode: varchar('mode', { length: 16 }).$type<'test' | 'model'>(),
+    transport: varchar('transport', { length: 16 }).$type<'stream' | 'buffered'>(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('chat_runs_owner_id').on(table.ownerId, table.id),
+    unique('chat_runs_request').on(table.ownerId, table.conversationId, table.requestId),
+    foreignKey({
+      name: 'chat_runs_thread_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [chatThreads.ownerId, chatThreads.conversationId],
+    }),
+    foreignKey({
+      name: 'chat_runs_task_ref',
+      columns: [table.ownerId, table.id],
+      foreignColumns: [tasks.ownerId, tasks.id],
+    }),
+    foreignKey({
+      name: 'chat_runs_trigger_ref',
+      columns: [table.ownerId, table.conversationId, table.triggerMessageId],
+      foreignColumns: [messages.ownerId, messages.conversationId, messages.id],
+    }),
+  ],
+);
+
+/** 片段只引用正式原文，同轮片段可合并展示，不能覆盖已经发布的文字。 */
+export const chatSegments = mysqlTable(
+  'chat_segments',
+  {
+    messageId: uuid('message_id').primaryKey(),
+    ownerId: uuid('owner_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    position: int('position').notNull(),
+  },
+  (table) => [
+    unique('chat_segments_run_position').on(table.ownerId, table.runId, table.position),
+    foreignKey({
+      name: 'chat_segments_run_ref',
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [chatRuns.ownerId, chatRuns.id],
+    }),
+    foreignKey({
+      name: 'chat_segments_message_ref',
+      columns: [table.ownerId, table.messageId],
+      foreignColumns: [messages.ownerId, messages.id],
+    }),
+    check('chat_segments_position_positive', sql`${table.position} > 0`),
+  ],
+);
+
+/** 显式的终端送达回执，不与伴侣取得正文或记忆处理状态混用。 */
+export const chatDeliveries = mysqlTable(
+  'chat_deliveries',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    messageId: uuid('message_id').notNull(),
+    contentVersion: int('content_version').notNull(),
+    terminalId: uuid('terminal_id').notNull(),
+    deliveredAt: datetime('delivered_at', { fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+  },
+  (table) => [
+    unique('chat_deliveries_message_terminal').on(
+      table.ownerId,
+      table.messageId,
+      table.contentVersion,
+      table.terminalId,
+    ),
+    foreignKey({
+      name: 'chat_deliveries_message_ref',
+      columns: [table.ownerId, table.messageId, table.contentVersion],
+      foreignColumns: [messages.ownerId, messages.id, messages.contentVersion],
+    }),
   ],
 );

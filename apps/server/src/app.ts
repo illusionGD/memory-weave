@@ -1,4 +1,9 @@
+import { ChatEventsService } from './modules/chats/chat-events.service';
 import 'reflect-metadata';
+import { ChatExecutionService } from './modules/chats/chat-execution.service';
+import { ChatContextService } from './modules/chats/chat-context.service';
+import { ChatsService } from './modules/chats/chats.service';
+import { ChatsController } from './modules/chats/chats.controller';
 import { Module } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
@@ -51,6 +56,7 @@ class ApplicationModule {
       module: ApplicationModule,
       controllers: [
         AuthController,
+        ChatsController,
         HealthController,
         SystemController,
         WorkspaceController,
@@ -67,6 +73,10 @@ class ApplicationModule {
         { provide: AuthService, useFactory: () => AuthService.create(adminPassword) },
         { provide: APP_GUARD, useClass: AuthGuard },
         SystemService,
+        ChatsService,
+        ChatExecutionService,
+        ChatEventsService,
+        ChatContextService,
         DatabaseService,
         CompanionsService,
         PersonaTemplatesService,

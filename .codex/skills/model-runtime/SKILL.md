@@ -23,3 +23,5 @@ description: 维护 F03 模型 adapter、任务配置版本、调用诊断和持
 功能交付更新 README、plan/progress 与本技能，在已授权的 dev 分支追加提交并推送，提供固定 SHA、比较基线、启动验收步骤，停在本次用户授权功能供 review；F04 任务集成维护同时阅读 durable-tasks。
 
 F05 人格整理已通过 execute 接入：persona 的新安装默认定义为 persona-initial-v1、输入/输出上限为 32768/4096；旧 probe-v1 占位仅在显式启用时追加定义绑定，不改模型、价格或限额。维护具体采用规则时阅读 companion-personas 技能；测试 adapter 不具备语义整理能力。
+
+F06 的 executeStreaming 复用同一预留、身份和结算流程，业务输入最多 65536 字符（HTTP 诊断仍为 4000）。流式请求不自动重试；供应商 streaming 默认 false，确定性测试供应商为 true。真实流在收到结束标志后验证完整结果，失败/未知保留已用预算。聊天的片段提交规则见 private-chat；取消与发布必须共用模型锁。新安装 chat 的输入上限为 32768，输出仍为 512；旧占位定义显式绑定不改变原限额。

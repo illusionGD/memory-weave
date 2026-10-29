@@ -7,6 +7,9 @@
         <section class="persona-page__intro">
           <p class="eyebrow">A life, with its beginning kept</p>
           <h1 class="persona-page__title">{{ state.companion.name }}</h1>
+          <button class="button button--primary" :disabled="saving" @click="startChat">
+            开始聊天
+          </button>
           <p class="persona-page__muted">初始人生作为长期起点保存，当前人格使用独立版本。</p>
         </section>
         <p v-if="state.companion.currentPersonaVersion.mode === 'test'" class="persona-page__badge">
@@ -136,8 +139,9 @@
 </template>
 
 <script setup lang="ts">
+import { createChat } from '@/services/chats';
 import { computed, onScopeDispose, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { revisePersonaLocksSchema } from '@memory-weave/contracts';
 import type { CompanionPersonaState, PersonaVersion } from '@memory-weave/contracts';
 import CompanionLayout from '@/components/CompanionLayout.vue';
@@ -155,6 +159,7 @@ const route = useRoute();
 const { loading, saving, error, run } = usePersonaPage();
 const identifyLocks = useCommandIdentity();
 const identifyInitialization = useCommandIdentity();
+const identifyChat = useCommandIdentity();
 const state = ref<CompanionPersonaState | null>(null);
 const selection = ref<'current' | 'initial' | 'history'>('current');
 const history = ref<PersonaVersion | null>(null);
@@ -344,6 +349,26 @@ async function resume(): Promise<void> {
 }
 async function cancel(): Promise<void> {
   await control('cancel');
+}
+const chatRouter = useRouter();
+/** 点击才创建新私聊；网络重试保留同一身份，普通查看伴侣不触发模型。 */
+async function startChat(): Promise<void> {
+  if (!state.value) return;
+  const companion = state.value.companion;
+  const chat = await run(
+    () =>
+      createChat({
+        requestId: identifyChat({
+          companionId: companion.id,
+          runtimeEpoch: companion.runtimeEpoch,
+        }),
+        companionId: companion.id,
+        runtimeEpoch: companion.runtimeEpoch,
+        title: `${companion.name.slice(0, 72)}的私聊`,
+      }),
+    true,
+  );
+  if (chat) await chatRouter.push({ name: 'chat', params: { id: chat.id } });
 }
 </script>
 

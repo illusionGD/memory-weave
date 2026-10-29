@@ -1,3 +1,4 @@
+import { ChatExecutionService } from '../chats/chat-execution.service';
 import { Inject, Injectable } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -18,6 +19,7 @@ export class TaskWorkerService implements OnModuleDestroy {
   private loop: Promise<void> | null = null;
 
   constructor(
+    @Inject(ChatExecutionService) private readonly chats: ChatExecutionService,
     @Inject(TasksService) private readonly tasks: TasksService,
     @Inject(TaskOutboxService) private readonly outbox: TaskOutboxService,
     @Inject(TaskConfigurationService) private readonly configuration: TaskConfigurationService,
@@ -106,6 +108,8 @@ export class TaskWorkerService implements OnModuleDestroy {
           await this.tasks.checkpoint(lease, { completedSteps: step, stage: 'steps' });
         }
         if (!leaseLost) await this.tasks.complete(lease);
+      } else if (lease.input.kind === 'chat_reply') {
+        await this.chats.execute(lease);
       } else if (lease.input.kind === 'persona_initialization') {
         await this.personas.execute(lease);
       } else if (lease.input.kind === 'model_probe') {
