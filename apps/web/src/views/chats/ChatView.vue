@@ -252,6 +252,7 @@ watch(
   align-items: center;
   gap: 14px;
   padding-bottom: 22px;
+  padding-right: 98px;
   border-bottom: 1px solid var(--color-border);
 }
 .chat-view__identity {
@@ -444,6 +445,7 @@ watch(
   .chat-view__header {
     gap: 10px;
     padding-bottom: 16px;
+    padding-right: 66px;
   }
   .chat-view h1 {
     font-size: 18px;

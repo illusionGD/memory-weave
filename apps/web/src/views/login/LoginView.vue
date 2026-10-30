@@ -1,5 +1,6 @@
 <template>
   <main class="login-page">
+    <StarryBackground />
     <header class="login-page__header"><BrandMark /></header>
 
     <div class="login-page__content">
@@ -69,6 +70,7 @@
 </template>
 
 <script setup lang="ts">
+import StarryBackground from '@/components/StarryBackground.vue';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import BrandMark from '@/components/BrandMark.vue';
@@ -100,11 +102,12 @@ async function handleSubmit(): Promise<void> {
 
 <style scoped lang="scss">
 .login-page {
+  position: relative;
+  isolation: isolate;
   display: flex;
   min-height: 100svh;
   flex-direction: column;
   padding: var(--space-10) clamp(24px, 7vw, 112px) var(--space-6);
-  background: radial-gradient(ellipse at 20% 55%, #28253e 0, transparent 48%), var(--color-canvas);
 
   &__header {
     width: 100%;

@@ -64,6 +64,7 @@
       </button>
     </aside>
     <main class="chat-shell__main">
+      <StarryBackground />
       <div class="chat-shell__topline"><span>MEMORY WEAVE</span><span>属于你们的片刻</span></div>
       <div class="chat-shell__content">
         <p v-if="auth.error" class="notice notice--error" role="alert">{{ auth.error }}</p>
@@ -79,6 +80,7 @@ import type { Chat } from '@memory-weave/contracts';
 import { listChats } from '@memory-weave/browser-client/chats';
 import BrandMark from './BrandMark.vue';
 import CompanionAvatar from './CompanionAvatar.vue';
+import StarryBackground from './StarryBackground.vue';
 import { useAuthStore } from '@/stores/auth';
 const auth = useAuthStore();
 const route = useRoute();
@@ -259,21 +261,6 @@ async function logout(): Promise<void> {
   position: relative;
   isolation: isolate;
   min-width: 0;
-  background: radial-gradient(ellipse at 92% 90%, #2b244733, transparent 55%), var(--color-canvas);
-}
-.chat-shell__main::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.35;
-  background:
-    radial-gradient(circle at 95% 19%, #bbb3da 0 1px, transparent 1.5px),
-    radial-gradient(circle at 89% 45%, #bbb3da 0 0.7px, transparent 1.3px),
-    radial-gradient(circle at 96% 70%, #bbb3da 0 1px, transparent 1.5px),
-    radial-gradient(circle at 4% 31%, #bbb3da 0 0.7px, transparent 1.3px),
-    radial-gradient(circle at 6% 83%, #bbb3da 0 1px, transparent 1.5px);
 }
 .chat-shell__topline {
   display: flex;
@@ -297,6 +284,9 @@ async function logout(): Promise<void> {
   overflow: hidden;
 }
 .chat-shell--conversation .chat-shell__main {
+  --sky-moon-top: 4px;
+  --sky-moon-right: 34px;
+  --sky-moon-size: 100px;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -357,6 +347,11 @@ async function logout(): Promise<void> {
   }
   .chat-shell--conversation .chat-shell__sidebar {
     display: none;
+  }
+  .chat-shell--conversation .chat-shell__main {
+    --sky-moon-top: 4px;
+    --sky-moon-right: 18px;
+    --sky-moon-size: 68px;
   }
   .chat-shell--conversation .chat-shell__content {
     padding: 16px 18px max(18px, env(safe-area-inset-bottom));
