@@ -1,13 +1,14 @@
 import { API_CODES } from '@memory-weave/contracts';
-import type { ModelConfigurationVersion } from '@memory-weave/contracts';
+import type { ModelConfigurationVersion, RecallResult } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, desc, lte, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatRuns,
   chatRunSources,
+  chatMemorySources,
   chatSegments,
   chatThreads,
   companions,
@@ -16,20 +17,29 @@ import {
 } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { ConversationsService } from '../conversations/conversations.service';
-import { requireConversation } from '../conversations/conversation-access';
+import {
+  requireConversation,
+  requireCompanionMember,
+  assertVisible,
+} from '../conversations/conversation-access';
 import { ModelConfigurationService } from '../models/model-configuration.service';
 import { ModelProvidersService } from '../models/model-providers.service';
 import { ModelRuntimeService } from '../models/model-runtime.service';
 import { TasksService } from '../tasks/tasks.service';
 import { TaskStore } from '../tasks/task-store';
 import type { TaskLease } from '../tasks/task-types';
-import { chatDefinition, CHAT_DEFINITION_VERSION } from './chat-definition';
+import { chatDefinition, chatDefinitionV1, CHAT_DEFINITION_VERSION } from './chat-definition';
+import { RetrievalService } from '../retrieval/retrieval.service';
+import { validateRecallSnapshot } from '../retrieval/retrieval-snapshot';
+import { recallQuerySchema } from '@memory-weave/contracts';
+import { createHash } from 'node:crypto';
 import { ChatContextService } from './chat-context.service';
 
 /** 持久任务执行聊天；每次发布均重查当前轮次和租约，迟到输出无法写入。 */
 @Injectable()
 export class ChatExecutionService {
   constructor(
+    @Inject(RetrievalService) private readonly retrieval: RetrievalService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
@@ -41,17 +51,45 @@ export class ChatExecutionService {
 
   /** 同一持久轮次始终使用同一模型请求身份；恢复只接续已确认结果的未发布部分。 */
   async execute(lease: TaskLease): Promise<void> {
-    const config = lease.task.modelCallId
-      ? await this.configuration.get()
-      : await this.activateDefinition();
+    const saved = await this.store.locked((ownerId, tx) => this.guard(ownerId, tx, lease));
+    const config =
+      saved.context && saved.modelConfigVersion
+        ? await this.configuration.getVersion(saved.modelConfigVersion)
+        : await this.activateDefinition();
+    const definition =
+      config.config.tasks.chat.promptVersion === 'chat-v1' ? chatDefinitionV1 : chatDefinition;
+    const recall = !saved.context ? await this.recall(lease, saved) : undefined;
     const prepared = await this.store.locked(async (ownerId, tx) => {
       const run = await this.guard(ownerId, tx, lease);
-      const built = await this.contexts.prepare(ownerId, tx, lease, run, config);
+      const built = await this.contexts.prepare(ownerId, tx, lease, run, config, recall);
       if (!run.context) {
         await tx
           .insert(chatRunSources)
-          .values(built.context.sources.map((source) => ({ ownerId, runId: run.id, ...source })))
+          .values(
+            [
+              ...built.context.sources,
+              ...(built.context.recall?.querySources ?? []).map((source) => ({
+                messageId: source.messageId,
+                contentVersion: source.contentVersion,
+              })),
+              ...(built.context.recall?.pending ?? []).map((source) => ({
+                messageId: source.messageId,
+                contentVersion: source.contentVersion,
+              })),
+            ].map((source) => ({ ownerId, runId: run.id, ...source })),
+          )
           .onDuplicateKeyUpdate({ set: { runId: run.id } });
+        if (built.context.recall?.memories.length)
+          await tx
+            .insert(chatMemorySources)
+            .values(
+              built.context.recall.memories.map((item) => ({
+                ownerId,
+                runId: run.id,
+                versionId: item.versionId,
+              })),
+            )
+            .onDuplicateKeyUpdate({ set: { runId: run.id } });
         await tx
           .update(chatRuns)
           .set({
@@ -108,7 +146,7 @@ export class ChatExecutionService {
           lane: 'interactive',
           inputText: prepared.inputText,
         },
-        chatDefinition,
+        definition,
         async (delta) => {
           if (failure) throw failure;
           buffer += delta;
@@ -170,6 +208,76 @@ export class ChatExecutionService {
     }
   }
 
+  /** 只用已授权的少量前文理解指代，片段身份随回复来源图保存。 */
+  private async recall(lease: TaskLease, run: typeof chatRuns.$inferSelect): Promise<RecallResult> {
+    const prepared = await this.store.locked(async (ownerId, tx) => {
+      await this.guard(ownerId, tx, lease);
+      const member = await requireCompanionMember(
+        ownerId,
+        lease.task.scope.companionId!,
+        lease.task.scope.runtimeEpoch!,
+        run.conversationId,
+        tx,
+      );
+      const [source] = await tx
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.ownerId, ownerId),
+            eq(messages.id, run.triggerMessageId),
+            eq(messages.state, 'published'),
+            isNull(messages.deletedAt),
+          ),
+        );
+      if (!source?.sequence) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+      await assertVisible(member, source.sequence, tx);
+      const previous = await tx
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.ownerId, ownerId),
+            eq(messages.conversationId, run.conversationId),
+            eq(messages.state, 'published'),
+            isNull(messages.deletedAt),
+            lte(messages.sequence, source.sequence - 1),
+          ),
+        )
+        .orderBy(desc(messages.sequence))
+        .limit(3);
+      for (const item of previous) await assertVisible(member, item.sequence!, tx);
+      const sources = previous.reverse().filter((item) => item.text.length > 0);
+      return {
+        query: recallQuerySchema.parse({
+          requestId: recallRequestId(run.id),
+          runtimeEpoch: lease.task.scope.runtimeEpoch,
+          conversationId: run.conversationId,
+          query: source.text,
+          context: sources.map((item) => item.text.slice(-512)).join('\n'),
+          mode: /以前|过去|当时|曾经|之前|上次|回忆/.test(source.text) ? 'history' : 'ordinary',
+          reality: /故事|小说|创作|虚构|角色设定/.test(source.text) ? 'fictional' : 'real',
+        }),
+        sources: sources.map((item) => ({
+          conversationId: run.conversationId,
+          messageId: item.id,
+          contentVersion: item.contentVersion,
+          sequence: item.sequence!,
+          permissionVersion: member.permissionVersion,
+          startOffset: Math.max(0, item.text.length - 512),
+          endOffset: item.text.length,
+        })),
+      };
+    });
+    const result = await this.retrieval.recall(
+      lease.task.scope.companionId!,
+      prepared.query,
+      (ownerId, tx) => this.jobs.guardDispatch(ownerId, tx, lease),
+    );
+    result.querySources = prepared.sources;
+    return result;
+  }
+
   /** 派发、片段发布及完成共用同一轮次和人格版本检查。 */
   private async guard(
     ownerId: string,
@@ -193,6 +301,8 @@ export class ChatExecutionService {
     if (!thread || !run || thread.currentRunId !== run.id || run.interruptedAt)
       throw new ApiException(API_CODES.TASK_LEASE_LOST);
     if (run.context) {
+      if (run.context.recall)
+        await validateRecallSnapshot(ownerId, lease.task.scope, run.context.recall, tx);
       const [companion] = await tx
         .select()
         .from(companions)
@@ -287,8 +397,8 @@ export class ChatExecutionService {
       )
         return current;
       if (
-        chat.promptVersion !== 'probe-v1' ||
-        chat.schemaVersion !== 'probe-v1' ||
+        !['probe-v1', 'chat-v1'].includes(chat.promptVersion) ||
+        !['probe-v1', 'chat-v1'].includes(chat.schemaVersion) ||
         chat.preprocessingVersion !== 'utf8-v1'
       )
         throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED, '聊天定义与 chat 模型配置不一致。');
@@ -307,7 +417,7 @@ export class ChatExecutionService {
               },
             },
           },
-          evaluationNote: 'F06 首次聊天绑定定义，保留模型、价格及限额。',
+          evaluationNote: 'F09 新轮次绑定记忆上下文定义，保留模型、价格及限额。',
         });
       } catch (error) {
         if (!(error instanceof ApiException) || error.code !== API_CODES.VERSION_CONFLICT)
@@ -329,4 +439,10 @@ function splitText(text: string, limit: number): string[] {
     start = end;
   }
   return parts;
+}
+
+/** 检索和聊天各自保留稳定模型调用身份，恢复不会换键重发。 */
+function recallRequestId(runId: string): string {
+  const hex = createHash('sha256').update(`recall:${runId}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }

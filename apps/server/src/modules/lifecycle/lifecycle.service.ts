@@ -7,7 +7,7 @@ import type {
   LifecycleOperation,
 } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, isNotNull, sql, or, gte } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
@@ -89,13 +89,30 @@ export class LifecycleService {
         )
           throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
         const id = randomUUID();
+        // 跨私聊回忆只在同一伴侣与用户之间开放；先限制这组可能依赖的会话，传播完成后统一解除。
+        const affected = sql`${conversations.ownerId} = ${ownerId} AND (${conversations.id} = ${conversation.id} OR (${conversations.kind} = 'private' AND EXISTS (SELECT 1 FROM conversation_members cm WHERE cm.conversation_id = ${conversations.id} AND cm.kind = 'companion' AND cm.companion_id IN (SELECT companion_id FROM conversation_members WHERE conversation_id = ${conversation.id} AND kind = 'companion'))))`;
+        const [busy] = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(
+            and(
+              affected,
+              or(
+                isNotNull(conversations.lifecycleOperationId),
+                gte(conversations.version, 2147483647),
+                gte(conversations.contentRevision, 2147483647),
+              ),
+            ),
+          )
+          .limit(1);
+        if (busy) throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
         await tx.insert(lifecycleOperations).values({
           id,
           ownerId,
           requestId: input.requestId,
           taskId: id,
           fingerprint: hash,
-          protocolVersion: 2,
+          protocolVersion: 3,
           kind: input.kind,
           conversationId: conversation.id,
         });
@@ -112,10 +129,10 @@ export class LifecycleService {
           .update(conversations)
           .set({
             lifecycleOperationId: id,
-            contentRevision: conversation.contentRevision + 1,
-            version: conversation.version + 1,
+            contentRevision: sql`${conversations.contentRevision} + 1`,
+            version: sql`${conversations.version} + 1`,
           })
-          .where(eq(conversations.id, conversation.id));
+          .where(affected);
         await tx.insert(tasks).values({
           id,
           ownerId,
@@ -141,7 +158,7 @@ export class LifecycleService {
         requestId: input.requestId,
         taskId: id,
         fingerprint: hash,
-        protocolVersion: 2,
+        protocolVersion: 3,
         kind: input.kind,
         companionId: companion.id,
         previousEpoch: companion.runtimeEpoch,

@@ -23,7 +23,9 @@ test('删除原文同步清除另一窗口缓存，重置和删除实例均可�
   await expect(page.getByText('回复已完成', { exact: true })).toBeVisible();
   const other = await context.newPage();
   await other.goto(chatUrl);
-  await expect(other.getByText('需要删除的私人暗号。', { exact: true })).toBeVisible();
+  await expect(
+    other.getByRole('log', { name: '聊天记录' }).getByText('需要删除的私人暗号。', { exact: true }),
+  ).toBeVisible();
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: '删除这条消息', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: '清理已完成', exact: true })).toBeVisible();

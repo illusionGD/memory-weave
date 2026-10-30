@@ -1,0 +1,54 @@
+{
+  "version": "f09-zh-v1",
+  "scope": "人工标注的最小中文检索基线；HTTP fixture 采用结构化候选，不能代表真实模型语义质量。地址版本、待整理补读及向量同义表达由 retrieval.test.ts 其他场景覆盖。",
+  "entries": [
+    {
+      "key": "colleague",
+      "text": "我的同事林澄，大家也叫她阿澄，喜欢拍胶片。",
+      "document": { "subject": { "kind": "other", "name": "林澄" } }
+    },
+    {
+      "key": "pet",
+      "text": "猫咪豆包不能吃虾。",
+      "document": { "subject": { "kind": "other", "name": "豆包" } }
+    },
+    {
+      "key": "story",
+      "text": "小说《海潮》里的林澄住在月球灯塔。",
+      "document": {
+        "subject": { "kind": "other", "name": "林澄" },
+        "reality": "fictional",
+        "storyKey": "海潮-v1",
+        "epistemic": "setting"
+      }
+    }
+  ],
+  "queries": [
+    { "name": "姓名", "query": "林澄的兴趣", "expected": ["colleague"] },
+    { "name": "已有别名", "query": "阿澄喜欢什么", "expected": ["colleague"] },
+    { "name": "普通陈述", "query": "给豆包准备晚饭", "expected": ["pet"] },
+    {
+      "name": "精确对象",
+      "query": "林澄",
+      "subject": "other",
+      "subjectName": "林澄",
+      "expected": ["colleague"]
+    },
+    {
+      "name": "显式故事",
+      "query": "林澄住哪里",
+      "reality": "fictional",
+      "storyKey": "海潮-v1",
+      "expected": ["story"]
+    },
+    {
+      "name": "错误故事",
+      "query": "月球灯塔",
+      "reality": "fictional",
+      "storyKey": "森林-v1",
+      "expected": []
+    },
+    { "name": "现实不读取小说", "query": "月球灯塔", "expected": [] },
+    { "name": "无相关内容", "query": "量子计算机退相干", "expected": [] }
+  ]
+}

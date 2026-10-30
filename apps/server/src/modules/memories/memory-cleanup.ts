@@ -12,6 +12,7 @@ import {
   processingRanges,
 } from '../../database/schema';
 import type { CleanupPage, LifecycleRecord } from '../lifecycle/lifecycle-cleanup';
+import { lifecycleConversationScope } from '../lifecycle/lifecycle-scope';
 
 /** F08 的清理步骤不访问外部服务，正文擦除与进度在同一事务中提交。 */
 export async function cleanupMemoryPage(
@@ -32,7 +33,7 @@ export async function cleanupMemoryPage(
       ),
     );
   const entryScope = content
-    ? eq(memoryEntries.conversationId, operation.conversationId!)
+    ? lifecycleConversationScope(memoryEntries.conversationId, operation)
     : and(
         eq(memoryEntries.companionId, operation.companionId!),
         lte(memoryEntries.runtimeEpoch, operation.previousEpoch!),
@@ -101,7 +102,7 @@ export async function cleanupMemoryPage(
       .where(
         and(
           eq(processingRanges.ownerId, ownerId),
-          eq(processingRanges.conversationId, operation.conversationId!),
+          lifecycleConversationScope(processingRanges.conversationId, operation),
           ne(processingRanges.status, 'pending'),
           isNull(messages.deletedAt),
           notInArray(processingRanges.messageId, targets),
@@ -155,7 +156,7 @@ export async function cleanupMemoryPage(
         eq(memoryBatches.ownerId, ownerId),
         isNotNull(memoryBatches.input),
         content
-          ? eq(memoryBatches.conversationId, operation.conversationId!)
+          ? lifecycleConversationScope(memoryBatches.conversationId, operation)
           : and(
               eq(memoryBatches.companionId, operation.companionId!),
               lte(memoryBatches.runtimeEpoch, operation.previousEpoch!),

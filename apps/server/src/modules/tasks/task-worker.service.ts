@@ -1,3 +1,4 @@
+import { RetrievalIndexService } from '../retrieval/retrieval-index.service';
 import { MemoryExecutionService } from '../memories/memory-execution.service';
 import { MemoriesService } from '../memories/memories.service';
 import { LifecycleExecutionService } from '../lifecycle/lifecycle-execution.service';
@@ -20,8 +21,10 @@ export class TaskWorkerService implements OnModuleDestroy {
   private readonly active = new Set<Promise<void>>();
   private stopping: AbortController | null = null;
   private loop: Promise<void> | null = null;
+  private indexing: Promise<void> | null = null;
 
   constructor(
+    @Inject(RetrievalIndexService) private readonly indexes: RetrievalIndexService,
     @Inject(MemoryExecutionService) private readonly memoryExecution: MemoryExecutionService,
     @Inject(MemoriesService) private readonly memories: MemoriesService,
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
@@ -44,6 +47,7 @@ export class TaskWorkerService implements OnModuleDestroy {
   async stop(): Promise<void> {
     this.stopping?.abort();
     await this.loop;
+    await this.indexing;
     await Promise.allSettled([...this.active]);
     this.loop = null;
     this.stopping = null;
@@ -63,6 +67,15 @@ export class TaskWorkerService implements OnModuleDestroy {
         if (current.config.enabled) {
           await this.outbox.dispatch();
           await this.memories.schedule();
+          if (!this.indexing)
+            this.indexing = this.indexes
+              .schedule()
+              .catch(() => {
+                console.warn(JSON.stringify({ event: 'indexes.poll.unavailable' }));
+              })
+              .finally(() => {
+                this.indexing = null;
+              });
           while (!signal.aborted && this.active.size < current.config.maxConcurrent + 2) {
             const lease = await this.tasks.claim();
             if (!lease) break;
@@ -115,6 +128,8 @@ export class TaskWorkerService implements OnModuleDestroy {
           await this.tasks.checkpoint(lease, { completedSteps: step, stage: 'steps' });
         }
         if (!leaseLost) await this.tasks.complete(lease);
+      } else if (lease.input.kind === 'memory_index') {
+        await this.indexes.execute(lease);
       } else if (lease.input.kind === 'memory_batch') {
         await this.memoryExecution.execute(lease);
       } else if (lease.input.kind === 'lifecycle_cleanup') {

@@ -21,3 +21,5 @@ description: 维护 F07 消息删除、伴侣重置/删除、持久限制、依�
 修改后运行真实隔离 MySQL 与公共命令测试、相关模型/任务回归、浏览器多窗口、Docker 保留卷升级/恢复，以及格式、lint、类型和构建。`verify:f07` 只创建并清理自己的验收范围，不直接调用模型；F08 自动整理可触发 test，启用真实记忆模型时脚本须提前退出。更新说明、计划/进度，按用户授权提交推送 dev，交付当前功能后停下供 review。
 
 F08 已接入批量记忆整理。涉及记忆来源、processing_ranges、后台并发或生命周期派生清理时，同时阅读 [memory-organization](../memory-organization/SKILL.md)。记忆和清理各有独立执行位置；旧 v1 生命周期阶段保留，新增操作使用 v2。0006 交付后同样不可改写。
+
+F09 已接入记忆检索、跨私聊来源及 Qdrant 索引。涉及上下文、版本、后台调度或删除恢复时，同时阅读 [memory-retrieval](../memory-retrieval/SKILL.md)，保留固定输入与无正文来源图。

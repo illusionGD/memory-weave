@@ -103,3 +103,4 @@ export * from './chats';
 export * from './lifecycle';
 
 export * from './memories';
+export * from './retrieval';

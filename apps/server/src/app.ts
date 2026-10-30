@@ -1,3 +1,7 @@
+import { RetrievalService } from './modules/retrieval/retrieval.service';
+import { RetrievalController } from './modules/retrieval/retrieval.controller';
+import { RetrievalIndexService } from './modules/retrieval/retrieval-index.service';
+import { RetrievalVector } from './modules/retrieval/retrieval-vector';
 import { MemoriesController } from './modules/memories/memories.controller';
 import { MemoriesService } from './modules/memories/memories.service';
 import { MemoryExecutionService } from './modules/memories/memory-execution.service';
@@ -61,6 +65,7 @@ class ApplicationModule {
     return {
       module: ApplicationModule,
       controllers: [
+        RetrievalController,
         MemoriesController,
         AuthController,
         LifecycleController,
@@ -77,6 +82,9 @@ class ApplicationModule {
         TasksController,
       ],
       providers: [
+        RetrievalIndexService,
+        RetrievalVector,
+        RetrievalService,
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
         { provide: AuthService, useFactory: () => AuthService.create(adminPassword) },
         { provide: APP_GUARD, useClass: AuthGuard },

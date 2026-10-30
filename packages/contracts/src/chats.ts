@@ -7,6 +7,7 @@ import {
 } from './common';
 import { messageSchema } from './messages';
 import { taskSchema } from './tasks';
+import { recallResultSchema } from './retrieval';
 
 const createChatShape = {
   /** 新私聊命令身份；同键重放返回原会话。 */
@@ -51,6 +52,8 @@ const chatContextSourceShape = {
 const chatContextSourceSchema: z.ZodObject<typeof chatContextSourceShape> =
   z.object(chatContextSourceShape);
 const chatContextShape = {
+  /** 本轮实际采用的检索结果与覆盖限制；旧轮次缺省以保持原模型输入。 */
+  recall: recallResultSchema.optional(),
   /** 原稿阶段的显式初始约束；旧轮次缺省以保持其模型输入身份。 */
   explicitLocks: z.array(z.string()).optional(),
   /** 本轮固定的当前人格版本；不重复注入旧初始人格。 */

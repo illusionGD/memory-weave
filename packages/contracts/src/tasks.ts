@@ -24,6 +24,7 @@ export const taskKindSchema = z.enum([
   'diagnostic',
   'model_probe',
   'memory_extraction',
+  'memory_index',
   'persona_initialization',
   'chat_reply',
   'lifecycle_cleanup',
@@ -142,7 +143,7 @@ export type TaskList = z.infer<typeof taskListSchema>;
 const taskConfigurationShape = {
   /** 是否允许新领取；关闭不撤销已经发出的操作，默认 true。 */
   enabled: z.boolean(),
-  /** 普通任务并发数，默认 1，上限 4；记忆整理和数据库清理各有一个独立位置，模型仍受 F03 容量与后台预算约束。 */
+  /** 普通任务并发数，默认 1，上限 4；另有清理位置与整理/索引共用后台位置，模型仍受 F03 容量与预算约束。 */
   maxConcurrent: z.number().int().min(1).max(4),
   /** 无新工作的轮询间隔（毫秒），默认 1000，范围 100～30000。 */
   pollMs: z.number().int().min(100).max(30000),

@@ -1323,3 +1323,157 @@ export const memoryDependencies = mysqlTable(
     check('memory_dependency_no_self', sql`${table.versionId} <> ${table.sourceVersionId}`),
   ],
 );
+/** 可重建词法文档，同时作为向量索引的持久待办；正文只保存在版本表。 */
+export const memorySearchDocuments = mysqlTable(
+  'memory_search_documents',
+  {
+    versionId: uuid('version_id')
+      .primaryKey()
+      .references(() => memoryVersions.id),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    memoryId: uuid('memory_id')
+      .notNull()
+      .references(() => memoryEntries.id),
+    companionId: uuid('companion_id')
+      .notNull()
+      .references(() => companions.id),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id),
+    lexicalVersion: varchar('lexical_version', { length: 40 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index('memory_search_scope_idx').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.createdAt,
+    ),
+  ],
+);
+
+/** 词法倒排只保留派生词项，来源失效时随正文清除。 */
+export const memorySearchTerms = mysqlTable(
+  'memory_search_terms',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => memoryVersions.id),
+    term: varchar('term', { length: 96 }).notNull(),
+  },
+  (table) => [
+    unique('memory_term_unique').on(table.ownerId, table.term, table.versionId),
+    index('memory_term_version_idx').on(table.versionId),
+  ],
+);
+/** 同一正文在不同编码空间分别登记，派发身份及结果进度重启后保留。 */
+export const memoryVectorIndexes = mysqlTable(
+  'memory_vector_indexes',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => memoryVersions.id),
+    memoryId: uuid('memory_id')
+      .notNull()
+      .references(() => memoryEntries.id),
+    companionId: uuid('companion_id')
+      .notNull()
+      .references(() => companions.id),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id')
+      .notNull()
+      .references(() => conversations.id),
+    space: varchar('space', { length: 64 }).notNull(),
+    collection: varchar('collection', { length: 96 }).notNull(),
+    configVersion: int('config_version').notNull(),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id),
+    status: varchar('status', { length: 16, enum: ['pending', 'indexed', 'deleted'] })
+      .notNull()
+      .default('pending'),
+    indexedAt: datetime('indexed_at', { fsp: 3 }),
+    /** 删除后保留身份并周期核对，补偿超时或进程中断的迟到外部写入。 */
+    reconciledAt: datetime('reconciled_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('memory_vector_space_unique').on(table.ownerId, table.versionId, table.space),
+    index('memory_vector_scope_idx').on(table.ownerId, table.companionId, table.runtimeEpoch),
+    index('memory_vector_cleanup_idx').on(table.ownerId, table.status, table.reconciledAt),
+  ],
+);
+/** 记忆参与回复的版本来源图；清掉上下文正文后仍能传播后续来源删除。 */
+export const chatMemorySources = mysqlTable(
+  'chat_memory_sources',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => chatRuns.id),
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => memoryVersions.id),
+  },
+  (table) => [
+    unique('chat_memory_source_unique').on(table.ownerId, table.runId, table.versionId),
+    index('chat_memory_source_version_idx').on(table.ownerId, table.versionId),
+  ],
+);
+
+/** 不含正文和引文的来源身份图，重置后仍能追溯已发布回复依赖。 */
+export const memoryOriginalSources = mysqlTable(
+  'memory_original_sources',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => memoryVersions.id),
+    messageId: uuid('message_id')
+      .notNull()
+      .references(() => messages.id),
+    contentVersion: int('content_version').notNull(),
+  },
+  (table) => [
+    unique('memory_original_source_unique').on(table.ownerId, table.versionId, table.messageId),
+    index('memory_original_source_message_idx').on(table.ownerId, table.messageId),
+  ],
+);
+
+/** 单次删除传播的记忆目标，不能把此前其他原因失效的版本误认为本次目标。 */
+export const lifecycleMemoryTargets = mysqlTable(
+  'lifecycle_memory_targets',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    operationId: uuid('operation_id')
+      .notNull()
+      .references(() => lifecycleOperations.id),
+    versionId: uuid('version_id')
+      .notNull()
+      .references(() => memoryVersions.id),
+  },
+  (table) => [
+    unique('lifecycle_memory_target_unique').on(table.ownerId, table.operationId, table.versionId),
+  ],
+);

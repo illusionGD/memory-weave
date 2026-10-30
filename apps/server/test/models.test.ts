@@ -160,8 +160,8 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
       inputText: '你好',
     };
     const definition = {
-      promptVersion: 'chat-v1',
-      schemaVersion: 'chat-v1',
+      promptVersion: current.config.tasks.chat.promptVersion,
+      schemaVersion: current.config.tasks.chat.schemaVersion,
       preprocessingVersion: 'utf8-v1',
       systemPrompt: '协议测试。',
     };

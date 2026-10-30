@@ -1,3 +1,4 @@
+import { registerSearchDocument } from '../retrieval/retrieval-lexical';
 import { and, asc, eq, gt, isNull, or, ne, isNotNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { API_CODES } from '@memory-weave/contracts';
@@ -15,6 +16,7 @@ import {
   memoryEvidence,
   memoryBatches,
   memoryDependencies,
+  memoryOriginalSources,
   visibilityGrants,
   messages,
 } from '../../database/schema';
@@ -40,7 +42,7 @@ export function toMemoryItem(entry: Entry, version: Version): MemoryItem {
   };
 }
 /** 用有界存在性查询检查全部来源，不能靠截断证据绕过失效记录。 */
-async function assertVersionSources(
+export async function assertVersionSources(
   ownerId: string,
   entry: Entry,
   version: Version,
@@ -381,6 +383,18 @@ export async function adoptMemories(
         reason: action.reason,
         mode: batch.mode,
       });
+      await registerSearchDocument(
+        ownerId,
+        versionId,
+        entryId,
+        {
+          companionId: batch.companionId,
+          runtimeEpoch: batch.runtimeEpoch,
+          conversationId: batch.conversationId,
+        },
+        doc,
+        tx,
+      );
       if (entry)
         await tx
           .update(memoryEntries)
@@ -411,6 +425,19 @@ export async function adoptMemories(
       await tx
         .insert(memoryEvidence)
         .values({ ...evidence, ownerId, versionId })
+        .onDuplicateKeyUpdate({ set: { versionId } });
+    const sourceIds = [...new Map(unique.map((e) => [e.messageId, e])).values()];
+    if (sourceIds.length)
+      await tx
+        .insert(memoryOriginalSources)
+        .values(
+          sourceIds.map((e) => ({
+            ownerId,
+            versionId,
+            messageId: e.messageId,
+            contentVersion: e.contentVersion,
+          })),
+        )
         .onDuplicateKeyUpdate({ set: { versionId } });
     if (!duplicate && input.related.length)
       await tx

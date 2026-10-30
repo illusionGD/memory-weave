@@ -102,6 +102,12 @@
           停止回复
         </button>
       </div>
+      <RecallDetails
+        v-if="chat?.availability === 'active' && chat.currentRun?.context?.recall"
+        :recall="chat.currentRun.context.recall"
+        :companion-id="chat.companionId"
+        :runtime-epoch="chat.runtimeEpoch"
+      />
       <RouterLink
         v-if="chat?.lifecycleOperationId"
         class="button button--secondary"
@@ -143,6 +149,7 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import CompanionLayout from '@/components/CompanionLayout.vue';
+import RecallDetails from './components/RecallDetails.vue';
 import { useChat } from '@/composables/useChat';
 import type { ChatBubble } from '@/composables/useChat';
 const route = useRoute();
@@ -174,7 +181,7 @@ let following = true;
 async function deleteMessage(bubble: ChatBubble): Promise<void> {
   if (
     !window.confirm(
-      '确定删除这条消息中当前显示的片段及其依赖内容吗？清理期间会暂停本会话，独立原文保留。此操作不能撤销。',
+      '确定删除这条消息中当前显示的片段及其依赖内容吗？清理期间会暂停本会话及相关私聊，独立原文保留。此操作不能撤销。',
     )
   )
     return;

@@ -29,3 +29,5 @@ F06 的 executeStreaming 复用同一预留、身份和结算流程，业务输�
 F07 已接入生命周期限制与清理。涉及消息来源、实例代次、任务恢复、模型候选或人格版本的改动，需同时阅读 [lifecycle](../lifecycle/SKILL.md)，接入读取/派发/提交检查及分批清理协议，保留共享原文和全局计量边界。
 
 F08 已接入批量记忆整理。涉及记忆来源、processing_ranges、后台并发或生命周期派生清理时，同时阅读 [memory-organization](../memory-organization/SKILL.md)。记忆和清理各有独立执行位置；旧 v1 生命周期阶段保留，新增操作使用 v2。0006 交付后同样不可改写。
+
+F09 已接入记忆检索、跨私聊来源及 Qdrant 索引。涉及上下文、版本、后台调度或删除恢复时，同时阅读 [memory-retrieval](../memory-retrieval/SKILL.md)，保留固定输入与无正文来源图。

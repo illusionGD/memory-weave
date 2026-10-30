@@ -1,4 +1,6 @@
 import { cleanupMemoryPage } from '../memories/memory-cleanup';
+import { cleanupSearchPage, propagateRecallDeletion } from '../retrieval/retrieval-cleanup';
+import { lifecycleConversationScope } from './lifecycle-scope';
 import { and, asc, eq, inArray, isNull, isNotNull, lte, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
@@ -41,7 +43,7 @@ const LIFECYCLE_STAGES_V1 = [
   'messages',
 ] as const;
 /** v1 的阶段编号保持不变，v2 在擦除原文前清理新增派生模块。 */
-export const LIFECYCLE_STAGES = [
+const LIFECYCLE_STAGES_V2 = [
   ...LIFECYCLE_STAGES_V1.slice(0, 6),
   'memory_versions',
   'memory_requeue',
@@ -49,10 +51,19 @@ export const LIFECYCLE_STAGES = [
   'memory_batches',
   ...LIFECYCLE_STAGES_V1.slice(6),
 ] as const;
+/** v3 在原清理前传播跨会话回忆，增加词法与外部向量清理。 */
+export const LIFECYCLE_STAGES = [
+  'recall_propagation',
+  ...LIFECYCLE_STAGES_V2.slice(0, 8),
+  'search_terms',
+  'vector_points',
+  ...LIFECYCLE_STAGES_V2.slice(8),
+] as const;
 /** 按操作创建时的协议恢复，升级不能重解释旧检查点。 */
 export function lifecycleStages(version: number): readonly string[] {
   if (version === 1) return LIFECYCLE_STAGES_V1;
-  if (version === 2) return LIFECYCLE_STAGES;
+  if (version === 2) return LIFECYCLE_STAGES_V2;
+  if (version === 3) return LIFECYCLE_STAGES;
   throw new Error('不支持的生命周期协议版本。');
 }
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */
@@ -75,7 +86,10 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
   const content = operation.kind === 'delete_messages';
   const scope = (value: unknown): SQL =>
     content
-      ? sql`JSON_UNQUOTE(JSON_EXTRACT(${value}, '$.conversationId')) = ${operation.conversationId}`
+      ? lifecycleConversationScope(
+          sql`JSON_UNQUOTE(JSON_EXTRACT(${value}, '$.conversationId'))`,
+          operation,
+        )
       : sql`JSON_UNQUOTE(JSON_EXTRACT(${value}, '$.companionId')) = ${operation.companionId} AND CAST(JSON_UNQUOTE(JSON_EXTRACT(${value}, '$.runtimeEpoch')) AS UNSIGNED) <= ${operation.previousEpoch}`;
   const targetIds = tx
     .select({ id: lifecycleMessageTargets.messageId })
@@ -87,6 +101,20 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       ),
     );
   const stage = lifecycleStages(operation.protocolVersion)[operation.stage];
+  if (stage === 'search_terms') return cleanupSearchPage(ownerId, tx, operation, limit);
+  if (stage === 'recall_propagation') {
+    const memory = await propagateRecallDeletion(ownerId, tx, operation, limit);
+    const originals = await cleanupLifecyclePage(
+      ownerId,
+      tx,
+      { ...operation, stage: LIFECYCLE_STAGES.indexOf('propagation') },
+      limit,
+    );
+    return {
+      done: memory.done && originals.changed === 0,
+      changed: memory.changed + originals.changed,
+    };
+  }
   if (stage?.startsWith('memory_')) return cleanupMemoryPage(ownerId, tx, operation, stage, limit);
   const now = new Date();
   if (stage === 'propagation') {
@@ -276,7 +304,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
         and(
           eq(chatRuns.ownerId, ownerId),
           content
-            ? eq(chatRuns.conversationId, operation.conversationId!)
+            ? lifecycleConversationScope(chatRuns.conversationId, operation)
             : and(
                 eq(chatThreads.companionId, operation.companionId!),
                 lte(chatThreads.runtimeEpoch, operation.previousEpoch!),

@@ -1,3 +1,5 @@
+import { retrievalConfigurationSchema } from '@memory-weave/contracts';
+import type { RetrievalConfiguration } from '@memory-weave/contracts';
 import { memoryConfigurationSchema } from '@memory-weave/contracts';
 import type { MemoryConfiguration } from '@memory-weave/contracts';
 import { chatConfigurationSchema } from '@memory-weave/contracts';
@@ -8,6 +10,8 @@ import type { ModelDeployment } from './modules/models/model-deployment';
 
 /** 由部署环境提供的服务端配置。 */
 export interface ServerConfig {
+  /** 集中检索预算，向量不可用时仍保留直接读取。 */
+  retrievalConfiguration?: RetrievalConfiguration;
   /** 服务监听地址；开发环境默认仅监听本机回环地址。 */
   host: string;
   /** HTTP 服务监听端口。 */
@@ -169,6 +173,7 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     throw new ConfigurationError('记忆配置无效，请检查 MEMORY_CONFIG_JSON。');
   }
   return {
+    retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),
     memoryConfiguration,
     chatConfiguration,
     lifecycleBatchSize,
@@ -184,4 +189,13 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     webDistDir,
     modelDeployment,
   };
+}
+
+/** 配置错误仅指出字段，不回显配置内容。 */
+function parseRetrievalConfiguration(value: string | undefined): RetrievalConfiguration {
+  try {
+    return retrievalConfigurationSchema.parse(JSON.parse(value || '{}') as unknown);
+  } catch {
+    throw new ConfigurationError('检索配置无效，请检查 RETRIEVAL_CONFIG_JSON。');
+  }
 }

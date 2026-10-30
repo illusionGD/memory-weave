@@ -1,5 +1,5 @@
-import { API_CODES } from '@memory-weave/contracts';
-import type { ChatContext, ModelConfigurationVersion } from '@memory-weave/contracts';
+import { API_CODES, recallResultSchema } from '@memory-weave/contracts';
+import type { ChatContext, ModelConfigurationVersion, RecallResult } from '@memory-weave/contracts';
 import { Injectable } from '@nestjs/common';
 import { isNull, and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
@@ -19,7 +19,8 @@ import {
   requireCompanionMember,
 } from '../conversations/conversation-access';
 import { modelInputReservation } from '../models/model-runtime.service';
-import { chatDefinition } from './chat-definition';
+import { chatDefinition, chatDefinitionV1 } from './chat-definition';
+import { validateRecallSnapshot } from '../retrieval/retrieval-snapshot';
 import type { TaskLease } from '../tasks/task-types';
 
 /** 选取有界的当前会话原文，固定来源后才能派发模型；不依赖记忆整理。 */
@@ -40,6 +41,7 @@ export class ChatContextService {
     lease: TaskLease,
     run: typeof chatRuns.$inferSelect,
     config: ModelConfigurationVersion,
+    recall?: RecallResult,
   ): Promise<{ context: ChatContext; inputText: string }> {
     const scope = lease.task.scope;
     const companion = await requireCompanion(ownerId, scope.companionId!, scope.runtimeEpoch!, tx);
@@ -52,6 +54,8 @@ export class ChatContextService {
     );
     if (!companion.currentPersonaVersionId) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
     const context = run.context;
+    if (context?.recall) await validateRecallSnapshot(ownerId, scope, context.recall, tx);
+    if (recall) await validateRecallSnapshot(ownerId, scope, recall, tx);
     const [persona] = await tx
       .select()
       .from(personaVersions)
@@ -143,6 +147,7 @@ export class ChatContextService {
         selected.shift();
     }
     const snapshot: ChatContext = context ?? {
+      ...(recall ? { recall: structuredClone(recall) } : {}),
       personaVersionId: persona.id,
       explicitLocks: persona.document ? [] : (foundation?.explicitLocks ?? []),
       sources: [],
@@ -150,8 +155,11 @@ export class ChatContextService {
       environment: 'web',
       userName: owner!.displayName,
     };
+    // MySQL JSON 会调整字段顺序；每次按同一 schema 重建新格式，确保恢复时 inputText 字节一致。
+    if (snapshot.recall) snapshot.recall = recallResultSchema.parse(snapshot.recall);
     const assemble = (): string =>
       JSON.stringify({
+        ...(snapshot.recall ? { recall: snapshot.recall } : {}),
         persona: {
           name: persona.document?.name ?? companion.name,
           document: persona.document,
@@ -181,8 +189,11 @@ export class ChatContextService {
       if (!selected.some((row) => row.sequence === run.firstUserSequence))
         throw new ApiException(API_CODES.CHAT_CONTEXT_LIMIT);
       while (
-        modelInputReservation(inputText, chatDefinition, 'text') >
-          config.config.tasks.chat.maxInputTokens ||
+        modelInputReservation(
+          inputText,
+          config.config.tasks.chat.promptVersion === 'chat-v1' ? chatDefinitionV1 : chatDefinition,
+          'text',
+        ) > config.config.tasks.chat.maxInputTokens ||
         inputText.length > 65536
       ) {
         const next = selected.findIndex(
@@ -197,8 +208,21 @@ export class ChatContextService {
           next < 0 ||
           selected[0]!.sequence! >= run.firstUserSequence ||
           selected[next - 1]!.sequence! >= run.firstUserSequence
-        )
+        ) {
+          if (snapshot.recall?.memories.length) {
+            snapshot.recall.memories.pop();
+            snapshot.recall.coverage.candidateLimitReached = true;
+            inputText = assemble();
+            continue;
+          }
+          if (snapshot.recall?.pending.length) {
+            snapshot.recall.pending.shift();
+            snapshot.recall.coverage.pendingComplete = false;
+            inputText = assemble();
+            continue;
+          }
           throw new ApiException(API_CODES.CHAT_CONTEXT_LIMIT);
+        }
         snapshot.omittedThroughSequence = selected[next - 1]!.sequence!;
         selected.splice(0, next);
         inputText = assemble();
@@ -221,6 +245,38 @@ export class ChatContextService {
             contentVersion: row.contentVersion,
             startOffset: 0,
             endOffset: row.text.length,
+          })),
+        )
+        .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
+    if (snapshot.recall?.pending.length)
+      await tx
+        .insert(readReceipts)
+        .values(
+          snapshot.recall.pending.map((source) => ({
+            ownerId,
+            companionId: companion.id,
+            runtimeEpoch: scope.runtimeEpoch!,
+            conversationId: source.conversationId,
+            messageId: source.messageId,
+            contentVersion: source.contentVersion,
+            startOffset: 0,
+            endOffset: source.text.length,
+          })),
+        )
+        .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
+    if (snapshot.recall?.querySources?.length)
+      await tx
+        .insert(readReceipts)
+        .values(
+          snapshot.recall.querySources.map((source) => ({
+            ownerId,
+            companionId: companion.id,
+            runtimeEpoch: scope.runtimeEpoch!,
+            conversationId: source.conversationId,
+            messageId: source.messageId,
+            contentVersion: source.contentVersion,
+            startOffset: source.startOffset,
+            endOffset: source.endOffset,
           })),
         )
         .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });

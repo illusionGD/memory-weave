@@ -2,7 +2,7 @@
 
 维护持续身份、记忆与成长的 AI 伴侣系统。后端保存状态，浏览器提供使用入口。
 
-**当前功能：F08 批量记忆整理。** 伴侣在后台按批次保存有来源的记忆，支持新增、合并、纠正、保留分歧和不形成条目；私聊中可查看记忆、来源与整理进度。MySQL 8.4.9 保存权威数据，Qdrant 1.18.3 已接通；长期记忆检索接入回复按下一步 F09，反思与人格成长按后续阶段加入。
+**当前功能：F09 记忆检索接入聊天。** 同一伴侣可延续不同私聊中的记忆，尚未整理的新补充直接参与下一轮；网页可展开本轮来源。MySQL 8.4.9 保存权威数据，Qdrant 1.18.3 保存可重建向量索引；反思与人格成长按后续阶段加入。
 
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
@@ -15,6 +15,7 @@
 - [F06 私聊、流式、补充打断与重连验收](docs/features/f06-private-chat.md)
 - [F07 删除、重置、清理进度与恢复验收](docs/features/f07-lifecycle.md)
 - [F08 批量记忆、来源、调度配置与验收](docs/features/f08-memory-organization.md)
+- [F09 回忆来源、检索配置、索引恢复与验收](docs/features/f09-memory-retrieval.md)
 - [各终端共用的 HTTP 响应与错误约定](docs/api-conventions.md)
 
 ## 拉取与开发启动
@@ -77,6 +78,8 @@ pnpm verify:f07
 脚本只创建并清理自己的两位验收实例和三条原文，不直接调用模型、不修改配置。F08 后这些原文可能触发后台测试整理；启用真实记忆模型时脚本会提前退出。先执行 `pnpm db:migrate` 再启动开发服务；完整 Compose 部署继续用 `up -d --build --wait`。批次参数、接口、依赖传播与备份边界见 [F07 功能说明](docs/features/f07-lifecycle.md)。
 
 记忆整理验收：`pnpm verify:f08`。私聊右上角进入「这段对话的记忆」，等待自动批次或点击「现在整理」。默认测试模型返回空候选，验证独立范围和恢复；真实模型语义须另行评估。调度参数集中在 `.env` 的 `MEMORY_CONFIG_JSON`，升级新增 `0006_memory_organization`。详见 F08 功能说明。
+
+回忆验收：`pnpm verify:f09`。聊天回复下方展开「本轮参考的记忆与新消息」。新增 `0007_memory_retrieval`，检索资源集中在 `.env` 的 `RETRIEVAL_CONFIG_JSON`。默认 test 不产生语义向量；使用真实模型前配置 embedding 角色及维度，不同编码空间不会混查。跨会话范围、删除传播和索引重建见 F09 功能说明。
 
 ## 模型基础验收与配置
 

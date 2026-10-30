@@ -1,3 +1,4 @@
+import { requireIndexSource } from '../retrieval/retrieval-index-access';
 import { requireMemoryBatch } from '../memories/memory-access';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
@@ -153,12 +154,16 @@ export class TasksService {
         .from(tasks)
         .where(and(eq(tasks.ownerId, ownerId), eq(tasks.status, 'running')));
       const ordinary = active.filter(
-        (row) => row.kind !== 'lifecycle_cleanup' && row.kind !== 'memory_extraction',
+        (row) =>
+          row.kind !== 'lifecycle_cleanup' &&
+          row.kind !== 'memory_extraction' &&
+          row.kind !== 'memory_index',
       ).length;
       const kinds: Task['kind'][] = [];
       if (ordinary < current.config.maxConcurrent)
         kinds.push('diagnostic', 'model_probe', 'persona_initialization', 'chat_reply');
-      if (!active.some((row) => row.kind === 'memory_extraction')) kinds.push('memory_extraction');
+      if (!active.some((row) => row.kind === 'memory_extraction' || row.kind === 'memory_index'))
+        kinds.push('memory_extraction', 'memory_index');
       if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
       if (!kinds.length) return null;
       const [row] = await tx
@@ -173,13 +178,13 @@ export class TasksService {
           ),
         )
         .orderBy(
-          sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 1 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 ELSE 2 END`,
+          sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 1 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 ELSE 2 END`,
           asc(tasks.availableAt),
           asc(tasks.id),
         )
         .limit(1);
       if (!row) return null;
-      // 记忆使用独立单位置，不能占满聊天队列；模型容量仍由 F03 全局限制。
+      // 整理和索引共用一个后台位置，不能占满聊天队列；模型容量仍由 F03 限制。
       if (row.fence >= current.config.maxAttempts) {
         await tx
           .update(tasks)
@@ -304,7 +309,8 @@ export class TasksService {
         row.kind === 'model_probe' ||
         row.kind === 'persona_initialization' ||
         row.kind === 'chat_reply' ||
-        row.input.kind === 'memory_batch'
+        row.input.kind === 'memory_batch' ||
+        row.input.kind === 'memory_index'
       ) {
         const [call] = await tx
           .select()
@@ -312,7 +318,10 @@ export class TasksService {
           .where(
             and(
               eq(modelCalls.ownerId, ownerId),
-              eq(modelCalls.requestId, row.id),
+              eq(
+                modelCalls.requestId,
+                row.input.kind === 'memory_index' ? row.input.modelRequestId : row.id,
+              ),
               eq(modelCalls.id, row.modelCallId ?? row.id),
             ),
           );
@@ -547,6 +556,10 @@ export class TasksService {
       const batch = await requireMemoryBatch(ownerId, row.input.batchId, tx);
       if (batch.taskId !== row.id) throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     }
+    if (row.input.kind === 'memory_index') {
+      const index = await requireIndexSource(ownerId, row.input.indexId, tx);
+      if (index.index.taskId !== row.id) throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
+    }
     if (row.input.kind === 'memory_extraction') {
       if (member.permissionVersion !== row.input.permissionVersion)
         throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
@@ -616,11 +629,20 @@ export class TasksService {
       row.kind === 'model_probe' ||
       row.kind === 'persona_initialization' ||
       row.kind === 'chat_reply' ||
-      row.input.kind === 'memory_batch'
+      row.input.kind === 'memory_batch' ||
+      row.input.kind === 'memory_index'
         ? await tx
             .select({ id: modelCalls.id })
             .from(modelCalls)
-            .where(and(eq(modelCalls.ownerId, row.ownerId), eq(modelCalls.requestId, row.id)))
+            .where(
+              and(
+                eq(modelCalls.ownerId, row.ownerId),
+                eq(
+                  modelCalls.requestId,
+                  row.input.kind === 'memory_index' ? row.input.modelRequestId : row.id,
+                ),
+              ),
+            )
         : [];
     return {
       id: row.id,
