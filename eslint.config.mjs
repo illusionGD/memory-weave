@@ -26,7 +26,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/web/src/**/*.{ts,vue}'],
+    files: ['apps/{web,admin}/src/**/*.{ts,vue}', 'packages/browser-client/src/**/*.ts'],
     languageOptions: { globals: { ...globals.browser } },
   },
   {

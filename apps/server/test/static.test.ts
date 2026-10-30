@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
@@ -13,9 +13,15 @@ describe('production web delivery', () => {
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'memory-weave-web-'));
+    await mkdir(join(directory, 'chat'));
+    await mkdir(join(directory, 'admin'));
     await writeFile(
-      join(directory, 'index.html'),
+      join(directory, 'chat', 'index.html'),
       '<!doctype html><title>Memory Weave fixture</title>',
+    );
+    await writeFile(
+      join(directory, 'admin', 'index.html'),
+      '<!doctype html><title>Admin console fixture</title>',
     );
     app = await createApplication({
       qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
@@ -27,7 +33,8 @@ describe('production web delivery', () => {
       appOrigin: 'http://localhost:3000',
       cookieSecure: false,
       dataDir: join(directory, 'data'),
-      webDistDir: directory,
+      webDistDir: join(directory, 'chat'),
+      adminDistDir: join(directory, 'admin'),
     });
   });
 
@@ -40,6 +47,21 @@ describe('production web delivery', () => {
     const response = await request(app.getHttpServer()).get('/status').set('Accept', 'text/html');
     expect(response.status).toBe(200);
     expect(response.text).toContain('Memory Weave fixture');
+  });
+  it('管理子路径只返回独立管理构建，聊天路由和缺失资源不串到另一端', async () => {
+    const admin = await request(app.getHttpServer())
+      .get('/admin/companions')
+      .set('Accept', 'text/html')
+      .expect(200);
+    expect(admin.text).toContain('Admin console fixture');
+    expect(admin.text).not.toContain('Memory Weave fixture');
+    const chat = await request(app.getHttpServer())
+      .get('/chats/example')
+      .set('Accept', 'text/html')
+      .expect(200);
+    expect(chat.text).toContain('Memory Weave fixture');
+    expect(chat.text).not.toContain('Admin console fixture');
+    await request(app.getHttpServer()).get('/admin/missing.js').expect(404);
   });
 
   it('keeps an HTTP review deployment from upgrading its assets to HTTPS', async () => {

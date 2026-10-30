@@ -6,7 +6,7 @@
 
 ## 1. 交付目标与范围
 
-第一版交付可自行部署的 **后端 API + 浏览器 Web 界面**，支持电脑和手机浏览器。伴侣的人格、记忆、关系与任务保存在后端，后续 App、桌宠复用协议。
+第一版交付可自行部署的 **后端 API + 独立聊天 Web 与管理后台**，支持电脑和手机浏览器。伴侣的人格、记忆、关系与任务保存在后端，后续 App、桌宠复用协议。
 
 第一版完整范围：
 
@@ -28,7 +28,7 @@
 
 | 文件 | 本计划中的落实方式 |
 | --- | --- |
-| [Vue 工程结构](../.codex/rules/vue3-vite-ts-project-structure.md) | 前端采用 Vue 3 / Vite / TS；目录分层、命名、依赖方向映射到 `apps/web/src` |
+| [Vue 工程结构](../.codex/rules/vue3-vite-ts-project-structure.md) | 前端采用 Vue 3 / Vite / TS；目录分层、命名、依赖方向分别映射到 `apps/web/src` 与 `apps/admin/src` |
 | [前端代码规范](../.codex/rules/frontend-code-standards.md) | SFC 顺序、setup store、显式类型、JSDoc、SCSS / BEM / tokens、格式与类型检查 |
 | [project-plan](../.codex/skills/project-plan/SKILL.md) | 总体计划保存在本文件；开发后建立 `docs/progress.md`；按大功能交付评审 |
 | [research](../.codex/skills/research/SKILL.md) | 第 3 节给出候选对比、推荐、来源及待验证项 |
@@ -52,7 +52,7 @@
 | 层次 | 推荐选择 | 用途与取舍 |
 | --- | --- | --- |
 | 工程 | pnpm workspace + TypeScript | 前后端共仓，统一检查命令；公共契约单独管理 |
-| 前端 | Vue 3 + Vite + Vue Router + Pinia | 遵循现有 rules；Pinia 使用 setup store，接口访问放 services |
+| 前端 | Vue 3 + Vite + Vue Router + Pinia | 遵循现有 rules；Pinia 使用 setup store，公共接口访问放 packages/browser-client；UI、路由和状态各项目独立 |
 | 界面与图谱 | SCSS + Element Plus；Cytoscape.js | 表单、管理组件按需引入；聊天界面适配移动端；图谱按中心与分页展开 |
 | 后端 | Node.js 22 LTS（≥22.20.0）+ NestJS，默认 Express 适配器 | 与用户环境一致；模块化单体，按 M01–M12 职责划分；复用成熟 HTTP 与依赖注入能力 [R1][R2] |
 | 主数据库 | MySQL 8.4.9 LTS | 保存原文、实例、人格版本、成长、关系证据与持久任务；是权威数据源；DDL 失败后记录未完成状态并阻止就绪 |
@@ -63,7 +63,7 @@
 | 模型 | 自有任务接口 + 供应商 adapter | 首个 adapter 接部署者配置的生成与 embedding API；另配确定性测试 adapter；不以供应商会话保存唯一状态 |
 | 检索 | MySQL 结构化查询 + 词法候选 + Qdrant + RRF | 先建立精确检索基线；中文稀疏编码、ANN、查询改写和重排经评估按需启用 |
 | 后台任务 | MySQL job / outbox + 租约、重试、检查点 | 业务状态与索引待办同事务；异步更新 Qdrant，模型调用在事务外。Redis 按缓存、心跳与队列需求引入，持久结果仍回写主库 |
-| 文件与部署 | 持久文件目录 + Docker Compose | 一个后端服务、主数据库与按功能接入的 Qdrant；Web 构建产物由服务提供；生产 TLS 由部署入口终止 |
+| 文件与部署 | 持久文件目录 + Docker Compose | 一个后端服务、主数据库与按功能接入的 Qdrant；两个 Web 项目独立构建，由服务分别托管；生产 TLS 由部署入口终止 |
 | 测试与质量 | Vitest、Vue Test Utils、Playwright、真实 MySQL / Qdrant；ESLint / Prettier / vue-tsc / tsc | 当前验证真实 MySQL 事务与 Qdrant 认证健康；检索阶段增加索引同步与过滤验证；模型效果另做隔离评估 |
 | 诊断 | 结构化 JSON 日志、请求/任务/模型调用关联 ID、数据库用量记录 | 首版直接在 M12 查询；不强制另建日志、监控集群 |
 
@@ -100,11 +100,13 @@ Qdrant 按 owner、伴侣、运行代次、可见范围及有效版本过滤候�
 
 ## 4. 工程结构与必须前置的数据约束
 
+2026-10-30 按用户要求将聊天与后台拆为独立项目。聊天保留私聊、伴侣创建/资料、个人设置与只读记忆；后台承接运行状态、人设/实例管理、整理和清理。两端分别启动、构建和维护视觉风格，共用后端与契约。F10、F15、F21 等后续管理功能加入 `apps/admin`，不混入日常聊天；本次分端不代表这些阶段已经实现。
+
 工程目录按以下结构逐步建立；F01 已创建前后端、公共契约、测试与部署目录，未使用的业务目录按功能需要添加。
 
 ```text
 apps/
-  web/
+  web/                     # 用户聊天：柔和简洁的陪伴界面
     src/
       assets/styles/       # reset、tokens、theme、utilities
       components/          # 跨页面组件
@@ -112,16 +114,18 @@ apps/
       router/
       stores/
       composables/
-      services/
       utils/
       types/
       constants/
+  admin/                   # 后台管理：独立 Vite / router / styles / package
+    src/                   # 与 web 同样分层，不互相导入 UI 或 stores
   server/
     src/
       modules/             # companions、conversations、runtime、memory 等领域
       infrastructure/      # 数据库、文件、任务执行与外部适配
 packages/
   contracts/               # HTTP / 事件 / 终端公共契约
+  browser-client/          # 无 Vue 依赖的浏览器 API 客户端
 tests/
   integration/
   e2e/
@@ -134,7 +138,7 @@ docs/
   features/                # 当前功能任务及设计说明
 ```
 
-后端模块通过各自公共接口写入其拥有的状态，M03 负责协调；M05 的成长候选交 M01 提交。前端 `views` 负责装配、`services` 负责 API、`utils` 不依赖业务上层；配置、凭据和数据库实体不得进入前端包。
+后端模块通过各自公共接口写入其拥有的状态，M03 负责协调；M05 的成长候选交 M01 提交。前端 `views` 负责装配、`packages/browser-client` 负责公共 API、`utils` 不依赖业务上层；配置、凭据和数据库实体不得进入前端包。
 
 首轮数据设计就纳入以下约束，后续功能逐步补充表结构：
 

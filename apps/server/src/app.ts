@@ -141,7 +141,7 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
       strictTransportSecurity: config.appOrigin.startsWith('https://'),
     }),
   );
-  app.use(createOriginCheck(config.appOrigin));
+  app.use(createOriginCheck([config.appOrigin, config.adminAppOrigin ?? config.appOrigin]));
   // 人设原稿和明确约束可能包含较长中文文本；其他入口继续采用原有体积上限。
   app.use(
     ['/api/companion-creations', '/api/companions', '/api/persona-templates'],
@@ -151,6 +151,7 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
   app.use(handleBodyError);
   app.use(cookieParser());
   try {
+    if (config.adminDistDir) await attachWebAssets(app, config.adminDistDir, '/admin');
     if (config.webDistDir) await attachWebAssets(app, config.webDistDir);
     await app.init();
   } catch (error) {

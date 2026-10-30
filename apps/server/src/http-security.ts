@@ -5,17 +5,17 @@ import { ApiException, sendApiError } from './http/api-exception';
 
 /**
  * 校验写请求的浏览器来源，防止其他站点借用会话发起操作。
- * @param allowedOrigin 配置中允许访问的浏览器来源，包含端口。
+ * @param allowedOrigins 配置中显式信任的聊天与管理来源，包含端口。
  * @returns 处理 API 请求的 Express 中间件。
  */
-export function createOriginCheck(allowedOrigin: string): RequestHandler {
+export function createOriginCheck(allowedOrigins: readonly string[]): RequestHandler {
   return function checkOrigin(request: Request, response: Response, next: NextFunction): void {
     const path = request.path.toLowerCase();
     if (path === '/api' || path.startsWith('/api/')) {
       response.setHeader('Cache-Control', 'no-store');
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
         const origin = request.get('origin');
-        if (origin !== undefined && origin !== allowedOrigin) {
+        if (origin !== undefined && !allowedOrigins.includes(origin)) {
           sendApiError(response, new ApiException(API_CODES.ORIGIN_NOT_ALLOWED));
           return;
         }

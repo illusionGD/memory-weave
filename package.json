@@ -29,7 +29,9 @@
     "verify:f06": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f06.mjs",
     "verify:f07": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f07.mjs",
     "verify:f08": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f08.mjs",
-    "verify:f09": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f09.mjs"
+    "verify:f09": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f09.mjs",
+    "dev:web": "node --env-file=.env --env-file-if-exists=.env.models scripts/dev.mjs web",
+    "dev:admin": "node --env-file=.env --env-file-if-exists=.env.models scripts/dev.mjs admin"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

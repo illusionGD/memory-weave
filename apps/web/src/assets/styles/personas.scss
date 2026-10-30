@@ -69,3 +69,15 @@
     line-height: 1.7;
   }
 }
+
+.companion-avatar {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 50% 50% 42% 42%;
+  background: linear-gradient(145deg, #e0e8d5, #f1eadc);
+  color: #647857;
+  font: 28px var(--font-display);
+  margin-bottom: 12px;
+}

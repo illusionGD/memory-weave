@@ -2,22 +2,11 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import LoginView from '@/views/login/LoginView.vue';
 
-/** 页面只使用服务端确认的会话状态，路由守卫不代替后端认证。 */
+/** 聊天构建只包含日常相处与个人资料，管理路由位于独立项目。 */
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    {
-      path: '/companions/:id/memories/:conversationId',
-      name: 'memories',
-      component: () => import('@/views/memories/MemoriesView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/lifecycle/:id?',
-      name: 'lifecycle',
-      component: () => import('@/views/lifecycle/LifecycleView.vue'),
-      meta: { requiresAuth: true },
-    },
+    { path: '/', redirect: '/chats' },
     {
       path: '/chats',
       name: 'chats',
@@ -28,12 +17,6 @@ export const router = createRouter({
       path: '/chats/:id',
       name: 'chat',
       component: () => import('@/views/chats/ChatView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/persona-templates',
-      name: 'persona-templates',
-      component: () => import('@/views/companions/PersonaTemplatesView.vue'),
       meta: { requiresAuth: true },
     },
     {
@@ -55,9 +38,9 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: '/',
-      name: 'status',
-      component: () => import('@/views/system/SystemView.vue'),
+      path: '/companions/:id/memories/:conversationId',
+      name: 'memories',
+      component: () => import('@/views/memories/MemoriesView.vue'),
       meta: { requiresAuth: true },
     },
     {
@@ -67,21 +50,12 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     { path: '/login', name: 'login', component: LoginView },
-    { path: '/:pathMatch(.*)*', redirect: '/' },
+    { path: '/:pathMatch(.*)*', redirect: '/chats' },
   ],
 });
-
 router.beforeEach(async (to) => {
-  const auth = useAuthStore();
-  const authenticated = await auth.restoreSession();
-
-  if (to.meta.requiresAuth && !authenticated) {
-    return { name: 'login' };
-  }
-
-  if (to.name === 'login' && authenticated) {
-    return { name: 'status' };
-  }
-
+  const authenticated = await useAuthStore().restoreSession();
+  if (to.meta.requiresAuth && !authenticated) return { name: 'login' };
+  if (to.name === 'login' && authenticated) return { name: 'chats' };
   return true;
 });

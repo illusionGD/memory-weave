@@ -1,5 +1,5 @@
 <template>
-  <CompanionLayout>
+  <ChatLayout>
     <div class="persona-page">
       <section class="persona-page__intro">
         <p class="eyebrow">Lives taking shape</p>
@@ -8,9 +8,6 @@
       </section>
       <div class="persona-page__toolbar">
         <RouterLink class="button button--primary" to="/companions/new">创建伴侣</RouterLink>
-        <RouterLink class="button button--secondary" to="/persona-templates"
-          >管理人设模板</RouterLink
-        >
         <button class="button button--quiet" :disabled="loading" @click="refresh">刷新列表</button>
       </div>
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
@@ -21,6 +18,7 @@
       </section>
       <div class="persona-page__grid">
         <article v-for="companion in items" :key="companion.id" class="persona-page__card">
+          <div class="companion-avatar" aria-hidden="true">{{ companion.name.slice(0, 1) }}</div>
           <h2 class="persona-page__card-title">{{ companion.name }}</h2>
           <p class="persona-page__muted">
             {{ companion.currentPersonaVersion.document ? '初始人格已建立' : '原稿已保存' }}
@@ -38,16 +36,16 @@
         加载更多伴侣
       </button>
     </div>
-  </CompanionLayout>
+  </ChatLayout>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import type { CompanionDetail } from '@memory-weave/contracts';
-import CompanionLayout from '@/components/CompanionLayout.vue';
+import ChatLayout from '@/components/ChatLayout.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
-import { listCompanions } from '@/services/personas';
+import { listCompanions } from '@memory-weave/browser-client/personas';
 const { loading, error, run } = usePersonaPage();
 const items = ref<CompanionDetail[]>([]);
 const nextAfterId = ref<string | null>(null);

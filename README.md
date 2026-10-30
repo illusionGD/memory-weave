@@ -2,7 +2,7 @@
 
 维护持续身份、记忆与成长的 AI 伴侣系统。后端保存状态，浏览器提供使用入口。
 
-**当前功能：F09 记忆检索接入聊天。** 同一伴侣可延续不同私聊中的记忆，尚未整理的新补充直接参与下一轮；网页可展开本轮来源。MySQL 8.4.9 保存权威数据，Qdrant 1.18.3 保存可重建向量索引；反思与人格成长按后续阶段加入。
+**当前功能：F09 记忆检索接入聊天，聊天端与管理后台已拆为独立项目。** 同一伴侣可延续不同私聊中的记忆，尚未整理的新补充直接参与下一轮；网页可展开本轮来源。MySQL 8.4.9 保存权威数据，Qdrant 1.18.3 保存可重建向量索引；反思与人格成长按后续阶段加入。
 
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
@@ -16,6 +16,7 @@
 - [F07 删除、重置、清理进度与恢复验收](docs/features/f07-lifecycle.md)
 - [F08 批量记忆、来源、调度配置与验收](docs/features/f08-memory-organization.md)
 - [F09 回忆来源、检索配置、索引恢复与验收](docs/features/f09-memory-retrieval.md)
+- [聊天端与管理后台：启动、部署与验收](docs/features/frontend-split.md)
 - [各终端共用的 HTTP 响应与错误约定](docs/api-conventions.md)
 
 ## 拉取与开发启动
@@ -33,7 +34,7 @@ pnpm db:migrate
 pnpm dev
 ```
 
-打开 **http://localhost:5173**。在本地生成的 `.env` 中查看 `ADMIN_PASSWORD`，将它填入登录页的“部署密码”。`pnpm run setup` 生成或补齐 MySQL、Qdrant 与登录配置，不输出密码；已有登录密码和 MySQL 凭据保持不变。
+聊天端打开 **http://localhost:5173**，管理后台打开 **http://localhost:5174/admin/**。`pnpm dev` 同时启动后端和两个独立 Vite 项目；`pnpm dev:web`/`pnpm dev:admin`可只启动后端与指定前端。在本地生成的`.env`中查看`ADMIN_PASSWORD`，将它填入登录页的“部署密码”。`pnpm run setup` 生成或补齐 MySQL、Qdrant 与登录配置，不输出密码；已有登录密码和 MySQL 凭据保持不变。
 
 从旧 PostgreSQL 版本更新时，先停止正在运行的 `pnpm dev`，再执行上述命令。setup 会将旧 `.env` 备份到 `.env.postgresql-backup`，切换到新的 MySQL 连接，并保留登录密码。按开发阶段约定，不迁移 PostgreSQL 数据；MySQL 使用新的 `mysql-data` 卷，旧实例和聊天不会出现在新库，旧数据卷不会被删除。已有旧 Docker 应用时，在 setup 后先执行 `docker compose --env-file .env -f deploy/compose.yaml down --remove-orphans` 停止旧服务，再启动新组合。
 
@@ -41,15 +42,15 @@ pnpm dev
 
 后续 MySQL 结构更新时，停止旧应用、执行 `pnpm db:migrate` 再启动；`pnpm db:status` 可只读检查。迁移失败会保留未完成标记并阻止就绪，MySQL DDL 不保证整批回滚，恢复方式见 [F02 迁移说明](docs/features/f02-data-foundation.md#数据库迁移与部署)。
 
-`pnpm dev` 直接读取 `packages/contracts/src`，不需要先构建共享包。修改共享 schema、常量或新增导出后，前端由 Vite 热更新或自动刷新，后端由 tsx 自动重启；类型提示和 `pnpm typecheck` 也直接使用源码。后端重启会清空当前内存登录会话，需要时重新登录。修改 `package.json`、依赖或开发配置后应重新安装依赖并重启 dev；生产部署继续使用 `pnpm build` 生成的产物。
+`pnpm dev` 直接读取 `packages/contracts/src` 和 `packages/browser-client/src`，不需要先构建共享包。修改共享 schema、常量或新增导出后，前端由 Vite 热更新或自动刷新；修改公共契约时后端由 tsx 自动重启，修改 browser-client 不重启后端；类型提示和 `pnpm typecheck` 也直接使用源码。后端重启会清空当前内存登录会话，需要时重新登录。修改 `package.json`、依赖或开发配置后应重新安装依赖并重启 dev；生产部署继续使用 `pnpm build` 生成的产物。
 
-登录后可从页面顶部进入“个人设置”，修改用户的显示名称。默认名称为“用户”，去掉首尾空白后为 1～80 个字符；保存后刷新或重启仍保留。名称用于显示，不参与登录，也不会改变历史消息的用户身份关联。MySQL 初始结构已经包含资料字段。
+登录聊天端后可从导航进入“个人设置”，修改用户的显示名称。默认名称为“用户”，去掉首尾空白后为 1～80 个字符；保存后刷新或重启仍保留。名称用于显示，不参与登录，也不会改变历史消息的用户身份关联。MySQL 初始结构已经包含资料字段。
 
 ## 伴侣创建与人设模板
 
-登录后进入“伴侣”，填写一段人设即可创建，名字可选。原稿先保存，初始人格在后台自动整理，刷新后继续显示进度；可查看当前/初始人格、历史版本及最初原稿。长期约束管理是可选操作，每次保存追加版本。
+登录后进入“伴侣”，填写一段人设即可创建，名字可选。原稿先保存，初始人格在后台自动整理，刷新后继续读取资料。聊天端保留创建和只读资料，管理端的「伴侣管理」提供当前/初始人格、历史版本、长期约束与任务控制；每次保存约束追加版本。
 
-“人设模板”只复用初始设定，每次创建固定所选模板版本，修改模板不覆盖已有伴侣。旧 F02 实例不会在升级时自动调用模型，可以在详情主动开始整理。默认 test adapter 仅验证流程，页面明确标注，不代表真实语义整理效果。
+管理端的“人设模板”只复用初始设定，每次创建固定所选模板版本，修改模板不覆盖已有伴侣。旧 F02 实例不会在升级时自动调用模型，可以在详情主动开始整理。默认 test adapter 仅验证流程，页面明确标注，不代表真实语义整理效果。
 
 ```powershell
 pnpm verify:f05
@@ -59,7 +60,7 @@ pnpm verify:f05
 
 ## 私聊与流式回复
 
-进入伴侣详情点击「开始聊天」，已有对话从顶部「私聊」继续。发送时先保存原文，生成期间可继续补充，已发布内容保留，新一轮结合补充重新接话；刷新或离开不取消后端生成。默认 test 模型只回复固定测试文字，真实聊天需要配置 chat 模型及价格。
+进入伴侣详情点击「开始聊天」，已有对话从聊天端导航「私聊」继续。发送时先保存原文，生成期间可继续补充，已发布内容保留，新一轮结合补充重新接话；刷新或离开不取消后端生成。默认 test 模型只回复固定测试文字，真实聊天需要配置 chat 模型及价格。
 
 ```powershell
 pnpm verify:f06
@@ -69,7 +70,7 @@ pnpm verify:f06
 
 ### 删除与重置验收
 
-在伴侣详情的「实例管理」重置或删除，或在聊天中选择「删除这条消息」。顶部「清理记录」查看进度与恢复入口。重置从保存的初始人生开始，旧聊天只读；删除实例不自动删除共同原文。
+在管理端伴侣详情的「实例管理」重置或删除，或在聊天端选择「删除这条消息」。删除消息后留在聊天并自动更新，管理端「清理记录」提供完整进度与恢复入口。重置从保存的初始人生开始，旧聊天只读；删除实例不自动删除共同原文。
 
 ```bash
 pnpm verify:f07
@@ -77,7 +78,7 @@ pnpm verify:f07
 
 脚本只创建并清理自己的两位验收实例和三条原文，不直接调用模型、不修改配置。F08 后这些原文可能触发后台测试整理；启用真实记忆模型时脚本会提前退出。先执行 `pnpm db:migrate` 再启动开发服务；完整 Compose 部署继续用 `up -d --build --wait`。批次参数、接口、依赖传播与备份边界见 [F07 功能说明](docs/features/f07-lifecycle.md)。
 
-记忆整理验收：`pnpm verify:f08`。私聊右上角进入「这段对话的记忆」，等待自动批次或点击「现在整理」。默认测试模型返回空候选，验证独立范围和恢复；真实模型语义须另行评估。调度参数集中在 `.env` 的 `MEMORY_CONFIG_JSON`，升级新增 `0006_memory_organization`。详见 F08 功能说明。
+记忆整理验收：`pnpm verify:f08`。聊天端私聊可进入「这段对话的记忆」只读查看，自动整理照常运行；管理端「记忆记录」选择私聊后可点击「现在整理」并查看批次。默认测试模型返回空候选，验证独立范围和恢复；真实模型语义须另行评估。调度参数集中在 `.env` 的 `MEMORY_CONFIG_JSON`，升级新增 `0006_memory_organization`。详见 F08 功能说明。
 
 回忆验收：`pnpm verify:f09`。聊天回复下方展开「本轮参考的记忆与新消息」。新增 `0007_memory_retrieval`，检索资源集中在 `.env` 的 `RETRIEVAL_CONFIG_JSON`。默认 test 不产生语义向量；使用真实模型前配置 embedding 角色及维度，不同编码空间不会混查。跨会话范围、删除传播和索引重建见 F09 功能说明。
 
@@ -124,11 +125,11 @@ docker compose --env-file .env -f deploy/compose.yaml up -d --build --wait
 docker compose --env-file .env -f deploy/compose.yaml ps
 ```
 
-打开 **http://localhost:8080**。Compose 会等待 MySQL 可连接，执行一次性 `migrate` 服务，并等待 Qdrant 健康后启动应用；迁移失败时应用不会按就绪状态启动。查看升级结果使用 `docker compose --env-file .env -f deploy/compose.yaml logs migrate`。后端镜像同时提供构建后的 Web 页面，因此运行时不需要单独的 Vite 服务。
+聊天端打开 **http://localhost:8080**，管理后台打开 **http://localhost:8080/admin/**。Compose 会等待 MySQL 可连接，执行一次性 `migrate` 服务，并等待 Qdrant 健康后启动应用；迁移失败时应用不会按就绪状态启动。查看升级结果使用 `docker compose --env-file .env -f deploy/compose.yaml logs migrate`。后端镜像分别托管 `apps/web/dist` 与 `apps/admin/dist`，两端拥有独立入口、资源和路由，因此运行时不需要 Vite 服务。
 
 服务器只有 Docker 时，可先复制 `.env.example` 为 `.env`，填写独立随机的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`QDRANT_API_KEY` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器数据库连接串，不依赖宿主配置中的 `DATABASE_URL`；在该方式下可以将其留空。其他环境变量仍按示例设置。
 
-MySQL、Qdrant 数据和快照、应用文件分别保存在 Compose 的持久卷中。Qdrant 可连接仅表示服务已接入，本版不会创建记忆集合或索引；F03 的 embedding 诊断仅返回并保存调用结果，不写 Qdrant。普通停止使用：
+MySQL、Qdrant 数据和快照、应用文件分别保存在 Compose 的持久卷中。Qdrant 保存 F09 可重建的记忆索引；默认 test 模型不创建无语义向量，F03 的 embedding 诊断也不写 Qdrant。普通停止使用：
 
 ```bash
 docker compose --env-file .env -f deploy/compose.yaml down

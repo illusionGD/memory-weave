@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import * as authApi from '@/services/auth';
-import { ApiError } from '@/services/http';
+import * as authApi from '@memory-weave/browser-client/auth';
+import { ApiError } from '@memory-weave/browser-client/http';
 
 /** 会话只保存于内存，真实认证由服务端 HttpOnly Cookie 决定。 */
 export const useAuthStore = defineStore('auth', () => {

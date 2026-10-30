@@ -104,6 +104,28 @@ describe('single-owner HTTP access', () => {
     });
     expect(response.headers['set-cookie']).toBeUndefined();
   });
+  it('允许显式配置的独立管理来源，同时拒绝未登记端口和第三方来源', async () => {
+    await app.close();
+    app = await createApplication({ ...config, adminAppOrigin: 'http://localhost:5174' });
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .set('Origin', 'http://localhost:5174')
+      .send({ password: config.adminPassword })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .set('Origin', config.appOrigin)
+      .send({ password: config.adminPassword })
+      .expect(200);
+    for (const origin of ['http://localhost:5175', 'https://unrelated.example']) {
+      const response = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .set('Origin', origin)
+        .send({ password: config.adminPassword })
+        .expect(403);
+      expect(response.headers['set-cookie']).toBeUndefined();
+    }
+  });
 
   it('applies the origin check to mixed-case API routes too', async () => {
     const agent = request.agent(app.getHttpServer());

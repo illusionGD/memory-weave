@@ -42,6 +42,8 @@ export default defineConfig({
       COOKIE_SECURE: 'false',
       DATA_DIR: resolve(tmpdir(), 'memory-weave-e2e', String(process.pid), String(port)),
       WEB_DIST_DIR: resolve('apps/web/dist'),
+      ADMIN_DIST_DIR: resolve('apps/admin/dist'),
+      ADMIN_APP_ORIGIN: `http://127.0.0.1:${port}`,
       DATABASE_URL:
         process.env.TEST_DATABASE_URL ??
         process.env.DATABASE_URL ??

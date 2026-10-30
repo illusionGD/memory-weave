@@ -10,6 +10,7 @@ const child = spawn(process.execPath, [resolve(root, 'apps/server/dist/main.js')
     ...process.env,
     DATA_DIR: resolve(root, process.env.DATA_DIR || 'data'),
     WEB_DIST_DIR: resolve(root, process.env.WEB_DIST_DIR || 'apps/web/dist'),
+    ADMIN_DIST_DIR: resolve(root, process.env.ADMIN_DIST_DIR || 'apps/admin/dist'),
   },
 });
 

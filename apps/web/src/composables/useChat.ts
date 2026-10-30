@@ -3,11 +3,17 @@ import type { ComputedRef, Ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { getApiResponseDefinition } from '@memory-weave/contracts';
 import type { Chat, ChatMessage, SendChatMessage, LifecycleCommand } from '@memory-weave/contracts';
-import { acknowledgeChat, chatHistory, getChat, sendChatMessage, stopChat } from '@/services/chats';
-import { readChatEvents } from '@/services/chat-events';
-import type { ChatEvent } from '@/services/chat-events';
-import { createLifecycle, getLifecycleConversation } from '@/services/lifecycle';
-import { ApiError } from '@/services/http';
+import {
+  acknowledgeChat,
+  chatHistory,
+  getChat,
+  sendChatMessage,
+  stopChat,
+} from '@memory-weave/browser-client/chats';
+import { readChatEvents } from '@memory-weave/browser-client/chat-events';
+import type { ChatEvent } from '@memory-weave/browser-client/chat-events';
+import { createLifecycle, getLifecycleConversation } from '@memory-weave/browser-client/lifecycle';
+import { ApiError } from '@memory-weave/browser-client/http';
 import { useAuthStore } from '@/stores/auth';
 
 /** 合并同一轮已发布片段后的展示单元；用户原文保持独立。 */
@@ -66,6 +72,7 @@ export interface ChatPageState {
 /** 消息按身份去重，序号只在事件处理成功后推进；离开或切换会话丢弃迟到结果。 */
 export function useChat(id: Ref<string>): ChatPageState {
   const router = useRouter();
+  let disposed = false;
   const auth = useAuthStore();
   const chat = ref<Chat | null>(null);
   const items = ref<ChatMessage[]>([]);
@@ -412,9 +419,9 @@ export function useChat(id: Ref<string>): ChatPageState {
         };
       }
       const operation = await createLifecycle(pendingDelete!);
-      // 自己提交清理后，事件可能已经让页面重新读取；仍允许转到同一操作进度。
-      if (id.value !== operation.conversationId) return;
-      await router.push({ name: 'lifecycle', params: { id: operation.id } });
+      // 事件可能已触发重读；只在仍停留本会话时更新，离开页面后不再启动请求。
+      if (disposed || id.value !== operation.conversationId) return;
+      await open();
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 409) pendingDelete = null;
       await report(cause, token);
@@ -430,6 +437,7 @@ export function useChat(id: Ref<string>): ChatPageState {
     { immediate: true },
   );
   onScopeDispose(() => {
+    disposed = true;
     generation++;
     controller?.abort();
     if (retryTimer) clearTimeout(retryTimer);

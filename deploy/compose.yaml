@@ -94,6 +94,8 @@ services:
       COOKIE_SECURE: ${DEPLOY_COOKIE_SECURE:-false}
       DATA_DIR: /app/data
       WEB_DIST_DIR: /app/web
+      ADMIN_DIST_DIR: /app/admin
+      ADMIN_APP_ORIGIN: ${DEPLOY_ADMIN_APP_ORIGIN:-${DEPLOY_APP_ORIGIN:-http://localhost:8080}}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:?Run pnpm setup}
     ports:

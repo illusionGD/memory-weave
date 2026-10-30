@@ -83,6 +83,7 @@ function displayTime(value: string): string {
 
 <style scoped lang="scss">
 .recall-details {
+  flex: none;
   margin: var(--space-3) 0;
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-border);
@@ -95,7 +96,7 @@ function displayTime(value: string): string {
     color: var(--color-accent);
   }
   &__content {
-    max-height: 24rem;
+    max-height: min(18rem, 22svh);
     overflow-y: auto;
     padding-top: var(--space-3);
   }

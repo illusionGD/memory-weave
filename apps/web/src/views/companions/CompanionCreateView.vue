@@ -1,5 +1,5 @@
 <template>
-  <CompanionLayout>
+  <ChatLayout>
     <div class="persona-page">
       <section class="persona-page__intro">
         <p class="eyebrow">A beginning of their own</p>
@@ -38,25 +38,28 @@
         </template>
         <PersonaInput v-else submit-label="创建伴侣" :busy="saving" @submit="createFromText" />
       </section>
-      <RouterLink class="button button--quiet" to="/persona-templates">从人设模板选择</RouterLink>
     </div>
-  </CompanionLayout>
+  </ChatLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { RouterLink, useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   companionCreationSchema,
   uuidSchema,
   positiveIntegerSchema,
 } from '@memory-weave/contracts';
 import type { CompanionCreation, PersonaTemplate } from '@memory-weave/contracts';
-import CompanionLayout from '@/components/CompanionLayout.vue';
+import ChatLayout from '@/components/ChatLayout.vue';
 import PersonaInput from '@/components/PersonaInput.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
 import { useCommandIdentity } from '@/composables/useCommandIdentity';
-import { createCompanion, getTemplate, getPersonaModelConfiguration } from '@/services/personas';
+import {
+  createCompanion,
+  getTemplate,
+  getPersonaModelConfiguration,
+} from '@memory-weave/browser-client/personas';
 const route = useRoute();
 const router = useRouter();
 const { loading, saving, error, run } = usePersonaPage();

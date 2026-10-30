@@ -1,22 +1,5 @@
 <template>
-  <main class="settings">
-    <header class="settings__header">
-      <BrandMark />
-      <nav class="settings__navigation" aria-label="个人空间">
-        <RouterLink class="button button--quiet" :to="{ name: 'companions' }">伴侣</RouterLink>
-        <RouterLink class="button button--quiet" :to="{ name: 'status' }">运行状态</RouterLink>
-        <button
-          class="button button--quiet"
-          type="button"
-          :disabled="auth.loggingOut"
-          :aria-busy="auth.loggingOut"
-          @click="handleLogout"
-        >
-          {{ auth.loggingOut ? '正在退出…' : '退出登录' }}
-        </button>
-      </nav>
-    </header>
-
+  <ChatLayout>
     <div class="settings__content">
       <section class="settings__intro" aria-labelledby="settings-title">
         <p class="eyebrow">A name of your own</p>
@@ -91,17 +74,13 @@
         </div>
       </section>
     </div>
-
-    <footer class="settings__footer">
-      Memory Weave <span aria-hidden="true">·</span> 私人部署
-    </footer>
-  </main>
+  </ChatLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { RouterLink, useRouter } from 'vue-router';
-import BrandMark from '@/components/BrandMark.vue';
+import { useRouter } from 'vue-router';
+import ChatLayout from '@/components/ChatLayout.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useWorkspaceStore } from '@/stores/workspace';
 
@@ -145,13 +124,6 @@ async function handleUnauthorized(): Promise<void> {
   displayName.value = '';
   await router.replace({ name: 'login' });
 }
-
-/** 清理页面资料，再等待服务端确认退出；失败时允许再次退出或重新读取。 */
-async function handleLogout(): Promise<void> {
-  workspace.reset();
-  displayName.value = '';
-  if (await auth.signOut()) await router.replace({ name: 'login' });
-}
 </script>
 
 <style scoped lang="scss">
@@ -190,7 +162,7 @@ async function handleLogout(): Promise<void> {
     align-content: start;
     gap: var(--space-8);
     margin: 0 auto;
-    padding: var(--space-16) 0;
+    padding: var(--space-4) 0;
   }
 
   &__title {
@@ -291,7 +263,7 @@ async function handleLogout(): Promise<void> {
     }
 
     &__content {
-      padding: var(--space-10) 0;
+      padding: var(--space-4) 0;
       gap: var(--space-6);
     }
 

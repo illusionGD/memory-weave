@@ -26,12 +26,16 @@ export interface ServerConfig {
   adminPassword: string;
   /** 允许发送状态变更请求的浏览器来源，包含协议、主机和端口。 */
   appOrigin: string;
+  /** 可选的独立管理站点来源；默认与聊天端同源。 */
+  adminAppOrigin?: string;
   /** 是否仅允许通过 HTTPS 传输会话 Cookie。 */
   cookieSecure: boolean;
   /** 附件等文件的持久存储目录。 */
   dataDir: string;
   /** 前端构建产物目录；为 null 时不启用静态页面托管。 */
   webDistDir: string | null;
+  /** 独立管理端构建目录；未配置时不托管管理页面。 */
+  adminDistDir?: string | null;
   /** 仅服务端持有的供应商、密钥与资源上限；省略时仅提供测试模型。 */
   modelDeployment?: ModelDeployment;
   /** 集中聊天参数；每轮固定快照，部署变更不重解释正在运行的轮次。 */
@@ -128,6 +132,24 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   }
 
   const secureSetting = environment.COOKIE_SECURE;
+  let adminAppOrigin = appOrigin;
+  if (environment.ADMIN_APP_ORIGIN?.trim()) {
+    try {
+      const parsed = new URL(environment.ADMIN_APP_ORIGIN.trim());
+      if (
+        !['http:', 'https:'].includes(parsed.protocol) ||
+        parsed.username ||
+        parsed.password ||
+        parsed.pathname !== '/' ||
+        parsed.search ||
+        parsed.hash
+      )
+        throw new Error('Invalid origin');
+      adminAppOrigin = parsed.origin;
+    } catch {
+      throw new ConfigurationError('ADMIN_APP_ORIGIN 必须为不含凭据或路径的 HTTP(S) 来源。');
+    }
+  }
   if (secureSetting !== undefined && !['true', 'false'].includes(secureSetting)) {
     throw new ConfigurationError('COOKIE_SECURE must be true or false.');
   }
@@ -139,6 +161,8 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   if (!cookieSecure && appOrigin.startsWith('https://')) {
     throw new ConfigurationError('An HTTPS APP_ORIGIN requires COOKIE_SECURE=true.');
   }
+  if (cookieSecure !== adminAppOrigin.startsWith('https://'))
+    throw new ConfigurationError('聊天端与管理端必须采用相同的 Cookie 安全协议。');
 
   const host = environment.HOST?.trim() || '127.0.0.1';
   const dataDir = resolve(environment.DATA_DIR ?? './data');
@@ -184,9 +208,11 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     qdrantApiKey,
     adminPassword,
     appOrigin,
+    adminAppOrigin,
     cookieSecure,
     dataDir,
     webDistDir,
+    adminDistDir: environment.ADMIN_DIST_DIR ? resolve(environment.ADMIN_DIST_DIR) : null,
     modelDeployment,
   };
 }

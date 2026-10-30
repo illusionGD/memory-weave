@@ -6,7 +6,7 @@ test('从伴侣开始私聊，原文与回复刷新后保留，断网重试不�
   context,
 }, testInfo) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '运行状态', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '私聊', exact: true })).toBeVisible();
   const created = await page.request.post('/api/companions', {
     data: {
       requestId: randomUUID(),

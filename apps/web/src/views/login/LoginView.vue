@@ -93,7 +93,7 @@ async function handleSubmit(): Promise<void> {
 
   if (loggedIn) {
     password.value = '';
-    await router.replace({ name: 'status' });
+    await router.replace({ name: 'chats' });
   }
 }
 </script>

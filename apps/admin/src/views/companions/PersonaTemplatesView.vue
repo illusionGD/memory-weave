@@ -1,5 +1,5 @@
 <template>
-  <CompanionLayout>
+  <AdminLayout>
     <div class="persona-page">
       <section class="persona-page__intro">
         <p class="eyebrow">Beginnings worth keeping</p>
@@ -98,7 +98,7 @@
         加载更多模板
       </button>
     </div>
-  </CompanionLayout>
+  </AdminLayout>
 </template>
 
 <script setup lang="ts">
@@ -106,11 +106,16 @@ import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { createPersonaTemplateSchema, updatePersonaTemplateSchema } from '@memory-weave/contracts';
 import type { PersonaTemplate } from '@memory-weave/contracts';
-import CompanionLayout from '@/components/CompanionLayout.vue';
+import AdminLayout from '@/components/AdminLayout.vue';
 import PersonaInput from '@/components/PersonaInput.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
 import { useCommandIdentity } from '@/composables/useCommandIdentity';
-import { listTemplates, getTemplate, createTemplate, updateTemplate } from '@/services/personas';
+import {
+  listTemplates,
+  getTemplate,
+  createTemplate,
+  updateTemplate,
+} from '@memory-weave/browser-client/personas';
 const route = useRoute();
 const router = useRouter();
 const { loading, saving, error, run } = usePersonaPage();

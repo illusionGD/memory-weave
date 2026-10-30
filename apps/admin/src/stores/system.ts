@@ -1,8 +1,8 @@
 import type { SystemStatus } from '@memory-weave/contracts';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { ApiError } from '@/services/http';
-import { getSystemStatus } from '@/services/system';
+import { ApiError } from '@memory-weave/browser-client/http';
+import { getSystemStatus } from '@memory-weave/browser-client/system';
 
 /** 运行状态只保留当前查询结果；退出时清理并使在途响应失效。 */
 export const useSystemStore = defineStore('system', () => {

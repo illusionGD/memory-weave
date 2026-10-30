@@ -1,5 +1,5 @@
 <template>
-  <CompanionLayout>
+  <AdminLayout>
     <div class="persona-page">
       <p class="eyebrow">A deliberate new beginning</p>
       <h1 class="persona-page__title">清理记录</h1>
@@ -32,11 +32,13 @@
             :to="`/companions/${operation.companionId}`"
             >查看伴侣</RouterLink
           >
-          <RouterLink
+          <a
             v-if="operation.conversationId"
             class="button button--secondary"
-            :to="`/chats/${operation.conversationId}`"
-            >返回私聊</RouterLink
+            :href="chatUrl(`/chats/${operation.conversationId}`)"
+            target="_blank"
+            rel="noopener"
+            >在聊天端查看 ↗</a
           >
           <RouterLink class="button button--quiet" to="/companions">伴侣列表</RouterLink>
         </div>
@@ -63,17 +65,22 @@
         刷新进度
       </button>
     </div>
-  </CompanionLayout>
+  </AdminLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, watch } from 'vue';
+import { chatUrl } from '@/utils/chat-url';
 import { RouterLink, useRoute } from 'vue-router';
 import type { LifecycleOperation } from '@memory-weave/contracts';
-import CompanionLayout from '@/components/CompanionLayout.vue';
+import AdminLayout from '@/components/AdminLayout.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
 import { useCommandIdentity } from '@/composables/useCommandIdentity';
-import { getLifecycle, listLifecycle, retryLifecycle } from '@/services/lifecycle';
+import {
+  getLifecycle,
+  listLifecycle,
+  retryLifecycle,
+} from '@memory-weave/browser-client/lifecycle';
 const route = useRoute();
 const { loading, saving, error, run } = usePersonaPage();
 const identify = useCommandIdentity();

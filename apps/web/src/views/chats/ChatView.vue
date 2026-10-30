@@ -1,9 +1,9 @@
 <template>
-  <CompanionLayout>
+  <ChatLayout>
     <section class="chat-view">
       <header class="chat-view__header">
         <div>
-          <p class="eyebrow">A conversation, continued</p>
+          <p class="eyebrow">此刻，与你</p>
           <h1>{{ chat?.title ?? '正在打开私聊…' }}</h1>
           <p class="chat-view__connection" role="status">
             {{
@@ -88,7 +88,7 @@
           <p class="chat-view__text">{{ bubble.text }}</p>
           <button
             v-if="bubble.targets.length && chat?.availability !== 'cleaning'"
-            class="button button--quiet"
+            class="button button--quiet chat-view__delete"
             :disabled="saving"
             @click="deleteMessage(bubble)"
           >
@@ -108,30 +108,27 @@
         :companion-id="chat.companionId"
         :runtime-epoch="chat.runtimeEpoch"
       />
-      <RouterLink
-        v-if="chat?.lifecycleOperationId"
-        class="button button--secondary"
-        :to="`/lifecycle/${chat.lifecycleOperationId}`"
-        >查看清理进度</RouterLink
-      >
+      <p v-if="chat?.availability === 'cleaning'" class="chat-view__mode" role="status">
+        正在清理所选内容，完成后可以继续聊天。
+      </p>
       <p v-if="chat?.availability === 'archived'" class="chat-view__mode">
         这个会话属于已结束的人生阶段。请从伴侣页面开始新的私聊。
       </p>
       <p v-if="replyHint" class="notice notice--error" role="status">{{ replyHint }}</p>
       <form class="chat-view__composer" @submit.prevent="send">
-        <label class="chat-view__label" for="chat-message">消息</label>
+        <label class="chat-view__label visually-hidden" for="chat-message">消息</label>
         <textarea
           id="chat-message"
           v-model="draft"
           class="chat-view__input"
-          rows="3"
+          rows="2"
           maxlength="4000"
           :disabled="chat?.availability !== 'active'"
           placeholder="想说什么都可以，也可以随时补充…"
           @keydown="handleKeydown"
         />
         <div class="chat-view__actions">
-          <p>补充消息会让伴侣停下，结合新内容重新接话。</p>
+          <p>Enter 发送 · Shift + Enter 换行</p>
           <button
             class="button button--primary"
             type="submit"
@@ -142,13 +139,13 @@
         </div>
       </form>
     </section>
-  </CompanionLayout>
+  </ChatLayout>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
-import CompanionLayout from '@/components/CompanionLayout.vue';
+import ChatLayout from '@/components/ChatLayout.vue';
 import RecallDetails from './components/RecallDetails.vue';
 import { useChat } from '@/composables/useChat';
 import type { ChatBubble } from '@/composables/useChat';
@@ -220,146 +217,195 @@ watch(
 <style scoped lang="scss">
 .chat-view {
   max-width: 880px;
+  height: 100%;
   margin: 0 auto;
-  &__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-4);
-    margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+}
+.chat-view__header {
+  display: flex;
+  flex: none;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: 12px;
+}
+.chat-view h1 {
+  margin: 4px 0;
+  font-family: var(--font-display);
+  font-size: clamp(20px, 2vw, 28px);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.chat-view__header .button {
+  font-size: 12px;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+.chat-view__header .eyebrow {
+  font-size: 10px;
+}
+.chat-view__connection,
+.chat-view__speaker {
+  color: var(--color-ink-soft);
+  font-size: 0.8rem;
+}
+.chat-view__mode {
+  flex: none;
+  color: var(--color-ink-soft);
+  font-size: 11px;
+  padding: 8px 12px;
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-sm);
+}
+.chat-view__history {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+}
+.chat-view__log {
+  flex: 1;
+  min-height: 80px;
+  overflow-y: auto;
+  padding: 20px 4px;
+  border-radius: var(--radius-md);
+  scroll-behavior: auto;
+}
+.chat-view__empty {
+  padding: var(--space-12) var(--space-2);
+  text-align: center;
+  color: var(--color-ink-soft);
+}
+.chat-view__empty span {
+  color: var(--color-accent);
+  font-size: 2rem;
+}
+.chat-view__empty h2 {
+  font-family: var(--font-display);
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.chat-view__message {
+  max-width: 88%;
+  margin: 0 auto var(--space-6) 0;
+}
+.chat-view__message--user {
+  margin-left: auto;
+  margin-right: 0;
+}
+.chat-view__message--user .chat-view__text {
+  background: var(--color-accent-soft);
+}
+.chat-view__speaker {
+  display: flex;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+}
+.chat-view__text {
+  margin: 0;
+  padding: var(--space-4);
+  border-radius: 4px 20px 20px 20px;
+  background: var(--color-surface);
+  box-shadow: 0 3px 18px rgb(35 60 54 / 3%);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.chat-view__delete {
+  min-height: 30px;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--color-ink-soft);
+  opacity: 0.65;
+}
+.chat-view__status {
+  flex: none;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-ink-soft);
+  font-size: 12px;
+}
+.chat-view__composer {
+  flex: none;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 5px 24px #233c3605;
+}
+.chat-view__input {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  max-height: 120px;
+  padding: 4px 0;
+  resize: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+}
+.chat-view__actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: 4px;
+}
+.chat-view__actions p {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-ink-soft);
+}
+.chat-view__actions .button {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 6px 20px;
+}
+@media (max-width: 560px) {
+  .chat-view__header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0;
+    margin-bottom: 8px;
   }
-  h1 {
-    margin: var(--space-3) 0;
-    font-family: var(--font-display);
-    font-size: clamp(1.6rem, 4vw, 2.3rem);
-    overflow-wrap: anywhere;
-  }
-  &__connection,
-  &__mode,
-  &__speaker {
-    color: var(--color-ink-soft);
-    font-size: 0.8rem;
-  }
-  &__mode {
-    padding: var(--space-3) var(--space-4);
-    background: var(--color-accent-soft);
-    border-radius: var(--radius-sm);
-  }
-  &__history {
-    display: flex;
-    gap: var(--space-2);
-    min-height: var(--space-8);
-  }
-  &__log {
-    height: min(52vh, 540px);
-    min-height: 220px;
-    overflow-y: auto;
-    padding: var(--space-5);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-    scroll-behavior: auto;
-  }
-  &__empty {
-    padding: var(--space-12) var(--space-2);
-    text-align: center;
-    color: var(--color-ink-soft);
-    span {
-      color: var(--color-accent);
-      font-size: 2rem;
-    }
-    h2 {
-      font-family: var(--font-display);
-      color: var(--color-ink);
-      font-weight: 500;
-    }
-  }
-  &__message {
-    max-width: 88%;
-    margin: 0 auto var(--space-6) 0;
-    &--user {
-      margin-left: auto;
-      margin-right: 0;
-      .chat-view__text {
-        background: var(--color-accent-soft);
-      }
-    }
-  }
-  &__speaker {
-    display: flex;
-    gap: var(--space-3);
-    margin: 0 0 var(--space-2);
-  }
-  &__text {
-    margin: 0;
-    padding: var(--space-4);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface-muted);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    line-height: 1.8;
-  }
-  &__status {
-    min-height: var(--space-12);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    color: var(--color-ink-soft);
-    font-size: 0.85rem;
-  }
-  &__composer {
-    padding: var(--space-4);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-  }
-  &__label {
-    display: block;
-    margin-bottom: var(--space-2);
-    font-size: 0.9rem;
-  }
-  &__input {
-    display: block;
+  .chat-view__header > div {
     width: 100%;
-    resize: vertical;
-    min-height: 80px;
-    max-height: 240px;
-    padding: var(--space-3);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    color: var(--color-ink);
-    font: inherit;
   }
-  &__actions {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-3);
-    p {
-      margin: 0;
-      font-size: 0.8rem;
-      color: var(--color-ink-soft);
-    }
-    button {
-      flex-shrink: 0;
-    }
+  .chat-view__header .eyebrow {
+    display: none;
   }
-  @media (max-width: 560px) {
-    &__header {
-      align-items: flex-start;
-    }
-    &__log {
-      padding: var(--space-3);
-    }
-    &__message {
-      max-width: 96%;
-    }
-    &__actions {
-      align-items: flex-end;
-    }
+  .chat-view__header .button {
+    padding: 4px 8px 4px 0;
+    font-size: 11px;
+  }
+  .chat-view__connection {
+    font-size: 10px;
+  }
+  .chat-view__message {
+    max-width: 96%;
+    margin-bottom: 16px;
+  }
+  .chat-view__text {
+    padding: 12px;
+    font-size: 14px;
+  }
+  .chat-view__composer {
+    padding: 10px 12px;
+  }
+  .chat-view__actions {
+    align-items: flex-end;
+  }
+}
+@media (max-height: 600px) {
+  .chat-view__log {
+    flex: none;
+    height: 45svh;
+    min-height: 140px;
   }
 }
 </style>

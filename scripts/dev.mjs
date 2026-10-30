@@ -3,13 +3,28 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const target = process.argv[2];
+if (target && !['web', 'admin'].includes(target)) throw new Error('开发目标只能是 web 或 admin。');
+const clients = target ? [target] : ['web', 'admin'];
+const adminOrigin = new URL(process.env.APP_ORIGIN || 'http://localhost:5173');
+adminOrigin.port = '5174';
 const child = spawn(
   process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
-  ['--parallel', '--filter', '@memory-weave/server', '--filter', '@memory-weave/web', 'dev'],
+  [
+    '--parallel',
+    '--filter',
+    '@memory-weave/server',
+    ...clients.flatMap((name) => ['--filter', `@memory-weave/${name}`]),
+    'dev',
+  ],
   {
     cwd: root,
     stdio: 'inherit',
-    env: { ...process.env, DATA_DIR: resolve(root, process.env.DATA_DIR || 'data') },
+    env: {
+      ...process.env,
+      DATA_DIR: resolve(root, process.env.DATA_DIR || 'data'),
+      ADMIN_APP_ORIGIN: process.env.ADMIN_APP_ORIGIN || adminOrigin.origin,
+    },
     shell: process.platform === 'win32',
     detached: process.platform !== 'win32',
   },

@@ -1,8 +1,8 @@
 import { updateWorkspaceRequestSchema, type WorkspaceResponse } from '@memory-weave/contracts';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { ApiError } from '@/services/http';
-import { getWorkspace, updateWorkspace } from '@/services/workspace';
+import { ApiError } from '@memory-weave/browser-client/http';
+import { getWorkspace, updateWorkspace } from '@memory-weave/browser-client/workspace';
 
 /** 用户资料只保留在当前页面会话内；离开或退出后丢弃在途请求结果。 */
 export const useWorkspaceStore = defineStore('workspace', () => {

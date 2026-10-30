@@ -1,8 +1,8 @@
 import { expect, test } from './fixtures';
 
 test('一段人设自动创建，刷新后可查初始人格并保留约束修订历史', async ({ page }, testInfo) => {
-  await page.goto('/');
-  await page.getByRole('link', { name: '伴侣', exact: true }).click();
+  await page.goto('/admin/');
+  await page.getByRole('link', { name: '伴侣管理', exact: true }).click();
   await page.getByRole('link', { name: '创建伴侣', exact: true }).click();
   const name = `小夜 ${testInfo.project.name} ${Date.now()}`;
   await page.getByLabel('名字（可选）').fill(name);
@@ -29,8 +29,8 @@ test('一段人设自动创建，刷新后可查初始人格并保留约束修�
 });
 
 test('模板保留版本，编辑后仍可从旧版本创建独立伴侣', async ({ page }, testInfo) => {
-  await page.goto('/');
-  await page.getByRole('link', { name: '伴侣', exact: true }).click();
+  await page.goto('/admin/');
+  await page.getByRole('link', { name: '伴侣管理', exact: true }).click();
   await page.getByRole('link', { name: '人设模板', exact: true }).click();
   await page.getByRole('button', { name: '新建模板', exact: true }).click();
   const name = `文学模板 ${testInfo.project.name} ${Date.now()}`;

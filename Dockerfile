@@ -43,10 +43,12 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV DATA_DIR=/app/data
 ENV WEB_DIST_DIR=/app/web
+ENV ADMIN_DIST_DIR=/app/admin
 WORKDIR /app
 
 COPY --from=builder --chown=node:node /out/ ./
 COPY --from=builder --chown=node:node /workspace/apps/web/dist/ ./web/
+COPY --from=builder --chown=node:node /workspace/apps/admin/dist/ ./admin/
 COPY --chown=node:node deploy/docker-entrypoint.mjs ./deploy/docker-entrypoint.mjs
 RUN mkdir -p /app/data && chown node:node /app/data
 
