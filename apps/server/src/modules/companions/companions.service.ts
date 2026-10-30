@@ -1,3 +1,4 @@
+import { publicAvatar } from './avatar-files';
 import { lockTaskScheduler } from '../tasks/task-store';
 import { API_CODES } from '@memory-weave/contracts';
 import { randomUUID } from 'node:crypto';
@@ -167,6 +168,8 @@ export class CompanionsService {
       id: row.companion.id,
       ownerId: row.companion.ownerId,
       name: row.companion.name,
+      avatar: publicAvatar(row.companion.id, row.companion.avatar),
+      avatarVersion: row.companion.avatarVersion,
       runtimeEpoch: row.companion.runtimeEpoch,
       version: row.companion.version,
       initialSnapshot: row.companion.initialSnapshot!,

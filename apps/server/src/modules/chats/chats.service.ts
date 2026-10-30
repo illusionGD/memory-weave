@@ -1,3 +1,4 @@
+import { publicAvatar } from '../companions/avatar-files';
 import { API_CODES, chatConfigurationSchema } from '@memory-weave/contracts';
 import type {
   Chat,
@@ -413,6 +414,9 @@ export class ChatsService {
         conversation!.lifecycleOperationId ?? companion?.lifecycleOperationId ?? null,
       title: conversation!.title,
       companionId: thread.companionId,
+      companionName: companion?.name ?? null,
+      avatar:
+        companion && !companion.deletedAt ? publicAvatar(companion.id, companion.avatar) : null,
       runtimeEpoch: thread.runtimeEpoch,
       currentRun:
         availability === 'active' && thread.currentRunId

@@ -34,7 +34,7 @@ HTTP 状态表示本次请求成功还是失败，`code` 表达业务结果。�
 
 GET、PATCH、登录和退出登录成功为 HTTP 200。F02 创建、保存、发布和接收仍为 HTTP 201，包括幂等重放。退出登录返回 `{ code: 200, data: null, message: '操作成功。' }`，不再使用 204 空响应。
 
-原领域 schema 继续描述 `data` 内的对象。例如 `SessionResponse` 是登录业务数据，完整响应类型为 `ApiResponse<SessionResponse>`；分页的 `items` 和游标也放在 `data` 中。静态 HTML、JavaScript 等文件不使用 JSON 外层；HEAD 按 HTTP 规范不返回正文。未来文件下载、SSE 和 WebSocket 单独定义传输协议。
+原领域 schema 继续描述 `data` 内的对象。例如 `SessionResponse` 是登录业务数据，完整响应类型为 `ApiResponse<SessionResponse>`；分页的 `items` 和游标也放在 `data` 中。静态 HTML、JavaScript 等文件不使用 JSON 外层；HEAD 按 HTTP 规范不返回正文。SSE 使用独立事件协议；头像图片 GET 返回需要认证的二进制 WebP，错误继续使用统一 JSON，见 [头像接口](features/starry-chat-avatars.md#公共接口)。未来其他文件下载和 WebSocket 单独定义传输协议。
 
 ## 常用码的统一维护
 

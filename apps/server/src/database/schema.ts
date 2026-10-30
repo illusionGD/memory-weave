@@ -1,3 +1,4 @@
+import type { StoredAvatar } from '../modules/companions/avatar-files';
 import type { MemoryBatchInput, MemoryBatchConfiguration } from '../modules/memories/memory-types';
 import type { MemoryBatch } from '@memory-weave/contracts';
 import type { TaskInput, MessageOutboxInput } from '../modules/tasks/task-types';
@@ -221,6 +222,8 @@ export const companions = mysqlTable(
     name: varchar('name', { length: 80 }).notNull(),
     runtimeEpoch: int('runtime_epoch').notNull().default(1),
     version: int('version').notNull().default(1),
+    avatar: json('avatar').$type<StoredAvatar>(),
+    avatarVersion: int('avatar_version').notNull().default(0),
     initialSnapshot: json('initial_snapshot').$type<InitialSnapshot>(),
     deletedAt: datetime('deleted_at', { fsp: 3 }),
     lifecycleOperationId: uuid('lifecycle_operation_id'),

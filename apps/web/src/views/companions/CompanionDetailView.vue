@@ -1,14 +1,16 @@
 <template>
-  <ChatLayout>
+  <ChatLayout ref="layout">
     <div class="persona-page companion-profile">
       <RouterLink class="companion-profile__back" to="/companions">← 所有伴侣</RouterLink>
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
       <p v-if="loading && !state" role="status">正在读取伴侣…</p>
       <template v-if="state">
         <header class="persona-page__intro companion-profile__intro">
-          <div class="companion-avatar" aria-hidden="true">
-            {{ state.companion.name.slice(0, 1) }}
-          </div>
+          <CompanionAvatar
+            :name="state.companion.name"
+            :avatar="state.companion.avatar"
+            :size="84"
+          />
           <p class="eyebrow">每段故事，都有一个起点</p>
           <h1 class="persona-page__title">{{ state.companion.name }}</h1>
           <button
@@ -19,6 +21,12 @@
             开始聊天
           </button>
         </header>
+        <AvatarEditor
+          :key="state.companion.id"
+          :companion="state.companion"
+          @changed="updateAvatar"
+          @refresh="refresh"
+        />
         <p v-if="state.companion.currentPersonaVersion.mode === 'test'" class="persona-page__badge">
           测试模式：当前人设用于验证保存流程。
         </p>
@@ -47,6 +55,9 @@
   </ChatLayout>
 </template>
 <script setup lang="ts">
+import CompanionAvatar from '@/components/CompanionAvatar.vue';
+import AvatarEditor from '@/components/AvatarEditor.vue';
+import type { AvatarState } from '@memory-weave/contracts';
 import { computed, onScopeDispose, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import type { CompanionPersonaState } from '@memory-weave/contracts';
@@ -56,6 +67,7 @@ import ChatLayout from '@/components/ChatLayout.vue';
 import PersonaDocumentView from '@/components/PersonaDocumentView.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
 import { useCommandIdentity } from '@/composables/useCommandIdentity';
+const layout = ref<InstanceType<typeof ChatLayout> | null>(null);
 const route = useRoute();
 const router = useRouter();
 const { loading, saving, error, run } = usePersonaPage();
@@ -89,7 +101,19 @@ async function refresh(): Promise<void> {
   const token = generation;
   const result = await run(() => getPersona(String(route.params.id)));
   if (disposed || token !== generation) return;
-  if (result) state.value = result;
+  if (result) {
+    const current = state.value?.companion;
+    if (
+      current?.id === result.companion.id &&
+      current.avatarVersion > result.companion.avatarVersion
+    )
+      result.companion = {
+        ...result.companion,
+        avatar: current.avatar,
+        avatarVersion: current.avatarVersion,
+      };
+    state.value = result;
+  }
   if (
     !error.value &&
     state.value?.task &&
@@ -113,6 +137,12 @@ async function startChat(): Promise<void> {
     true,
   );
   if (chat && token === generation) await router.push({ name: 'chat', params: { id: chat.id } });
+}
+/** 只更新展示资料，正在生成的人格内容保持自己的版本。 */
+function updateAvatar(value: AvatarState): void {
+  void layout.value?.refreshChats();
+  if (state.value)
+    state.value = { ...state.value, companion: { ...state.value.companion, ...value } };
 }
 </script>
 <style scoped lang="scss">

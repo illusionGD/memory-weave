@@ -1,3 +1,4 @@
+import { avatarStateSchema } from './avatars';
 import { z } from 'zod';
 import { positiveIntegerSchema, utcDateTimeSchema, uuidSchema } from './common';
 import { personaDocumentSchema } from './persona-document';
@@ -66,6 +67,7 @@ export const personaVersionSchema: z.ZodObject<typeof personaVersionShape> =
   z.object(personaVersionShape);
 
 const companionDetailShape = {
+  ...avatarStateSchema.shape,
   /** 清理期间不能生成或修改；通过操作身份查看实际进度。 */
   lifecycleOperationId: uuidSchema.nullable().default(null),
   /** 实例的稳定标识；未来代次变化仍使用此标识。 */

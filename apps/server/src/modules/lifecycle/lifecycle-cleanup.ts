@@ -52,18 +52,21 @@ const LIFECYCLE_STAGES_V2 = [
   ...LIFECYCLE_STAGES_V1.slice(6),
 ] as const;
 /** v3 在原清理前传播跨会话回忆，增加词法与外部向量清理。 */
-export const LIFECYCLE_STAGES = [
+const LIFECYCLE_STAGES_V3 = [
   'recall_propagation',
   ...LIFECYCLE_STAGES_V2.slice(0, 8),
   'search_terms',
   'vector_points',
   ...LIFECYCLE_STAGES_V2.slice(8),
 ] as const;
+/** v4 追加头像文件阶段，不改变 v1–v3 的检查点含义。 */
+export const LIFECYCLE_STAGES = [...LIFECYCLE_STAGES_V3, 'avatar_files'] as const;
 /** 按操作创建时的协议恢复，升级不能重解释旧检查点。 */
 export function lifecycleStages(version: number): readonly string[] {
   if (version === 1) return LIFECYCLE_STAGES_V1;
   if (version === 2) return LIFECYCLE_STAGES_V2;
-  if (version === 3) return LIFECYCLE_STAGES;
+  if (version === 3) return LIFECYCLE_STAGES_V3;
+  if (version === 4) return LIFECYCLE_STAGES;
   throw new Error('不支持的生命周期协议版本。');
 }
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */

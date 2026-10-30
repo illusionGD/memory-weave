@@ -4,6 +4,12 @@
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
       <p v-if="loading && !state" role="status">正在读取伴侣…</p>
       <template v-if="state">
+        <AvatarEditor
+          :key="state.companion.id"
+          :companion="state.companion"
+          @changed="updateAvatar"
+          @refresh="refresh"
+        />
         <section class="persona-page__intro">
           <p class="eyebrow">A life, with its beginning kept</p>
           <h1 class="persona-page__title">{{ state.companion.name }}</h1>
@@ -162,6 +168,8 @@
 </template>
 
 <script setup lang="ts">
+import AvatarEditor from '@/components/AvatarEditor.vue';
+import type { AvatarState } from '@memory-weave/contracts';
 import { createLifecycle } from '@memory-weave/browser-client/lifecycle';
 import { chatUrl } from '@/utils/chat-url';
 import { computed, onScopeDispose, ref, watch } from 'vue';
@@ -262,7 +270,19 @@ async function changeCompanion(): Promise<void> {
 async function refresh(): Promise<void> {
   clearTimeout(timer);
   const result = await run(() => getPersona(String(route.params.id)));
-  if (result) state.value = result;
+  if (result) {
+    const current = state.value?.companion;
+    if (
+      current?.id === result.companion.id &&
+      current.avatarVersion > result.companion.avatarVersion
+    )
+      result.companion = {
+        ...result.companion,
+        avatar: current.avatar,
+        avatarVersion: current.avatarVersion,
+      };
+    state.value = result;
+  }
   if (
     !disposed &&
     !error.value &&
@@ -409,6 +429,11 @@ async function resetCompanion(): Promise<void> {
 /** 删除当前实例，保留共同原文的最小历史身份。 */
 async function deleteCompanion(): Promise<void> {
   await manageCompanion('delete_companion');
+}
+/** 只更新展示资料，正在生成的人格内容保持自己的版本。 */
+function updateAvatar(value: AvatarState): void {
+  if (state.value)
+    state.value = { ...state.value, companion: { ...state.value.companion, ...value } };
 }
 </script>
 

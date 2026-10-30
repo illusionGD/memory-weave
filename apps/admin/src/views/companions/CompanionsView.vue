@@ -32,6 +32,7 @@
           <tbody>
             <tr v-for="companion in items" :key="companion.id">
               <td>
+                <CompanionAvatar :name="companion.name" :avatar="companion.avatar" :size="32" />
                 <strong>{{ companion.name }}</strong
                 ><small class="companion-table__id">{{ companion.id.slice(0, 8) }}</small>
               </td>
@@ -61,6 +62,7 @@
 </template>
 
 <script setup lang="ts">
+import CompanionAvatar from '@/components/CompanionAvatar.vue';
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import type { CompanionDetail } from '@memory-weave/contracts';

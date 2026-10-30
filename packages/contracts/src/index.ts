@@ -104,3 +104,5 @@ export * from './lifecycle';
 
 export * from './memories';
 export * from './retrieval';
+
+export * from './avatars';

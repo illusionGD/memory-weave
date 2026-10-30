@@ -16,3 +16,4 @@ syncInjectedDepsAfterScripts:
 allowBuilds:
   '@parcel/watcher': false
   esbuild: true
+  sharp: true

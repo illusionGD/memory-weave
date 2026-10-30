@@ -18,7 +18,7 @@
       </section>
       <div class="persona-page__grid">
         <article v-for="companion in items" :key="companion.id" class="persona-page__card">
-          <div class="companion-avatar" aria-hidden="true">{{ companion.name.slice(0, 1) }}</div>
+          <CompanionAvatar :name="companion.name" :avatar="companion.avatar" :size="64" />
           <h2 class="persona-page__card-title">{{ companion.name }}</h2>
           <p class="persona-page__muted">
             {{ companion.currentPersonaVersion.document ? '初始人格已建立' : '原稿已保存' }}
@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+import CompanionAvatar from '@/components/CompanionAvatar.vue';
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import type { CompanionDetail } from '@memory-weave/contracts';

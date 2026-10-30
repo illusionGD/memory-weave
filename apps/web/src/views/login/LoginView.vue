@@ -104,7 +104,7 @@ async function handleSubmit(): Promise<void> {
   min-height: 100svh;
   flex-direction: column;
   padding: var(--space-10) clamp(24px, 7vw, 112px) var(--space-6);
-  background: radial-gradient(ellipse at 20% 55%, #e8eee1 0, transparent 48%), var(--color-canvas);
+  background: radial-gradient(ellipse at 20% 55%, #28253e 0, transparent 48%), var(--color-canvas);
 
   &__header {
     width: 100%;

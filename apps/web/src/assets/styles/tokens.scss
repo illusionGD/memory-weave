@@ -1,22 +1,26 @@
 :root {
-  --color-canvas: #f5f4ef;
-  --color-surface: #fffefa;
-  --color-surface-muted: #eceee7;
-  --color-ink: #233c36;
-  --color-ink-soft: #66736c;
-  --color-accent: #336553;
-  --color-accent-hover: #264f41;
-  --color-accent-soft: #e8f0e9;
-  --color-border: #dce2d8;
-  --color-danger: #9f423b;
-  --color-danger-soft: #fff0eb;
-  --color-warning: #88612b;
-  --color-warning-soft: #faf0d9;
+  --color-on-accent: #25213c;
+  --color-sidebar: #141c30;
+  --color-bubble: #242e45;
+  --color-bubble-user: #484566;
+  --color-canvas: #11182b;
+  --color-surface: #1c243a;
+  --color-surface-muted: #252e46;
+  --color-ink: #eeedf5;
+  --color-ink-soft: #a6abc3;
+  --color-accent: #c5b9ef;
+  --color-accent-hover: #d4c9f6;
+  --color-accent-soft: #353550;
+  --color-border: #30394f;
+  --color-danger: #f3b1b6;
+  --color-danger-soft: #402c3b;
+  --color-warning: #e4c795;
+  --color-warning-soft: #3a3440;
   --font-body: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   --font-display: Georgia, 'Songti SC', 'SimSun', serif;
   --radius-sm: 10px;
-  --radius-md: 18px;
-  --radius-lg: 28px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -27,5 +31,5 @@
   --space-10: 40px;
   --space-12: 48px;
   --space-16: 64px;
-  --shadow-card: 0 20px 65px -32px rgb(35 60 54 / 25%);
+  --shadow-card: none;
 }

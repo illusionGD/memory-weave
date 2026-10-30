@@ -13,7 +13,11 @@
         还没有私聊，从一位伴侣的「开始聊天」进入。
       </p>
       <article v-for="chat in chats" :key="chat.id" class="conversation-card">
-        <span class="conversation-card__symbol" aria-hidden="true">◌</span>
+        <CompanionAvatar
+          :name="chat.companionName ?? chat.title"
+          :avatar="chat.avatar"
+          :size="52"
+        />
         <div>
           <h2>{{ chat.title }}</h2>
           <p>
@@ -36,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+import CompanionAvatar from '@/components/CompanionAvatar.vue';
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import type { Chat } from '@memory-weave/contracts';
@@ -67,17 +72,6 @@ onMounted(more);
   border-radius: 18px;
   background: var(--color-surface);
 }
-.conversation-card__symbol {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 52px;
-  height: 52px;
-  background: #eef1e6;
-  border-radius: 50%;
-  font-size: 32px;
-  color: #8b9b7e;
-}
 .conversation-card h2 {
   font: 21px var(--font-display);
   overflow-wrap: anywhere;
@@ -96,10 +90,6 @@ onMounted(more);
     padding: 20px;
     gap: 14px;
     flex-wrap: wrap;
-  }
-  .conversation-card__symbol {
-    width: 42px;
-    height: 42px;
   }
   .conversation-card .button {
     margin: 0 0 0 56px;

@@ -2,13 +2,27 @@
   <ChatLayout>
     <section class="chat-view">
       <header class="chat-view__header">
-        <div>
-          <p class="eyebrow">此刻，与你</p>
-          <h1>{{ chat?.title ?? '正在打开私聊…' }}</h1>
+        <RouterLink class="chat-view__back button button--quiet" to="/chats" aria-label="全部私聊"
+          >‹</RouterLink
+        >
+        <RouterLink
+          v-if="chat"
+          :to="`/companions/${chat.companionId}`"
+          class="chat-view__profile"
+          aria-label="查看伴侣资料"
+        >
+          <CompanionAvatar
+            :avatar="chat.avatar"
+            :name="chat.companionName ?? chat.title"
+            :size="44"
+          />
+        </RouterLink>
+        <div class="chat-view__identity">
+          <h1>{{ chat?.companionName ?? chat?.title ?? '正在打开私聊…' }}</h1>
           <p class="chat-view__connection" role="status">
             {{
               connected
-                ? '已连接'
+                ? '此刻，与你同在'
                 : loading
                   ? '正在连接…'
                   : chat
@@ -20,14 +34,14 @@
         <RouterLink
           v-if="chat?.availability === 'active'"
           class="button button--quiet"
+          aria-label="这段对话的记忆"
           :to="{
             name: 'memories',
             params: { id: chat.companionId, conversationId: chat.id },
             query: { runtimeEpoch: chat.runtimeEpoch },
           }"
-          >这段对话的记忆</RouterLink
+          >回忆</RouterLink
         >
-        <RouterLink class="button button--quiet" to="/chats">全部私聊</RouterLink>
       </header>
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
       <button v-if="!chat && !loading" class="button button--secondary" @click="reload">
@@ -71,7 +85,7 @@
           v-if="!bubbles.length && !loading && chat?.availability === 'active'"
           class="chat-view__empty"
         >
-          <span aria-hidden="true">✳</span>
+          <span aria-hidden="true">✧</span>
           <h2>从今天想聊的开始</h2>
           <p>一句近况，一个念头，或只是打个招呼。</p>
         </div>
@@ -81,19 +95,28 @@
           class="chat-view__message"
           :class="{ 'chat-view__message--user': bubble.user }"
         >
-          <p class="chat-view__speaker">
-            {{ bubble.user ? '你' : '伴侣' }}
-            <time :datetime="bubble.time">{{ displayTime(bubble.time) }}</time>
-          </p>
-          <p class="chat-view__text">{{ bubble.text }}</p>
-          <button
-            v-if="bubble.targets.length && chat?.availability !== 'cleaning'"
-            class="button button--quiet chat-view__delete"
-            :disabled="saving"
-            @click="deleteMessage(bubble)"
-          >
-            删除这条消息
-          </button>
+          <CompanionAvatar
+            v-if="!bubble.user"
+            class="chat-view__bubble-avatar"
+            :avatar="chat?.avatar"
+            :name="chat?.companionName ?? '伴侣'"
+            :size="32"
+          />
+          <div class="chat-view__bubble-body">
+            <p class="chat-view__speaker">
+              {{ bubble.user ? '你' : (chat?.companionName ?? '伴侣') }}
+              <time :datetime="bubble.time">{{ displayTime(bubble.time) }}</time>
+            </p>
+            <p class="chat-view__text">{{ bubble.text }}</p>
+            <button
+              v-if="bubble.targets.length && chat?.availability !== 'cleaning'"
+              class="button button--quiet chat-view__delete"
+              :disabled="saving"
+              @click="deleteMessage(bubble)"
+            >
+              删除这条消息
+            </button>
+          </div>
         </article>
       </div>
       <div class="chat-view__status">
@@ -124,7 +147,7 @@
           rows="2"
           maxlength="4000"
           :disabled="chat?.availability !== 'active'"
-          placeholder="想说什么都可以，也可以随时补充…"
+          placeholder="把想说的话，轻轻放在这里…"
           @keydown="handleKeydown"
         />
         <div class="chat-view__actions">
@@ -143,6 +166,7 @@
 </template>
 
 <script setup lang="ts">
+import CompanionAvatar from '@/components/CompanionAvatar.vue';
 import { computed, nextTick, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import ChatLayout from '@/components/ChatLayout.vue';
@@ -216,7 +240,7 @@ watch(
 
 <style scoped lang="scss">
 .chat-view {
-  max-width: 880px;
+  max-width: 920px;
   height: 100%;
   margin: 0 auto;
   display: flex;
@@ -225,54 +249,68 @@ watch(
 .chat-view__header {
   display: flex;
   flex: none;
-  justify-content: space-between;
   align-items: center;
-  gap: var(--space-4);
-  margin-bottom: 12px;
+  gap: 14px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--color-border);
+}
+.chat-view__identity {
+  flex: 1;
+  min-width: 0;
 }
 .chat-view h1 {
-  margin: 4px 0;
-  font-family: var(--font-display);
-  font-size: clamp(20px, 2vw, 28px);
-  font-weight: 500;
-  overflow-wrap: anywhere;
+  margin: 0;
+  font: 500 21px/1.5 var(--font-body);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .chat-view__header .button {
-  font-size: 12px;
-  min-height: 32px;
-  padding: 6px 10px;
+  font-size: 13px;
+  min-height: 36px;
+  padding: 7px 12px;
 }
-.chat-view__header .eyebrow {
-  font-size: 10px;
+.chat-view__header .chat-view__back {
+  font-size: 28px;
+  padding: 0 8px;
 }
-.chat-view__connection,
-.chat-view__speaker {
+.chat-view__profile {
+  display: inline-flex;
+  text-decoration: none;
+}
+.chat-view__connection {
   color: var(--color-ink-soft);
-  font-size: 0.8rem;
+  font-size: 11px;
+  margin-top: 4px;
 }
 .chat-view__mode {
   flex: none;
   color: var(--color-ink-soft);
   font-size: 11px;
-  padding: 8px 12px;
-  background: var(--color-accent-soft);
+  padding: 7px 12px;
+  background: var(--color-surface);
   border-radius: var(--radius-sm);
+  margin-top: 10px;
 }
 .chat-view__history {
   display: flex;
   flex: none;
-  gap: var(--space-2);
+  gap: 8px;
+}
+.chat-view__history .button {
+  font-size: 12px;
+  min-height: 30px;
+  padding: 4px 10px;
 }
 .chat-view__log {
   flex: 1;
-  min-height: 80px;
+  min-height: 60px;
   overflow-y: auto;
-  padding: 20px 4px;
-  border-radius: var(--radius-md);
+  padding: 30px 4px 12px;
   scroll-behavior: auto;
 }
 .chat-view__empty {
-  padding: var(--space-12) var(--space-2);
+  padding: 12vh 16px 32px;
   text-align: center;
   color: var(--color-ink-soft);
 }
@@ -281,131 +319,162 @@ watch(
   font-size: 2rem;
 }
 .chat-view__empty h2 {
-  font-family: var(--font-display);
+  font: 500 24px/1.8 var(--font-display);
   color: var(--color-ink);
-  font-weight: 500;
+  margin: 16px 0 10px;
+}
+.chat-view__empty p {
+  font-size: 13px;
 }
 .chat-view__message {
-  max-width: 88%;
-  margin: 0 auto var(--space-6) 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: fit-content;
+  max-width: 82%;
+  margin: 0 auto 22px 0;
+}
+.chat-view__bubble-avatar {
+  margin-top: 23px;
+}
+.chat-view__bubble-body {
+  min-width: 0;
 }
 .chat-view__message--user {
   margin-left: auto;
   margin-right: 0;
 }
 .chat-view__message--user .chat-view__text {
-  background: var(--color-accent-soft);
+  background: var(--color-bubble-user);
+  border-radius: 14px 4px 14px 14px;
+}
+.chat-view__message--user .chat-view__speaker {
+  justify-content: flex-end;
 }
 .chat-view__speaker {
+  color: var(--color-ink-soft);
+  font-size: 10px;
   display: flex;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-2);
+  gap: 12px;
+  margin: 0 0 7px;
 }
 .chat-view__text {
   margin: 0;
-  padding: var(--space-4);
-  border-radius: 4px 20px 20px 20px;
-  background: var(--color-surface);
-  box-shadow: 0 3px 18px rgb(35 60 54 / 3%);
+  padding: 14px 19px;
+  border-radius: 4px 14px 14px 14px;
+  background: var(--color-bubble);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  line-height: 1.8;
+  line-height: 1.9;
+  font-size: 14px;
 }
 .chat-view__delete {
-  min-height: 30px;
-  padding: 3px 6px;
-  font-size: 11px;
+  min-height: 26px;
+  padding: 3px 5px;
+  font-size: 10px;
   color: var(--color-ink-soft);
-  opacity: 0.65;
+  opacity: 0;
+}
+.chat-view__message:hover .chat-view__delete,
+.chat-view__message:focus-within .chat-view__delete {
+  opacity: 1;
 }
 .chat-view__status {
   flex: none;
-  min-height: 32px;
+  min-height: 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: 8px;
   color: var(--color-ink-soft);
+  font-size: 11px;
+}
+.chat-view__status .button {
   font-size: 12px;
+  min-height: 30px;
+  padding: 5px 10px;
 }
 .chat-view__composer {
   flex: none;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: 14px;
   background: var(--color-surface);
-  box-shadow: 0 5px 24px #233c3605;
 }
 .chat-view__input {
   display: block;
   width: 100%;
-  min-height: 48px;
+  min-height: 44px;
   max-height: 120px;
   padding: 4px 0;
   resize: none;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
+  background: transparent;
   color: var(--color-ink);
   font: inherit;
+  font-size: 14px;
+}
+.chat-view__input::placeholder {
+  color: var(--color-ink-soft);
+}
+.chat-view__input:focus-visible {
+  outline-offset: 2px;
+  outline-width: 1px;
 }
 .chat-view__actions {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: var(--space-3);
-  margin-top: 4px;
+  gap: 12px;
+  margin-top: 8px;
 }
 .chat-view__actions p {
   margin: 0;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--color-ink-soft);
 }
 .chat-view__actions .button {
   flex-shrink: 0;
   min-height: 36px;
-  padding: 6px 20px;
+  padding: 6px 24px;
+  font-size: 13px;
+  font-weight: 500;
 }
 @media (max-width: 560px) {
   .chat-view__header {
-    flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 0;
-    margin-bottom: 8px;
+    gap: 10px;
+    padding-bottom: 16px;
   }
-  .chat-view__header > div {
-    width: 100%;
-  }
-  .chat-view__header .eyebrow {
-    display: none;
+  .chat-view h1 {
+    font-size: 18px;
   }
   .chat-view__header .button {
-    padding: 4px 8px 4px 0;
-    font-size: 11px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .chat-view__header .chat-view__back {
+    font-size: 28px;
+    padding: 0;
   }
   .chat-view__connection {
     font-size: 10px;
   }
   .chat-view__message {
-    max-width: 96%;
+    max-width: 94%;
     margin-bottom: 16px;
+    gap: 9px;
   }
   .chat-view__text {
-    padding: 12px;
-    font-size: 14px;
+    padding: 11px 14px;
   }
   .chat-view__composer {
-    padding: 10px 12px;
+    padding: 11px 14px;
   }
-  .chat-view__actions {
-    align-items: flex-end;
+  .chat-view__actions p {
+    font-size: 9px;
   }
-}
-@media (max-height: 600px) {
-  .chat-view__log {
-    flex: none;
-    height: 45svh;
-    min-height: 140px;
+  .chat-view__delete {
+    opacity: 0.7;
   }
 }
 </style>

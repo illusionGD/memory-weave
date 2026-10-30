@@ -1,3 +1,8 @@
+import { AvatarCleanupService } from './modules/companions/avatar-cleanup.service';
+import { AVATAR_MAX_BYTES } from '@memory-weave/contracts';
+import { AvatarsController } from './modules/companions/avatars.controller';
+import { AvatarsService } from './modules/companions/avatars.service';
+import { AvatarFiles } from './modules/companions/avatar-files';
 import { RetrievalService } from './modules/retrieval/retrieval.service';
 import { RetrievalController } from './modules/retrieval/retrieval.controller';
 import { RetrievalIndexService } from './modules/retrieval/retrieval-index.service';
@@ -74,6 +79,7 @@ class ApplicationModule {
         SystemController,
         WorkspaceController,
         CompanionsController,
+        AvatarsController,
         PersonaTemplatesController,
         CompanionPersonasController,
         ConversationsController,
@@ -99,6 +105,9 @@ class ApplicationModule {
         ChatContextService,
         DatabaseService,
         CompanionsService,
+        AvatarsService,
+        AvatarFiles,
+        AvatarCleanupService,
         PersonaTemplatesService,
         CompanionPersonasService,
         ConversationsService,
@@ -135,6 +144,8 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
     helmet({
       contentSecurityPolicy: {
         directives: {
+          // 选图预览仅使用当前页面生成的 Blob，不放开任意外部图片来源。
+          imgSrc: ["'self'", 'data:', 'blob:'],
           upgradeInsecureRequests: config.appOrigin.startsWith('https://') ? [] : null,
         },
       },
@@ -142,6 +153,14 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
     }),
   );
   app.use(createOriginCheck([config.appOrigin, config.adminAppOrigin ?? config.appOrigin]));
+  app.use(
+    '/api/companions/:id/avatar',
+    (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (req.method === 'PUT')
+        express.raw({ type: () => true, limit: AVATAR_MAX_BYTES, inflate: false })(req, res, next);
+      else next();
+    },
+  );
   // 人设原稿和明确约束可能包含较长中文文本；其他入口继续采用原有体积上限。
   app.use(
     ['/api/companion-creations', '/api/companions', '/api/persona-templates'],

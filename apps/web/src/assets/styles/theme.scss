@@ -1,5 +1,5 @@
 html {
-  color-scheme: light;
+  color-scheme: dark;
   background: var(--color-canvas);
   color: var(--color-ink);
   font-family: var(--font-body);
@@ -25,4 +25,9 @@ body {
 
 a {
   color: var(--color-accent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }

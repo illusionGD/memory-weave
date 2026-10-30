@@ -23,3 +23,5 @@ description: 维护 F07 消息删除、伴侣重置/删除、持久限制、依�
 F08 已接入批量记忆整理。涉及记忆来源、processing_ranges、后台并发或生命周期派生清理时，同时阅读 [memory-organization](../memory-organization/SKILL.md)。记忆和清理各有独立执行位置；旧 v1 生命周期阶段保留，新增操作使用 v2。0006 交付后同样不可改写。
 
 F09 已接入记忆检索、跨私聊来源及 Qdrant 索引。涉及上下文、版本、后台调度或删除恢复时，同时阅读 [memory-retrieval](../memory-retrieval/SKILL.md)，保留固定输入与无正文来源图。
+
+头像增加 v4 清理协议，在原 v3 末尾追加 avatar_files，v1–v3 解释不变。删除实例先持久禁止读取和新上传，事务外幂等删除目录，复查租约/检查点后清除引用并推进；重置实例保留头像。0008 已交付后不可改写；参见 [头像说明](../../../docs/features/starry-chat-avatars.md)。

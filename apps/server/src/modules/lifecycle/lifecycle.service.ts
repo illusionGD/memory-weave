@@ -112,7 +112,7 @@ export class LifecycleService {
           requestId: input.requestId,
           taskId: id,
           fingerprint: hash,
-          protocolVersion: 3,
+          protocolVersion: 4,
           kind: input.kind,
           conversationId: conversation.id,
         });
@@ -158,7 +158,7 @@ export class LifecycleService {
         requestId: input.requestId,
         taskId: id,
         fingerprint: hash,
-        protocolVersion: 3,
+        protocolVersion: 4,
         kind: input.kind,
         companionId: companion.id,
         previousEpoch: companion.runtimeEpoch,
@@ -253,7 +253,7 @@ export class LifecycleService {
     });
   }
 
-  /** 清理仅有数据库副作用，显式恢复创建新尝试身份并沿用已提交进度。 */
+  /** 清理沿用数据库与外部存储检查点，显式恢复创建新尝试身份并沿用已提交进度。 */
   retry(id: string, input: RetryLifecycle): Promise<LifecycleOperation> {
     return this.models.locked(async (ownerId, tx) => {
       await lockTaskScheduler(ownerId, tx);

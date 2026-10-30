@@ -20,7 +20,7 @@
 
   &--primary {
     background: var(--color-accent);
-    color: var(--color-surface);
+    color: var(--color-on-accent);
 
     &:hover:not(:disabled) {
       background: var(--color-accent-hover);
@@ -56,7 +56,7 @@
   font-size: 0.9rem;
 
   &--error {
-    border-color: #f0d3ca;
+    border-color: var(--color-danger-soft);
     background: var(--color-danger-soft);
     color: var(--color-danger);
   }

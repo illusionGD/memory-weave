@@ -1,3 +1,4 @@
+import { companionAvatarSchema } from './avatars';
 import { z } from 'zod';
 import {
   uuidSchema,
@@ -97,6 +98,10 @@ export const chatRunSchema: z.ZodObject<typeof chatRunShape> = z.object(chatRunS
 /** 可观察的回复轮次。 */
 export type ChatRun = z.infer<typeof chatRunSchema>;
 const chatShape = {
+  /** 当前伴侣的显示名，旧版本响应允许为空。 */
+  companionName: z.string().nullable().default(null),
+  /** 当前展示头像，与消息内容版本独立；删除实例后为空。 */
+  avatar: companionAvatarSchema.nullable().default(null),
   /** 重置或删除实例后的旧对话只读；清理中的对话暂不可读取正文。 */
   availability: z.enum(['active', 'archived', 'cleaning']).default('active'),
   /** 生命周期变更后使终端缓存失效，与消息发布序号独立。 */
