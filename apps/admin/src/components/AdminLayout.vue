@@ -81,8 +81,12 @@ function isActive(path: string): boolean {
   return path === '/'
     ? route.path === '/'
     : path === '/memories'
-      ? route.name === 'memories' || route.path === '/memories'
-      : route.path.startsWith(path) && !(path === '/companions' && route.name === 'memories');
+      ? route.name === 'memories' || route.name === 'memory-explorer' || route.path === '/memories'
+      : route.path.startsWith(path) &&
+        !(
+          path === '/companions' &&
+          (route.name === 'memories' || route.name === 'memory-explorer')
+        );
 }
 /** 服务端撤销成功后清空当前管理会话。 */
 async function logout(): Promise<void> {

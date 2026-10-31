@@ -1,0 +1,151 @@
+{
+  "measuredAt": "2026-10-31T14:01:40.591Z",
+  "dataset": {
+    "memories": 1000,
+    "versions": 1000,
+    "originalMessages": 134,
+    "extraEvidenceForOneMemory": 50
+  },
+  "environment": {
+    "node": "v22.23.4",
+    "cpus": 5,
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "peakProcessRssKiB": 319664
+  },
+  "before": {
+    "queries": {
+      "entries20": {
+        "samples": 30,
+        "p50Ms": 914.4,
+        "p95Ms": 1009.2
+      },
+      "timeline20": {
+        "samples": 30,
+        "p50Ms": 58.94,
+        "p95Ms": 73.66
+      },
+      "keyword20": {
+        "samples": 30,
+        "p50Ms": 52.89,
+        "p95Ms": 65.29
+      },
+      "graph48": {
+        "samples": 30,
+        "p50Ms": 21.7,
+        "p95Ms": 32.77
+      },
+      "validate50": {
+        "samples": 30,
+        "p50Ms": 11.17,
+        "p95Ms": 14.43
+      },
+      "concurrentEntries4": {
+        "samples": 32,
+        "p50Ms": 150.66,
+        "p95Ms": 222.39
+      }
+    },
+    "plans": {
+      "time": [
+        {
+          "id": 1,
+          "select_type": "SIMPLE",
+          "table": "memory_versions",
+          "partitions": null,
+          "type": "ref",
+          "possible_keys": "memory_version_owner_id,memory_version_number,memory_version_batch_fk,memory_version_fingerprint",
+          "key": "memory_version_batch_fk",
+          "key_len": "36",
+          "ref": "const",
+          "rows": 488,
+          "filtered": 33.33,
+          "Extra": "Using where; Using filesort"
+        }
+      ],
+      "previous": [
+        {
+          "id": 1,
+          "select_type": "SIMPLE",
+          "table": "memory_versions",
+          "partitions": null,
+          "type": "index",
+          "possible_keys": "memory_version_owner_id,memory_version_number,memory_version_batch_fk,memory_version_fingerprint",
+          "key": "PRIMARY",
+          "key_len": "36",
+          "ref": null,
+          "rows": 42,
+          "filtered": 10,
+          "Extra": "Using where"
+        }
+      ]
+    }
+  },
+  "after": {
+    "queries": {
+      "entries20": {
+        "samples": 30,
+        "p50Ms": 62.78,
+        "p95Ms": 73.18
+      },
+      "timeline20": {
+        "samples": 30,
+        "p50Ms": 57.7,
+        "p95Ms": 75.84
+      },
+      "keyword20": {
+        "samples": 30,
+        "p50Ms": 50.07,
+        "p95Ms": 61.46
+      },
+      "graph48": {
+        "samples": 30,
+        "p50Ms": 16.89,
+        "p95Ms": 18.7
+      },
+      "validate50": {
+        "samples": 30,
+        "p50Ms": 11.84,
+        "p95Ms": 14.51
+      },
+      "concurrentEntries4": {
+        "samples": 32,
+        "p50Ms": 149.32,
+        "p95Ms": 227.33
+      }
+    },
+    "plans": {
+      "time": [
+        {
+          "id": 1,
+          "select_type": "SIMPLE",
+          "table": "memory_versions",
+          "partitions": null,
+          "type": "ref",
+          "possible_keys": "memory_version_owner_id,memory_version_number,memory_version_batch_fk,memory_version_fingerprint,memory_version_time,memory_version_previous",
+          "key": "memory_version_time",
+          "key_len": "36",
+          "ref": "const",
+          "rows": 488,
+          "filtered": 33.33,
+          "Extra": "Using where; Backward index scan; Using index"
+        }
+      ],
+      "previous": [
+        {
+          "id": 1,
+          "select_type": "SIMPLE",
+          "table": "memory_versions",
+          "partitions": null,
+          "type": "ref",
+          "possible_keys": "memory_version_owner_id,memory_version_number,memory_version_batch_fk,memory_version_fingerprint,memory_version_time,memory_version_previous",
+          "key": "memory_version_previous",
+          "key_len": "73",
+          "ref": "const,const",
+          "rows": 1,
+          "filtered": 100,
+          "Extra": "Using index"
+        }
+      ]
+    }
+  }
+}

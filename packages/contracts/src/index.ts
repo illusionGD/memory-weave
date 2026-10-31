@@ -106,3 +106,5 @@ export * from './memories';
 export * from './retrieval';
 
 export * from './avatars';
+
+export * from './memory-explorer';

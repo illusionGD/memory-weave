@@ -8,6 +8,15 @@
           聊天原文与整理后的记忆分别保存。伴侣会在停聊或累积一定内容后自动整理。
         </p>
         <RouterLink class="button button--quiet" to="/memories">返回记忆记录</RouterLink>
+        <RouterLink
+          class="button button--secondary"
+          :to="{
+            name: 'memory-explorer',
+            params: { id: companionId },
+            query: { runtimeEpoch: epoch, conversationId },
+          }"
+          >浏览时间线与图谱</RouterLink
+        >
       </header>
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
       <div class="persona-page__toolbar">

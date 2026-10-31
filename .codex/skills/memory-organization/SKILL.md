@@ -19,3 +19,5 @@ description: 维护 F08 批量记忆整理、来源版本、独立处理范围�
 - 已发布迁移 0000–0006 不改写；新结构追加。修改后跑真实隔离 MySQL、HTTP fixture、强杀恢复与未知结果、并发聊天、删除/重置隔离、浏览器，以及保留卷升级/重启；同步 README/plan/progress 和相关技能，按已有授权在 dev 提交推送后停在当前功能 review。
 
 F09 已接入记忆检索、跨私聊来源及 Qdrant 索引。涉及上下文、版本、后台调度或删除恢复时，同时阅读 [memory-retrieval](../memory-retrieval/SKILL.md)，保留固定输入与无正文来源图。
+
+F10 已加入管理端记忆浏览、时间线及来源关系图。涉及浏览范围、图谱或生命周期视图失效时，同时阅读 [memory-explorer](../memory-explorer/SKILL.md)。

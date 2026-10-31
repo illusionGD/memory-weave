@@ -43,6 +43,12 @@ export const router = createRouter({
       meta: { requiresAuth: true, title: '记忆记录' },
     },
     {
+      path: '/companions/:id/memories',
+      name: 'memory-explorer',
+      component: () => import('@/views/memories/MemoryExplorerView.vue'),
+      meta: { requiresAuth: true, title: '记忆浏览' },
+    },
+    {
       path: '/companions/:id/memories/:conversationId',
       name: 'memories',
       component: () => import('@/views/memories/MemoriesView.vue'),

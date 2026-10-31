@@ -64,6 +64,13 @@
       "when": 1793335823965,
       "tag": "0008_companion_avatars",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1793454784220,
+      "tag": "0009_memory_explorer",
+      "breakpoints": true
     }
   ]
 }

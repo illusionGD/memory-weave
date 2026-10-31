@@ -3,11 +3,11 @@
     <section class="persona-page">
       <header class="persona-page__intro">
         <h1 class="persona-page__title">记忆记录</h1>
-        <p class="persona-page__muted">按私聊查看所属伴侣的记忆、原文证据和整理批次。</p>
+        <p class="persona-page__muted">选择一位伴侣，浏览当前人生阶段的记忆、时间线与来源关系。</p>
       </header>
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
       <div class="persona-page__toolbar">
-        <button class="button button--secondary" :disabled="loading" @click="refresh">
+        <button class="button button--secondary" :disabled="loading" @click="refresh()">
           刷新列表</button
         ><span v-if="loading" role="status">正在读取…</span>
       </div>
@@ -15,85 +15,62 @@
         <table class="admin-table">
           <thead>
             <tr>
-              <th scope="col">私聊</th>
+              <th scope="col">伴侣</th>
               <th scope="col">人生阶段</th>
-              <th scope="col">状态</th>
               <th scope="col">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="chat in chats" :key="chat.id">
-              <td>
-                {{ chat.title }}<small class="memory-index__id">{{ chat.id.slice(0, 8) }}</small>
-              </td>
-              <td>{{ chat.runtimeEpoch }}</td>
-              <td>
-                {{
-                  chat.availability === 'active'
-                    ? '有效'
-                    : chat.availability === 'cleaning'
-                      ? '清理中'
-                      : '已归档'
-                }}
-              </td>
+            <tr v-for="companion in companions" :key="companion.id">
+              <td>{{ companion.name }}</td>
+              <td>{{ companion.runtimeEpoch }}</td>
               <td>
                 <RouterLink
-                  v-if="chat.availability === 'active'"
                   :to="{
-                    name: 'memories',
-                    params: { id: chat.companionId, conversationId: chat.id },
-                    query: { runtimeEpoch: chat.runtimeEpoch },
+                    name: 'memory-explorer',
+                    params: { id: companion.id },
+                    query: { runtimeEpoch: companion.runtimeEpoch },
                   }"
-                  >查看记忆</RouterLink
-                ><span v-else class="persona-page__muted">暂不可整理</span>
+                  >浏览记忆</RouterLink
+                >
               </td>
             </tr>
           </tbody>
         </table>
-        <p v-if="!loading && !chats.length" class="admin-empty">
-          暂无私聊。开始聊天后，可以在这里查看记忆整理情况。
+        <p v-if="!loading && !companions.length" class="admin-empty">
+          暂无伴侣。创建伴侣并开始交流后，可以在这里查看记忆。
         </p>
       </div>
-      <button v-if="next" class="button button--secondary" :disabled="loading" @click="more">
-        下一页
-      </button>
+      <div class="persona-page__toolbar">
+        <button
+          v-if="next"
+          class="button button--secondary"
+          :disabled="loading"
+          @click="refresh(next)"
+        >
+          下一页伴侣</button
+        ><button class="button button--quiet" :disabled="loading" @click="refresh()">
+          回到第一页
+        </button>
+      </div>
     </section>
   </AdminLayout>
 </template>
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import type { Chat } from '@memory-weave/contracts';
-import { listChats } from '@memory-weave/browser-client/chats';
+import type { CompanionListResponse } from '@memory-weave/contracts';
+import { listCompanions } from '@memory-weave/browser-client/personas';
 import AdminLayout from '@/components/AdminLayout.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
 const { loading, error, run } = usePersonaPage();
-const chats = ref<Chat[]>([]);
+const companions = ref<CompanionListResponse['items']>([]);
 const next = ref<string | null>(null);
-/** 刷新第一页，不把未读取的会话统计成全量。 */
-async function refresh(): Promise<void> {
-  const result = await run(() => listChats());
-  if (result) {
-    chats.value = result.items;
-    next.value = result.nextAfterId;
-  }
+/** 选择器使用服务端分页，每页替换，避免下载全部实例。 */
+async function refresh(afterId?: string): Promise<void> {
+  const result = await run(() => listCompanions(afterId));
+  companions.value = result?.items ?? [];
+  next.value = result?.nextAfterId ?? null;
 }
-/** 使用服务端游标翻页，管理列表保持有界。 */
-async function more(): Promise<void> {
-  if (!next.value) return;
-  const result = await run(() => listChats(next.value!));
-  if (result) {
-    chats.value = result.items;
-    next.value = result.nextAfterId;
-  }
-}
-onMounted(refresh);
+onMounted(() => refresh());
 </script>
-<style scoped lang="scss">
-.memory-index__id {
-  display: block;
-  color: var(--color-ink-soft);
-  font-size: 11px;
-  margin-top: 4px;
-}
-</style>

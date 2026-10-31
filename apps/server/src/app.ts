@@ -1,3 +1,5 @@
+import { MemoryExplorerController } from './modules/memory-explorer/memory-explorer.controller';
+import { MemoryExplorerService } from './modules/memory-explorer/memory-explorer.service';
 import { AvatarCleanupService } from './modules/companions/avatar-cleanup.service';
 import { AVATAR_MAX_BYTES } from '@memory-weave/contracts';
 import { AvatarsController } from './modules/companions/avatars.controller';
@@ -70,6 +72,7 @@ class ApplicationModule {
     return {
       module: ApplicationModule,
       controllers: [
+        MemoryExplorerController,
         RetrievalController,
         MemoriesController,
         AuthController,
@@ -88,6 +91,7 @@ class ApplicationModule {
         TasksController,
       ],
       providers: [
+        MemoryExplorerService,
         RetrievalIndexService,
         RetrievalVector,
         RetrievalService,

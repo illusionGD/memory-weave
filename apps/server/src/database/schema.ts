@@ -1252,6 +1252,8 @@ export const memoryVersions = mysqlTable(
     check('memory_version_positive', sql`${table.version} > 0`),
     unique('memory_version_number').on(table.ownerId, table.memoryId, table.version),
     index('memory_version_fingerprint').on(table.ownerId, table.fingerprint),
+    index('memory_version_time').on(table.ownerId, table.createdAt, table.id),
+    index('memory_version_previous').on(table.ownerId, table.previousVersionId, table.id),
   ],
 );
 
