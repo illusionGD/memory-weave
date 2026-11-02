@@ -1,8 +1,18 @@
 import { Body, Controller, Get, Inject, Param, Put, Post, HttpCode } from '@nestjs/common';
-import { updateModelConfigurationSchema, modelProbeSchema } from '@memory-weave/contracts';
-import type { ModelConfigurationVersion, ModelCall, ModelUsage } from '@memory-weave/contracts';
-import { z } from 'zod';
-import { parseInput, parseId } from '../shared/http';
+import {
+  versionParamSchema,
+  uuidSchema,
+  updateModelConfigurationSchema,
+  modelProbeSchema,
+} from '@memory-weave/contracts';
+import type {
+  ModelProbe,
+  UpdateModelConfiguration,
+  ModelConfigurationVersion,
+  ModelCall,
+  ModelUsage,
+} from '@memory-weave/contracts';
+import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { ModelConfigurationService } from './model-configuration.service';
 import { ModelRuntimeService } from './model-runtime.service';
 import { ModelProvidersService } from './model-providers.service';
@@ -33,8 +43,8 @@ export class ModelsController {
    * 生成隔离诊断结果；失败时也保留真实尝试记录。
    */
   @Post('probes')
-  probe(@Body() body: unknown): Promise<ModelCall> {
-    return this.runtime.probe(parseInput(modelProbeSchema, body));
+  probe(@Body(new ZodValidationPipe(modelProbeSchema)) body: ModelProbe): Promise<ModelCall> {
+    return this.runtime.probe(body);
   }
 
   /**
@@ -43,8 +53,8 @@ export class ModelsController {
    * 当前部署的调用详情，包括每次尝试及用量。
    */
   @Get('calls/:id')
-  getCall(@Param('id') id: string): Promise<ModelCall> {
-    return this.runtime.get(parseId(id));
+  getCall(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<ModelCall> {
+    return this.runtime.get(id);
   }
 
   /**
@@ -54,8 +64,8 @@ export class ModelsController {
    */
   @Post('calls/:id/cancel')
   @HttpCode(200)
-  cancel(@Param('id') id: string): Promise<ModelCall> {
-    return this.runtime.cancel(parseId(id));
+  cancel(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<ModelCall> {
+    return this.runtime.cancel(id);
   }
 
   /**
@@ -80,17 +90,10 @@ export class ModelsController {
    * 查询不可变历史配置。
    */
   @Get('config/versions/:version')
-  getVersion(@Param('version') version: string): Promise<ModelConfigurationVersion> {
-    return this.configuration.getVersion(
-      parseInput(
-        z
-          .string()
-          .regex(/^[1-9]\d*$/)
-          .transform(Number)
-          .pipe(z.number().int().max(2_147_483_647)),
-        version,
-      ),
-    );
+  getVersion(
+    @Param('version', new ZodValidationPipe(versionParamSchema)) version: number,
+  ): Promise<ModelConfigurationVersion> {
+    return this.configuration.getVersion(version);
   }
 
   /**
@@ -99,7 +102,9 @@ export class ModelsController {
    * 以乐观版本和幂等键发布完整配置，保留既有用量。
    */
   @Put('config')
-  updateConfiguration(@Body() body: unknown): Promise<ModelConfigurationVersion> {
-    return this.configuration.update(parseInput(updateModelConfigurationSchema, body));
+  updateConfiguration(
+    @Body(new ZodValidationPipe(updateModelConfigurationSchema)) body: UpdateModelConfiguration,
+  ): Promise<ModelConfigurationVersion> {
+    return this.configuration.update(body);
   }
 }

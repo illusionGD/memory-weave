@@ -1,8 +1,9 @@
-import type { Request, Response } from 'express';
-import { z } from 'zod';
-import { ChatEventsService } from './chat-events.service';
 import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import {
+  chatEventsQuerySchema,
+  chatEventCursorSchema,
+  uuidSchema,
   chatDeliverySchema,
   stopChatSchema,
   chatMessageQuerySchema,
@@ -10,8 +11,21 @@ import {
   idPaginationQuerySchema,
   sendChatMessageSchema,
 } from '@memory-weave/contracts';
-import type { Chat, ChatList, ChatMessageList, SentChatMessage } from '@memory-weave/contracts';
-import { parseId, parseInput } from '../shared/http';
+import type {
+  ChatEventsQuery,
+  CreateChat,
+  IdPaginationQuery,
+  ChatDelivery,
+  StopChat,
+  SendChatMessage,
+  ChatMessageQuery,
+  Chat,
+  ChatList,
+  ChatMessageList,
+  SentChatMessage,
+} from '@memory-weave/contracts';
+import { RequestHeader, ZodValidationPipe } from '../../http/zod-validation.pipe';
+import { ChatEventsService } from './chat-events.service';
 import { ChatsService } from './chats.service';
 
 /** 各终端共用的已认证私聊接口；发送与事件传输分开。 */
@@ -25,14 +39,16 @@ export class ChatsController {
 
   /** 创建与指定伴侣的独立私聊。 */
   @Post()
-  create(@Body() body: unknown): Promise<Chat> {
-    return this.chats.create(parseInput(createChatSchema, body));
+  create(@Body(new ZodValidationPipe(createChatSchema)) body: CreateChat): Promise<Chat> {
+    return this.chats.create(body);
   }
 
   /** 分页查询用户的聊天会话。 */
   @Get()
-  list(@Query() query: unknown): Promise<ChatList> {
-    return this.chats.list(parseInput(idPaginationQuerySchema, query));
+  list(
+    @Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery,
+  ): Promise<ChatList> {
+    return this.chats.list(query);
   }
 
   /**
@@ -52,22 +68,15 @@ export class ChatsController {
    */
   @Get(':id/events')
   stream(
-    @Param('id') id: string,
-    @Query() query: unknown,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Query(new ZodValidationPipe(chatEventsQuerySchema)) query: ChatEventsQuery,
+    @RequestHeader('Last-Event-ID', new ZodValidationPipe(chatEventCursorSchema.optional()))
+    lastEventId: number | undefined,
     @Req() request: Request,
     @Res() response: Response,
   ): Promise<void> {
-    const input = parseInput(
-      z
-        .object({ afterSequence: z.coerce.number().int().min(0).max(2147483647).default(0) })
-        .strict(),
-      query,
-    );
-    const cursor =
-      request.get('Last-Event-ID') === undefined
-        ? input.afterSequence
-        : parseInput(z.coerce.number().int().min(0).max(2147483647), request.get('Last-Event-ID'));
-    return this.events.stream(parseId(id), cursor, request, response);
+    const cursor = lastEventId ?? query.afterSequence;
+    return this.events.stream(id, cursor, request, response);
   }
 
   /**
@@ -76,8 +85,11 @@ export class ChatsController {
    * 确认终端已经取得指定原文，不代表人类已阅读。
    */
   @Post(':id/deliveries')
-  acknowledge(@Param('id') id: string, @Body() body: unknown): Promise<null> {
-    return this.chats.acknowledge(parseId(id), parseInput(chatDeliverySchema, body));
+  acknowledge(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(chatDeliverySchema)) body: ChatDelivery,
+  ): Promise<null> {
+    return this.chats.acknowledge(id, body);
   }
 
   /**
@@ -86,14 +98,17 @@ export class ChatsController {
    * 只停止指定轮次，不误伤已经开始的后续回复。
    */
   @Post(':id/stop')
-  stop(@Param('id') id: string, @Body() body: unknown): Promise<Chat> {
-    return this.chats.stop(parseId(id), parseInput(stopChatSchema, body));
+  stop(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(stopChatSchema)) body: StopChat,
+  ): Promise<Chat> {
+    return this.chats.stop(id, body);
   }
 
   /** 查询聊天当前回复与任务状态。 */
   @Get(':id')
-  get(@Param('id') id: string): Promise<Chat> {
-    return this.chats.get(parseId(id));
+  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<Chat> {
+    return this.chats.get(id);
   }
 
   /**
@@ -102,8 +117,11 @@ export class ChatsController {
    * 保存输入并建立持久回复任务，不等待模型。
    */
   @Post(':id/messages')
-  send(@Param('id') id: string, @Body() body: unknown): Promise<SentChatMessage> {
-    return this.chats.send(parseId(id), parseInput(sendChatMessageSchema, body));
+  send(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(sendChatMessageSchema)) body: SendChatMessage,
+  ): Promise<SentChatMessage> {
+    return this.chats.send(id, body);
   }
 
   /**
@@ -112,7 +130,10 @@ export class ChatsController {
    * 查看正式原文；此操作不确认用户已经收到。
    */
   @Get(':id/messages')
-  history(@Param('id') id: string, @Query() query: unknown): Promise<ChatMessageList> {
-    return this.chats.history(parseId(id), parseInput(chatMessageQuerySchema, query));
+  history(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Query(new ZodValidationPipe(chatMessageQuerySchema)) query: ChatMessageQuery,
+  ): Promise<ChatMessageList> {
+    return this.chats.history(id, query);
   }
 }

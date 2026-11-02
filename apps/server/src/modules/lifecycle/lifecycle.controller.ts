@@ -1,11 +1,18 @@
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
+  uuidSchema,
   idPaginationQuerySchema,
   lifecycleCommandSchema,
   retryLifecycleSchema,
 } from '@memory-weave/contracts';
-import type { LifecycleList, LifecycleOperation } from '@memory-weave/contracts';
-import { parseId, parseInput } from '../shared/http';
+import type {
+  LifecycleCommand,
+  IdPaginationQuery,
+  RetryLifecycle,
+  LifecycleList,
+  LifecycleOperation,
+} from '@memory-weave/contracts';
+import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { LifecycleService } from './lifecycle.service';
 
 /** 所有终端共用同一生命周期命令与持久进度。 */
@@ -19,13 +26,17 @@ export class LifecycleController {
    * 保存限制，随后由持久 worker 清理。
    */
   @Post()
-  create(@Body() input: unknown): Promise<LifecycleOperation> {
-    return this.service.create(parseInput(lifecycleCommandSchema, input));
+  create(
+    @Body(new ZodValidationPipe(lifecycleCommandSchema)) input: LifecycleCommand,
+  ): Promise<LifecycleOperation> {
+    return this.service.create(input);
   }
   /** 分页查询生命周期清理记录。 */
   @Get()
-  list(@Query() query: unknown): Promise<LifecycleList> {
-    return this.service.list(parseInput(idPaginationQuerySchema, query));
+  list(
+    @Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery,
+  ): Promise<LifecycleList> {
+    return this.service.list(query);
   }
   /**
    * 恢复中断的生命周期清理操作。
@@ -33,12 +44,15 @@ export class LifecycleController {
    * 中断后继续清理，原有限制与范围不变。
    */
   @Post(':id/retry')
-  retry(@Param('id') id: string, @Body() input: unknown): Promise<LifecycleOperation> {
-    return this.service.retry(parseId(id), parseInput(retryLifecycleSchema, input));
+  retry(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(retryLifecycleSchema)) input: RetryLifecycle,
+  ): Promise<LifecycleOperation> {
+    return this.service.retry(id, input);
   }
   /** 查询指定生命周期操作的详情。 */
   @Get(':id')
-  get(@Param('id') id: string): Promise<LifecycleOperation> {
-    return this.service.get(parseId(id));
+  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<LifecycleOperation> {
+    return this.service.get(id);
   }
 }

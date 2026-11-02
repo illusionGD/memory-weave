@@ -10,6 +10,19 @@ import { messageSchema } from './messages';
 import { taskSchema } from './tasks';
 import { recallResultSchema } from './retrieval';
 
+/** 聊天事件流的发布序号；保留事件接口现有的数字转换语义。 */
+export const chatEventCursorSchema = z.coerce.number().int().min(0).max(2_147_483_647);
+const chatEventsQueryShape = {
+  /** 未提供重连请求头时使用的起始序号，默认为零。 */
+  afterSequence: chatEventCursorSchema.default(0),
+};
+/** 聊天 SSE 事件的查询参数。 */
+export const chatEventsQuerySchema: z.ZodObject<typeof chatEventsQueryShape, z.core.$strict> = z
+  .object(chatEventsQueryShape)
+  .strict();
+/** 转换后的聊天事件查询参数。 */
+export type ChatEventsQuery = z.infer<typeof chatEventsQuerySchema>;
+
 const createChatShape = {
   /** 新私聊命令身份；同键重放返回原会话。 */
   requestId: uuidSchema,

@@ -1,16 +1,20 @@
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
+  uuidSchema,
   companionSequenceQuerySchema,
   receiveMessagesRequestSchema,
   sourceLookupQuerySchema,
 } from '@memory-weave/contracts';
 import type {
+  CompanionSequenceQuery,
+  SourceLookupQuery,
+  ReceiveMessagesRequest,
   ConversationProgressResponse,
   MessageListResponse,
   PublishedMessage,
   ReceiveMessagesResponse,
 } from '@memory-weave/contracts';
-import { parseId, parseInput } from '../shared/http';
+import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { ReceivingService } from './receiving.service';
 
 /** 管理者代理当前伴侣执行受范围约束的查询及接收操作。 */
@@ -26,15 +30,11 @@ export class ReceivingController {
    */
   @Get('conversations/:id/messages')
   listMessages(
-    @Param('companionId') companionId: string,
-    @Param('id') id: string,
-    @Query() query: unknown,
+    @Param('companionId', new ZodValidationPipe(uuidSchema)) companionId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Query(new ZodValidationPipe(companionSequenceQuerySchema)) query: CompanionSequenceQuery,
   ): Promise<MessageListResponse> {
-    return this.receiving.listMessages(
-      parseId(companionId),
-      parseId(id),
-      parseInput(companionSequenceQuerySchema, query),
-    );
+    return this.receiving.listMessages(companionId, id, query);
   }
 
   /**
@@ -44,15 +44,11 @@ export class ReceivingController {
    */
   @Get('sources/:messageId')
   source(
-    @Param('companionId') companionId: string,
-    @Param('messageId') messageId: string,
-    @Query() query: unknown,
+    @Param('companionId', new ZodValidationPipe(uuidSchema)) companionId: string,
+    @Param('messageId', new ZodValidationPipe(uuidSchema)) messageId: string,
+    @Query(new ZodValidationPipe(sourceLookupQuerySchema)) query: SourceLookupQuery,
   ): Promise<PublishedMessage> {
-    return this.receiving.source(
-      parseId(companionId),
-      parseId(messageId),
-      parseInput(sourceLookupQuerySchema, query),
-    );
+    return this.receiving.source(companionId, messageId, query);
   }
 
   /**
@@ -62,15 +58,11 @@ export class ReceivingController {
    */
   @Get('conversations/:id/progress')
   progress(
-    @Param('companionId') companionId: string,
-    @Param('id') id: string,
-    @Query() query: unknown,
+    @Param('companionId', new ZodValidationPipe(uuidSchema)) companionId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Query(new ZodValidationPipe(companionSequenceQuerySchema)) query: CompanionSequenceQuery,
   ): Promise<ConversationProgressResponse> {
-    return this.receiving.progress(
-      parseId(companionId),
-      parseId(id),
-      parseInput(companionSequenceQuerySchema, query),
-    );
+    return this.receiving.progress(companionId, id, query);
   }
 
   /**
@@ -80,14 +72,10 @@ export class ReceivingController {
    */
   @Post('conversations/:id/receive')
   receive(
-    @Param('companionId') companionId: string,
-    @Param('id') id: string,
-    @Body() body: unknown,
+    @Param('companionId', new ZodValidationPipe(uuidSchema)) companionId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(receiveMessagesRequestSchema)) body: ReceiveMessagesRequest,
   ): Promise<ReceiveMessagesResponse> {
-    return this.receiving.receive(
-      parseId(companionId),
-      parseId(id),
-      parseInput(receiveMessagesRequestSchema, body),
-    );
+    return this.receiving.receive(companionId, id, body);
   }
 }

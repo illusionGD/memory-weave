@@ -25,7 +25,7 @@ import { z } from 'zod';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { modelAttempts, modelCalls, modelUsageWindows } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
-import { fingerprint, parseInput } from '../shared/http';
+import { fingerprint } from '../shared/http';
 import type {
   ModelTaskDefinition,
   ModelTaskScope,
@@ -136,20 +136,23 @@ export class ModelRuntimeService {
     guard?: ModelDispatchGuard,
     onText?: ModelTextSink,
   ): Promise<ModelCall> {
-    const input = parseInput(
+    const inputResult = (
       kind === 'task'
         ? modelProbeSchema.extend({ inputText: z.string().min(1).max(65536) })
-        : modelProbeSchema,
-      command,
-    );
-    const context = parseInput(modelCallContextSchema, {
+        : modelProbeSchema
+    ).safeParse(command);
+    const contextResult = modelCallContextSchema.safeParse({
       ...scope,
       kind,
       promptVersion: definition.promptVersion,
       schemaVersion: definition.schemaVersion,
       preprocessingVersion: definition.preprocessingVersion,
     });
-    parseInput(z.string().max(4000), definition.systemPrompt);
+    const promptResult = z.string().max(4000).safeParse(definition.systemPrompt);
+    if (!inputResult.success || !contextResult.success || !promptResult.success)
+      throw new ApiException(API_CODES.INVALID_REQUEST);
+    const input = inputResult.data;
+    const context = contextResult.data;
     const outputJsonSchema = outputSpecification(definition, input.operation);
     const hash = fingerprint({
       ...input,

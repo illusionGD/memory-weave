@@ -6,6 +6,22 @@ export const uuidSchema = z.uuid();
 /** 版本、代次及已发布序号使用的正整数，不得超过 有符号 32 位整数 的上限。 */
 export const positiveIntegerSchema = z.number().int().positive().max(2_147_483_647);
 
+/** 配置版本路径参数，转换为正整数；不接受前导零或指数形式。 */
+export const versionParamSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/)
+  .transform(Number)
+  .pipe(positiveIntegerSchema);
+
+/** 无载荷控制命令；省略正文或 null 按空对象处理，拒绝额外字段。 */
+export const emptyCommandSchema = z
+  .object({})
+  .strict()
+  .nullish()
+  .transform((value) => value ?? {});
+/** 经过校验的无载荷命令。 */
+export type EmptyCommand = z.infer<typeof emptyCommandSchema>;
+
 /** 尚无消息时的序号及分页起点允许为零，不得超过 有符号 32 位整数 的上限。 */
 export const nonnegativeIntegerSchema = z.number().int().nonnegative().max(2_147_483_647);
 

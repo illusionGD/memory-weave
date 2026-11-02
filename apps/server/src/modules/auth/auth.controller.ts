@@ -11,14 +11,14 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { API_CODES, loginRequestSchema } from '@memory-weave/contracts';
-import type { SessionResponse } from '@memory-weave/contracts';
+import type { LoginRequest, SessionResponse } from '@memory-weave/contracts';
+import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
 import { AuthService, SESSION_LIFETIME_MS } from './auth.service';
 import { PublicRoute } from './public-route';
 import { readSessionCookie, SESSION_COOKIE_NAME, sessionCookieOptions } from './session-cookie';
 import { ApiException } from '../../http/api-exception';
-import { parseInput } from '../shared/http';
 
 /** 提供 HTTP 认证接口，未显式标记公开的路由均受默认守卫保护。 */
 @Controller('auth')
@@ -31,7 +31,7 @@ export class AuthController {
 
   /**
    * 校验部署密码并建立登录会话。
-   * @param body 尚未校验的 JSON 请求体。
+   * @param body 已通过管道校验的登录请求。
    * @param request 包含底层连接来源地址的请求。
    * @param response 用于设置会话 Cookie 的 HTTP 响应。
    * @returns 不包含凭据的会话确认信息。
@@ -40,13 +40,12 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
-    @Body() body: unknown,
+    @Body(new ZodValidationPipe(loginRequestSchema)) body: LoginRequest,
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionResponse> {
-    const input = parseInput(loginRequestSchema, body);
     this.auth.checkLoginRate(request.ip ?? 'unknown');
-    if (!(await this.auth.verifyPassword(input.password))) {
+    if (!(await this.auth.verifyPassword(body.password))) {
       throw new ApiException(API_CODES.INVALID_CREDENTIALS);
     }
     const token = this.auth.createSession();

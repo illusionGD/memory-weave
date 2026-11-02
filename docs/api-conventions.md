@@ -94,6 +94,38 @@ throw new ApiException(10001, '当前伴侣正在休息。', 409);
 
 数据库错误仍在数据库入口按约束、唯一冲突和服务不可用进行分类。响应外层不会改变事务、幂等或权限判断。
 
+## 请求参数校验
+
+接口使用 NestJS 参数管道 `ZodValidationPipe`，校验规则和转换后的类型统一来自 `packages/contracts`。在 `@Body`、`@Query`、`@Param` 上声明对应 schema，NestJS 在调用控制器方法前完成校验，方法内直接使用结果，不再调用 `parseInput` 或 `parseId`。
+
+```ts
+import { Body, Param, Post } from '@nestjs/common';
+import { sendChatMessageSchema, uuidSchema } from '@memory-weave/contracts';
+import type { SendChatMessage, SentChatMessage } from '@memory-weave/contracts';
+import { ZodValidationPipe } from '../../http/zod-validation.pipe';
+
+// 控制器方法示例。
+/** 保存聊天消息并建立回复任务。 */
+@Post(':id/messages')
+send(
+  @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  @Body(new ZodValidationPipe(sendChatMessageSchema)) body: SendChatMessage,
+): Promise<SentChatMessage> {
+  return this.chats.send(id, body);
+}
+```
+
+管道返回 schema 的输出类型，包含既有的去除首尾空格、数字转换和默认值；不会另外开启一套隐式类型转换。新增接口继续在 contracts 定义请求 schema 和输出类型。字段限制、额外字段是否允许等行为由各自的 schema 决定，不能只写 TypeScript 类型而省略运行时校验。
+
+校验失败抛出 `ApiException(API_CODES.INVALID_REQUEST)`，由统一异常处理返回 HTTP 400 和 `{ code: 400, data: null, message }`。不直接回传 Zod 错误、请求原文或敏感字段。认证守卫仍先于参数管道执行；权限、资源归属、生命周期和并发版本等业务校验继续由服务层负责。
+
+特殊入口沿用同一原则：
+
+- SSE 的 `Last-Event-ID` 通过 `RequestHeader` 参数装饰器接入管道；合法请求头优先于查询游标，查询参数也必须合法。
+- 配置版本路径、索引查询和空载荷任务控制命令的规则已提取到 contracts，保留原有转换与拒绝行为。
+- 头像上传的路径和查询参数使用管道；二进制正文及 MIME、图片大小、格式等继续由头像服务校验。
+- 后台任务等非 HTTP 入口仍在服务层使用 Zod 校验外部数据，不依赖 HTTP 管道。
+
 ## 终端读取与兼容
 
 Web 的公共请求层负责解包，页面和 store 继续使用领域数据：

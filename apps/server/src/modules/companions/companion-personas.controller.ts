@@ -1,12 +1,19 @@
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
+  uuidSchema,
   companionCreationSchema,
   runtimeEpochQuerySchema,
   revisePersonaLocksSchema,
   initializePersonaSchema,
 } from '@memory-weave/contracts';
-import type { CompanionPersonaState, PersonaVersion } from '@memory-weave/contracts';
-import { parseId, parseInput } from '../shared/http';
+import type {
+  CompanionCreation,
+  RevisePersonaLocks,
+  InitializePersona,
+  CompanionPersonaState,
+  PersonaVersion,
+} from '@memory-weave/contracts';
+import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { CompanionPersonasService } from './companion-personas.service';
 
 /** 自然语言创建及初始、当前人格查询。 */
@@ -23,8 +30,10 @@ export class CompanionPersonasController {
    * 保存原稿并安排自动整理。
    */
   @Post('companion-creations')
-  create(@Body() body: unknown): Promise<CompanionPersonaState> {
-    return this.personas.create(parseInput(companionCreationSchema, body));
+  create(
+    @Body(new ZodValidationPipe(companionCreationSchema)) body: CompanionCreation,
+  ): Promise<CompanionPersonaState> {
+    return this.personas.create(body);
   }
 
   /**
@@ -33,8 +42,8 @@ export class CompanionPersonasController {
    * 查询当前与初始人格及后台任务。
    */
   @Get('companions/:id/persona')
-  get(@Param('id') id: string): Promise<CompanionPersonaState> {
-    return this.personas.get(parseId(id));
+  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<CompanionPersonaState> {
+    return this.personas.get(id);
   }
 
   /**
@@ -43,8 +52,11 @@ export class CompanionPersonasController {
    * 可选的约束修订；自动整理不依赖此操作。
    */
   @Post('companions/:id/persona/locks')
-  reviseLocks(@Param('id') id: string, @Body() body: unknown): Promise<PersonaVersion> {
-    return this.personas.reviseLocks(parseId(id), parseInput(revisePersonaLocksSchema, body));
+  reviseLocks(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(revisePersonaLocksSchema)) body: RevisePersonaLocks,
+  ): Promise<PersonaVersion> {
+    return this.personas.reviseLocks(id, body);
   }
 
   /**
@@ -53,8 +65,11 @@ export class CompanionPersonasController {
    * 旧原稿或已知失败的整理，由管理者显式开始。
    */
   @Post('companions/:id/persona/initialize')
-  initialize(@Param('id') id: string, @Body() body: unknown): Promise<CompanionPersonaState> {
-    return this.personas.initialize(parseId(id), parseInput(initializePersonaSchema, body));
+  initialize(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(initializePersonaSchema)) body: InitializePersona,
+  ): Promise<CompanionPersonaState> {
+    return this.personas.initialize(id, body);
   }
 
   /**
@@ -64,14 +79,10 @@ export class CompanionPersonasController {
    */
   @Get('companions/:id/persona/versions/:version')
   version(
-    @Param('id') id: string,
-    @Param('version') version: string,
-    @Query('runtimeEpoch') epoch: unknown,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Param('version', new ZodValidationPipe(runtimeEpochQuerySchema)) version: number,
+    @Query('runtimeEpoch', new ZodValidationPipe(runtimeEpochQuerySchema)) epoch: number,
   ): Promise<PersonaVersion> {
-    return this.personas.version(
-      parseId(id),
-      parseInput(runtimeEpochQuerySchema, epoch),
-      parseInput(runtimeEpochQuerySchema, version),
-    );
+    return this.personas.version(id, epoch, version);
   }
 }

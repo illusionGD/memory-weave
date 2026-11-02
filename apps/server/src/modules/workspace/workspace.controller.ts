@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Inject, Patch } from '@nestjs/common';
 import { updateWorkspaceRequestSchema } from '@memory-weave/contracts';
-import type { WorkspaceResponse } from '@memory-weave/contracts';
-import { parseInput } from '../shared/http';
+import type { UpdateWorkspaceRequest, WorkspaceResponse } from '@memory-weave/contracts';
+import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { WorkspaceService } from './workspace.service';
 
 /** 管理当前部署的个人资料，身份由已认证部署确定。 */
@@ -26,7 +26,9 @@ export class WorkspaceController {
    * 修改显示名称，不允许调用方选择用户身份或改写其他资料。
    */
   @Patch()
-  update(@Body() body: unknown): Promise<WorkspaceResponse> {
-    return this.workspace.update(parseInput(updateWorkspaceRequestSchema, body));
+  update(
+    @Body(new ZodValidationPipe(updateWorkspaceRequestSchema)) body: UpdateWorkspaceRequest,
+  ): Promise<WorkspaceResponse> {
+    return this.workspace.update(body);
   }
 }

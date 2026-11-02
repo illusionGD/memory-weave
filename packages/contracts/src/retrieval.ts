@@ -2,6 +2,19 @@ import { z } from 'zod';
 import { positiveIntegerSchema, utcDateTimeSchema, uuidSchema } from './common';
 import { memoryDocumentSchema } from './memories';
 
+const recallIndexQueryShape = {
+  /** 查询索引所属的伴侣人生代次。 */
+  runtimeEpoch: z.coerce.number().int().positive(),
+  /** 上一页末尾的索引标识；省略时读取第一页。 */
+  afterId: z.uuid().optional(),
+};
+/** 当前编码空间的索引查询参数。 */
+export const recallIndexQuerySchema: z.ZodObject<typeof recallIndexQueryShape, z.core.$strict> = z
+  .object(recallIndexQueryShape)
+  .strict();
+/** 转换后的索引查询参数。 */
+export type RecallIndexQuery = z.infer<typeof recallIndexQuerySchema>;
+
 /** 检索请求不要求问句；同一请求身份用于外部向量调用去重。 */
 export const recallQuerySchema = z
   .object({

@@ -1,15 +1,24 @@
 import { Body, Controller, Get, Inject, Param, Post, Query, Put, HttpCode } from '@nestjs/common';
 import {
+  emptyCommandSchema,
+  versionParamSchema,
+  uuidSchema,
   diagnosticTaskSchema,
   queuedModelProbeSchema,
   taskListQuerySchema,
   updateTaskConfigurationSchema,
-  positiveIntegerSchema,
   idPaginationQuerySchema,
 } from '@memory-weave/contracts';
-import { parseId, parseInput } from '../shared/http';
+import type {
+  EmptyCommand,
+  DiagnosticTask,
+  QueuedModelProbe,
+  TaskListQuery,
+  IdPaginationQuery,
+  UpdateTaskConfiguration,
+} from '@memory-weave/contracts';
+import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { TaskOutboxService } from './task-outbox.service';
-import { z } from 'zod';
 import { TaskConfigurationService } from './task-configuration.service';
 import { TasksService } from './tasks.service';
 
@@ -29,8 +38,8 @@ export class TasksController {
    * 创建不会修改伴侣状态的确定性诊断。
    */
   @Post('diagnostics')
-  createDiagnostic(@Body() body: unknown) {
-    return this.tasks.createDiagnostic(parseInput(diagnosticTaskSchema, body));
+  createDiagnostic(@Body(new ZodValidationPipe(diagnosticTaskSchema)) body: DiagnosticTask) {
+    return this.tasks.createDiagnostic(body);
   }
 
   /**
@@ -39,20 +48,20 @@ export class TasksController {
    * 创建后台模型诊断，保持 F03 的配置版本及预算检查。
    */
   @Post('model-probes')
-  createModelProbe(@Body() body: unknown) {
-    return this.tasks.createModelProbe(parseInput(queuedModelProbeSchema, body));
+  createModelProbe(@Body(new ZodValidationPipe(queuedModelProbeSchema)) body: QueuedModelProbe) {
+    return this.tasks.createModelProbe(body);
   }
 
   /** 分页查询当前部署的任务。 */
   @Get()
-  list(@Query() query: unknown) {
-    return this.tasks.list(parseInput(taskListQuerySchema, query));
+  list(@Query(new ZodValidationPipe(taskListQuerySchema)) query: TaskListQuery) {
+    return this.tasks.list(query);
   }
 
   /** 分页查询待办事件的转交进度。 */
   @Get('outbox')
-  listOutbox(@Query() query: unknown) {
-    return this.outbox.list(parseInput(idPaginationQuerySchema, query));
+  listOutbox(@Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery) {
+    return this.outbox.list(query);
   }
 
   /** 查询当前任务调度配置。 */
@@ -67,23 +76,16 @@ export class TasksController {
    * 发布不可变新版本。
    */
   @Put('config')
-  updateConfig(@Body() body: unknown) {
-    return this.configuration.update(parseInput(updateTaskConfigurationSchema, body));
+  updateConfig(
+    @Body(new ZodValidationPipe(updateTaskConfigurationSchema)) body: UpdateTaskConfiguration,
+  ) {
+    return this.configuration.update(body);
   }
 
   /** 查询指定版本的任务调度配置。 */
   @Get('config/versions/:version')
-  configVersion(@Param('version') version: string) {
-    return this.configuration.getVersion(
-      parseInput(
-        z
-          .string()
-          .regex(/^[1-9]\d*$/)
-          .transform(Number)
-          .pipe(positiveIntegerSchema),
-        version,
-      ),
-    );
+  configVersion(@Param('version', new ZodValidationPipe(versionParamSchema)) version: number) {
+    return this.configuration.getVersion(version);
   }
 
   /**
@@ -93,9 +95,11 @@ export class TasksController {
    */
   @Post(':id/pause')
   @HttpCode(200)
-  pause(@Param('id') id: string, @Body() body: unknown) {
-    parseInput(z.object({}).strict(), body ?? {});
-    return this.tasks.control(parseId(id), 'pause');
+  pause(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(emptyCommandSchema)) _body: EmptyCommand,
+  ) {
+    return this.tasks.control(id, 'pause');
   }
 
   /**
@@ -105,9 +109,11 @@ export class TasksController {
    */
   @Post(':id/resume')
   @HttpCode(200)
-  resume(@Param('id') id: string, @Body() body: unknown) {
-    parseInput(z.object({}).strict(), body ?? {});
-    return this.tasks.control(parseId(id), 'resume');
+  resume(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(emptyCommandSchema)) _body: EmptyCommand,
+  ) {
+    return this.tasks.control(id, 'resume');
   }
 
   /**
@@ -117,14 +123,16 @@ export class TasksController {
    */
   @Post(':id/cancel')
   @HttpCode(200)
-  cancel(@Param('id') id: string, @Body() body: unknown) {
-    parseInput(z.object({}).strict(), body ?? {});
-    return this.tasks.control(parseId(id), 'cancel');
+  cancel(
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Body(new ZodValidationPipe(emptyCommandSchema)) _body: EmptyCommand,
+  ) {
+    return this.tasks.control(id, 'cancel');
   }
 
   /** 查询任务详情和当前进度。 */
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.tasks.get(parseId(id));
+  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string) {
+    return this.tasks.get(id);
   }
 }
