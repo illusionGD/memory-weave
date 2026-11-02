@@ -51,13 +51,15 @@ F10 方案已确认并完成实现，当前交付：[记忆浏览、时间线与
 
 ### 3.1 推荐技术栈
 
+2026-11-02 用户选择 Naive UI，并确认本轮替换聊天端和后台现有通用控件，后台优先、分批验收，保留各自视觉风格。当前两端尚未安装组件库，完整实施方案见 [Naive UI 双端组件替换方案](naive-ui-plan.md)，待 review 后实施。
+
 2026-10-27 用户选择以 MySQL 替换 PostgreSQL，并确定独立向量库使用 Qdrant。当前 F01/F02 已改用 MySQL 8.4.9、mysql2 3.24.6 和 Qdrant 1.18.3，包含新库结构、Compose、认证健康检查与测试；F09 已实现 Qdrant 业务索引、持久同步任务与检索。用户明确开发阶段无需迁移 PostgreSQL 数据，因此从新的 MySQL 库开始，不开发旧数据导入工具。
 
 | 层次 | 推荐选择 | 用途与取舍 |
 | --- | --- | --- |
 | 工程 | pnpm workspace + TypeScript | 前后端共仓，统一检查命令；公共契约单独管理 |
 | 前端 | Vue 3 + Vite + Vue Router + Pinia | 遵循现有 rules；Pinia 使用 setup store，公共接口访问放 packages/browser-client；UI、路由和状态各项目独立 |
-| 界面与图谱 | SCSS + Element Plus；Cytoscape.js | 表单、管理组件按需引入；聊天界面适配移动端；图谱按中心与分页展开 |
+| 界面与图谱 | Naive UI + SCSS；Cytoscape.js | 两端通用控件优先使用 Naive UI，独立主题；聊天保留星空和扁平按钮，后台保留管理风格；图谱按中心与分页展开 |
 | 后端 | Node.js 22 LTS（≥22.20.0）+ NestJS，默认 Express 适配器 | 与用户环境一致；模块化单体，按 M01–M12 职责划分；复用成熟 HTTP 与依赖注入能力 [R1][R2] |
 | 主数据库 | MySQL 8.4.9 LTS | 保存原文、实例、人格版本、成长、关系证据与持久任务；是权威数据源；DDL 失败后记录未完成状态并阻止就绪 |
 | 向量库 | Qdrant 1.18.3 | 保存可重建的向量与必要过滤字段，支持范围过滤及稠密/稀疏融合；不作为人格与记忆的唯一存储 [R11] |
@@ -303,7 +305,7 @@ TDD 技能要求：“**Before writing any test, write down the seams under test
 
 ## 10. 调研来源
 
-R1–R10 于 2026-10-25 查阅，R11–R13 于 2026-10-27 补充；选型调研未进行候选产品性能对比或核定云服务价格。精确版本与供应商条款在采用时再次核对。
+R1–R10 初版于 2026-10-25 查阅，R11–R13 于 2026-10-27 补充，R10 的 UI 组件库来源于 2026-11-02 更新为 Naive UI；选型调研未进行候选产品性能对比或核定云服务价格。精确版本与供应商条款在采用时再次核对。
 
 - **[R1]** [NestJS 文档](https://docs.nestjs.com/)、[模块机制](https://docs.nestjs.com/modules)、[源码与许可证](https://github.com/nestjs/nest)：支持 TypeScript 和模块化服务；用于框架能力依据。
 - **[R2]** [Node.js 发布与支持状态](https://nodejs.org/en/about/previous-releases)：按用户现有环境采用仍受支持的 22 LTS；结合当前锁定工具链，将最低支持版本设为 22.20.0，具体推荐补丁版本见 `.nvmrc`。
@@ -314,7 +316,7 @@ R1–R10 于 2026-10-25 查阅，R11–R13 于 2026-10-27 补充；选型调研�
 - **[R7]** [LangGraph](https://github.com/langchain-ai/langgraph)：有状态代理编排框架及 MIT 许可；本次未验证其检查点与本项目事务的集成。
 - **[R8]** [Letta 官方入口仓库](https://github.com/letta-ai/letta)：产品入口、当前运行时迁移与旧实现归档说明；当前运行时和云服务另行核验。
 - **[R9]** [PostgreSQL 全文检索](https://www.postgresql.org/docs/current/textsearch-controls.html)：分词、词素和排序基础；中文方案仍需专项评估。
-- **[R10]** [Element Plus](https://element-plus.org/en-US/guide/design.html)、[Cytoscape.js](https://js.cytoscape.org/)：管理组件与关系图可视化候选；移动端布局和图谱规模由项目验证。
+- **[R10]** [Naive UI](https://github.com/tusen-ai/naive-ui)、[Cytoscape.js](https://js.cytoscape.org/)：通用 UI 组件与关系图可视化；移动端布局、主题接入和图谱规模由项目验证。
 - **[R11]** [Qdrant 过滤](https://qdrant.tech/documentation/search/filtering/)、[混合查询](https://qdrant.tech/documentation/search/hybrid-queries/)、[向量与 named vectors](https://qdrant.tech/documentation/manage-data/vectors/)：范围过滤、稠密/稀疏融合及多向量能力；不替代应用的权限和版本校验。
 - **[R12]** [Drizzle MySQL](https://orm.drizzle.team/docs/mysql/get-started-mysql)：mysql2 接入方式，现有 PostgreSQL 方言与迁移需改造和验证。
 - **[R13]** [MySQL 8.4 隐式提交](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html)：DDL 与事务边界，迁移失败恢复不能照搬 PostgreSQL。
