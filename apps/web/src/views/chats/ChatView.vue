@@ -2,8 +2,8 @@
   <ChatLayout>
     <section class="chat-view">
       <header class="chat-view__header">
-        <RouterLink class="chat-view__back button button--quiet" to="/chats" aria-label="全部私聊"
-          >‹</RouterLink
+        <UiLink quaternary size="small" class="chat-view__back" to="/chats" aria-label="全部私聊"
+          >‹</UiLink
         >
         <RouterLink
           v-if="chat"
@@ -31,22 +31,21 @@
             }}
           </p>
         </div>
-        <RouterLink
+        <UiLink
           v-if="chat?.availability === 'active'"
-          class="button button--quiet"
+          quaternary
+          size="small"
           aria-label="这段对话的记忆"
           :to="{
             name: 'memories',
             params: { id: chat.companionId, conversationId: chat.id },
             query: { runtimeEpoch: chat.runtimeEpoch },
           }"
-          >回忆</RouterLink
+          >回忆</UiLink
         >
       </header>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <button v-if="!chat && !loading" class="button button--secondary" @click="reload">
-        重新读取私聊
-      </button>
+      <NAlert v-if="error" type="error" :show-icon="false">{{ error }}</NAlert>
+      <NButton v-if="!chat && !loading" secondary @click="reload"> 重新读取私聊 </NButton>
       <p v-if="chat?.currentRun?.mode === 'test'" class="chat-view__mode">
         测试模型 · 当前回复用于验证聊天链路
       </p>
@@ -54,22 +53,12 @@
         当前模型会在生成结束后返回整段回复。
       </p>
       <div class="chat-view__history">
-        <button
-          v-if="canLoadEarlier"
-          class="button button--quiet"
-          :disabled="loading"
-          @click="earlier"
-        >
+        <NButton v-if="canLoadEarlier" quaternary size="small" :disabled="loading" @click="earlier">
           更早的消息
-        </button>
-        <button
-          v-if="historical"
-          class="button button--secondary"
-          :disabled="loading"
-          @click="latest"
-        >
+        </NButton>
+        <NButton v-if="historical" secondary :disabled="loading" @click="latest">
           回到最新消息
-        </button>
+        </NButton>
       </div>
       <div
         ref="log"
@@ -108,22 +97,24 @@
               <time :datetime="bubble.time">{{ displayTime(bubble.time) }}</time>
             </p>
             <p class="chat-view__text">{{ bubble.text }}</p>
-            <button
+            <NButton
               v-if="bubble.targets.length && chat?.availability !== 'cleaning'"
-              class="button button--quiet chat-view__delete"
+              quaternary
+              size="tiny"
+              class="chat-view__delete"
               :disabled="saving"
               @click="deleteMessage(bubble)"
             >
               删除这条消息
-            </button>
+            </NButton>
           </div>
         </article>
       </div>
       <div class="chat-view__status">
         <span role="status">{{ statusLabel }}</span>
-        <button v-if="canStop" class="button button--quiet" :disabled="saving" @click="stop">
+        <NButton v-if="canStop" quaternary size="small" :disabled="saving" @click="stop">
           停止回复
-        </button>
+        </NButton>
       </div>
       <RecallDetails
         v-if="chat?.availability === 'active' && chat.currentRun?.context?.recall"
@@ -137,28 +128,30 @@
       <p v-if="chat?.availability === 'archived'" class="chat-view__mode">
         这个会话属于已结束的人生阶段。请从伴侣页面开始新的私聊。
       </p>
-      <p v-if="replyHint" class="notice notice--error" role="status">{{ replyHint }}</p>
+      <p v-if="replyHint" class="chat-view__reply-hint" role="status">{{ replyHint }}</p>
       <form class="chat-view__composer" @submit.prevent="send">
         <label class="chat-view__label visually-hidden" for="chat-message">消息</label>
-        <textarea
-          id="chat-message"
-          v-model="draft"
+        <NInput
+          v-model:value="draft"
+          type="textarea"
+          :input-props="{ id: 'chat-message' }"
           class="chat-view__input"
-          rows="2"
-          maxlength="4000"
+          :autosize="{ minRows: 2, maxRows: 6 }"
+          :bordered="false"
+          :maxlength="4000"
           :disabled="chat?.availability !== 'active'"
           placeholder="把想说的话，轻轻放在这里…"
           @keydown="handleKeydown"
         />
         <div class="chat-view__actions">
           <p>Enter 发送 · Shift + Enter 换行</p>
-          <button
-            class="button button--primary"
-            type="submit"
+          <NButton
+            type="primary"
+            attr-type="submit"
             :disabled="saving || chat?.availability !== 'active' || !draft.trim()"
           >
             {{ saving ? '正在保存…' : '发送' }}
-          </button>
+          </NButton>
         </div>
       </form>
     </section>
@@ -167,7 +160,10 @@
 
 <script setup lang="ts">
 import CompanionAvatar from '@/components/CompanionAvatar.vue';
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onScopeDispose, ref, watch } from 'vue';
+import { NAlert, NButton, NInput, useDialog } from 'naive-ui';
+import type { DialogReactive } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import { RouterLink, useRoute } from 'vue-router';
 import ChatLayout from '@/components/ChatLayout.vue';
 import RecallDetails from './components/RecallDetails.vue';
@@ -198,20 +194,38 @@ const {
 const log = ref<HTMLElement | null>(null);
 let following = true;
 
-/**
- * 确认并删除选中的聊天消息。
- *
- * 选中的已显示片段以及依赖输出会被清除，独立原文保留。
- */
-async function deleteMessage(bubble: ChatBubble): Promise<void> {
-  if (
-    !window.confirm(
+const dialog = useDialog();
+let deletionDialog: DialogReactive | null = null;
+
+/** 确认删除当前选中的聊天片段，并阻止旧页面的弹窗继续提交。 */
+function deleteMessage(bubble: ChatBubble): void {
+  if (deletionDialog || saving.value || !chat.value) return;
+  const conversationId = id.value;
+  const runtimeEpoch = chat.value.runtimeEpoch;
+  deletionDialog = dialog.warning({
+    title: '删除这条消息',
+    content:
       '确定删除这条消息中当前显示的片段及其依赖内容吗？清理期间会暂停本会话及相关私聊，独立原文保留。此操作不能撤销。',
-    )
-  )
-    return;
-  await remove(bubble);
+    positiveText: '确认删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      if (id.value !== conversationId || chat.value?.runtimeEpoch !== runtimeEpoch || saving.value)
+        return;
+      if (deletionDialog) deletionDialog.loading = true;
+      await remove(bubble);
+    },
+    onAfterLeave: () => {
+      deletionDialog = null;
+    },
+  });
 }
+/** 关闭已离开会话对应的删除确认弹窗。 */
+function closeDeletionDialog(): void {
+  deletionDialog?.destroy();
+  deletionDialog = null;
+}
+watch([() => id.value, () => chat.value?.runtimeEpoch], closeDeletionDialog);
+onScopeDispose(closeDeletionDialog);
 /**
  * 更新聊天视口的滚动位置状态。
  *
@@ -282,11 +296,6 @@ watch(
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.chat-view__header .button {
-  font-size: 13px;
-  min-height: 36px;
-  padding: 7px 12px;
-}
 .chat-view__header .chat-view__back {
   font-size: 28px;
   padding: 0 8px;
@@ -313,11 +322,6 @@ watch(
   display: flex;
   flex: none;
   gap: 8px;
-}
-.chat-view__history .button {
-  font-size: 12px;
-  min-height: 30px;
-  padding: 4px 10px;
 }
 .chat-view__log {
   flex: 1;
@@ -386,10 +390,6 @@ watch(
   font-size: 14px;
 }
 .chat-view__delete {
-  min-height: 26px;
-  padding: 3px 5px;
-  font-size: 10px;
-  color: var(--color-ink-soft);
   opacity: 0;
 }
 .chat-view__message:hover .chat-view__delete,
@@ -406,10 +406,9 @@ watch(
   color: var(--color-ink-soft);
   font-size: 11px;
 }
-.chat-view__status .button {
+.chat-view__reply-hint {
+  color: var(--color-danger);
   font-size: 12px;
-  min-height: 30px;
-  padding: 5px 10px;
 }
 .chat-view__composer {
   flex: none;
@@ -417,26 +416,6 @@ watch(
   border: 1px solid var(--color-border);
   border-radius: 14px;
   background: var(--color-surface);
-}
-.chat-view__input {
-  display: block;
-  width: 100%;
-  min-height: 44px;
-  max-height: 120px;
-  padding: 4px 0;
-  resize: none;
-  border: 0;
-  background: transparent;
-  color: var(--color-ink);
-  font: inherit;
-  font-size: 14px;
-}
-.chat-view__input::placeholder {
-  color: var(--color-ink-soft);
-}
-.chat-view__input:focus-visible {
-  outline-offset: 2px;
-  outline-width: 1px;
 }
 .chat-view__actions {
   display: flex;
@@ -450,13 +429,6 @@ watch(
   font-size: 10px;
   color: var(--color-ink-soft);
 }
-.chat-view__actions .button {
-  flex-shrink: 0;
-  min-height: 36px;
-  padding: 6px 24px;
-  font-size: 13px;
-  font-weight: 500;
-}
 @media (max-width: 560px) {
   .chat-view__header {
     gap: 10px;
@@ -465,10 +437,6 @@ watch(
   }
   .chat-view h1 {
     font-size: 18px;
-  }
-  .chat-view__header .button {
-    padding: 6px 8px;
-    font-size: 12px;
   }
   .chat-view__header .chat-view__back {
     font-size: 28px;

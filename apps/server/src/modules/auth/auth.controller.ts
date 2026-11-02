@@ -15,7 +15,7 @@ import type { LoginRequest, SessionResponse } from '@memory-weave/contracts';
 import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
-import { AuthService, SESSION_LIFETIME_MS } from './auth.service';
+import { AuthService } from './auth.service';
 import { PublicRoute } from './public-route';
 import { readSessionCookie, SESSION_COOKIE_NAME, sessionCookieOptions } from './session-cookie';
 import { ApiException } from '../../http/api-exception';
@@ -44,14 +44,14 @@ export class AuthController {
     @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<SessionResponse> {
-    this.auth.checkLoginRate(request.ip ?? 'unknown');
+    await this.auth.checkLoginRate(request.ip ?? 'unknown');
     if (!(await this.auth.verifyPassword(body.password))) {
       throw new ApiException(API_CODES.INVALID_CREDENTIALS);
     }
-    const token = this.auth.createSession();
+    const token = await this.auth.createSession();
     response.cookie(SESSION_COOKIE_NAME, token, {
       ...sessionCookieOptions(this.config.cookieSecure),
-      maxAge: SESSION_LIFETIME_MS,
+      maxAge: this.auth.sessionLifetimeMs,
     });
     return { authenticated: true };
   }
@@ -74,8 +74,11 @@ export class AuthController {
    */
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  logout(@Req() request: Request, @Res({ passthrough: true }) response: Response): void {
-    this.auth.revokeSession(readSessionCookie(request));
+  async logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
+    await this.auth.revokeSession(readSessionCookie(request));
     response.clearCookie(SESSION_COOKIE_NAME, sessionCookieOptions(this.config.cookieSecure));
   }
 }

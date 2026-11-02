@@ -74,7 +74,10 @@ export const router = createRouter({
   ],
 });
 router.beforeEach(async (to) => {
-  const authenticated = await useAuthStore().restoreSession();
+  const auth = useAuthStore();
+  // 检查失败后的登录入口展示重试，避免重定向立即重复发送同一次故障请求。
+  if (to.name === 'login' && auth.sessionUnavailable) return true;
+  const authenticated = await auth.restoreSession();
   if (to.meta.requiresAuth && !authenticated) return { name: 'login' };
   if (to.name === 'login' && authenticated) return { name: 'status' };
   return true;

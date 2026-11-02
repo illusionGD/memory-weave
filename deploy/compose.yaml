@@ -50,6 +50,26 @@ services:
       retries: 20
       start_period: 10s
 
+  redis:
+    image: redis:8.4.8-alpine
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - 'exec /usr/local/bin/docker-entrypoint.sh redis-server --appendonly yes --appendfsync everysec --requirepass "$$REDIS_PASSWORD"'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run pnpm setup to configure REDIS_PASSWORD}
+    ports:
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -qx PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   migrate:
     image: memory-weave:local
     restart: 'no'
@@ -80,6 +100,8 @@ services:
         condition: service_completed_successfully
       qdrant:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       <<: *database-environment
       NODE_ENV: production
@@ -98,6 +120,11 @@ services:
       ADMIN_APP_ORIGIN: ${DEPLOY_ADMIN_APP_ORIGIN:-${DEPLOY_APP_ORIGIN:-http://localhost:8080}}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:?Run pnpm setup}
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run pnpm setup}
+      REDIS_NAMESPACE: ${REDIS_NAMESPACE:?Run pnpm setup}
+      AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:?Run pnpm setup}
     ports:
       - '${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8080}:3000'
     volumes:
@@ -120,3 +147,4 @@ volumes:
   qdrant-data:
   qdrant-snapshots:
   app-data:
+  redis-data:

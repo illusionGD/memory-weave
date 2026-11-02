@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { expectApiSuccess } from './support/http';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -5,11 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+
+afterAll(disposeTestAuth);
 
 describe('部署管理者通过 HTTP 维护显示名称', () => {
   let app: INestApplication;
@@ -26,6 +29,7 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,
+      ...createTestAuthConfig(),
       adminPassword: 'test-password-for-workspace',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,

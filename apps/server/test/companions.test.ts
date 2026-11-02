@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,8 @@ import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
 import { expectApiError, expectApiSuccess } from './support/http';
+
+afterAll(disposeTestAuth);
 
 describe('部署管理者通过 HTTP 管理伴侣实例', () => {
   let app: INestApplication;
@@ -34,6 +37,7 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,
+      ...createTestAuthConfig(),
       adminPassword: 'test-password-for-companions',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
@@ -168,7 +172,7 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     expect(exhausted.body.data).toEqual({ items: [], nextAfterId: null });
   });
 
-  it('服务重启后部署身份、实例和幂等结果仍保留，重新登录即可继续回查', async () => {
+  it('服务重启后沿用原登录回查部署身份、实例和幂等结果', async () => {
     let agent = request.agent(app.getHttpServer());
     const login = await agent
       .post('/api/auth/login')
@@ -184,19 +188,20 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     const created = await agent.post('/api/companions').send(command).expect(201);
     await app.close();
     app = await createApplication(config);
-    await request(app.getHttpServer()).get('/api/workspace').set('Cookie', oldCookie).expect(401);
     agent = request.agent(app.getHttpServer());
-    await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     await agent
       .get('/api/workspace')
+      .set('Cookie', oldCookie)
       .expect(200)
       .expect((response) => expectApiSuccess(response, workspace.body.data));
     await agent
       .get(`/api/companions/${created.body.data.id}`)
+      .set('Cookie', oldCookie)
       .expect(200)
       .expect((response) => expectApiSuccess(response, created.body.data));
     await agent
       .post('/api/companions')
+      .set('Cookie', oldCookie)
       .send(command)
       .expect(201)
       .expect((response) => expectApiSuccess(response, created.body.data));

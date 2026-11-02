@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
@@ -13,13 +14,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setTimeout as delay } from 'node:timers/promises';
 import { TasksService } from '../src/modules/tasks/tasks.service';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+
+afterAll(disposeTestAuth);
 
 describe('持久任务的公开控制与恢复边界', () => {
   let app: INestApplication;
@@ -38,6 +41,7 @@ describe('持久任务的公开控制与恢复边界', () => {
       databaseUrl: database.databaseUrl,
       qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
       qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
+      ...createTestAuthConfig(),
       adminPassword: 'tasks-test-password',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
@@ -111,6 +115,7 @@ describe('持久任务的公开控制与恢复边界', () => {
         env: {
           ...process.env,
           DATABASE_URL: config.databaseUrl,
+          ...testAuthEnvironment(config),
           ADMIN_PASSWORD: config.adminPassword,
           QDRANT_URL: config.qdrantUrl,
           QDRANT_API_KEY: config.qdrantApiKey,
@@ -165,6 +170,7 @@ describe('持久任务的公开控制与恢复边界', () => {
     await app.close();
     config = loadServerConfig({
       DATABASE_URL: config.databaseUrl,
+      ...testAuthEnvironment(config),
       ADMIN_PASSWORD: config.adminPassword,
       QDRANT_URL: config.qdrantUrl,
       QDRANT_API_KEY: config.qdrantApiKey,

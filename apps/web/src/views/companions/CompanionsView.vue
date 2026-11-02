@@ -7,34 +7,43 @@
         <p class="persona-page__muted">从一段人设开始，保留各自的起点，让往后的经历慢慢发生。</p>
       </section>
       <div class="persona-page__toolbar">
-        <RouterLink class="button button--primary" to="/companions/new">创建伴侣</RouterLink>
-        <button class="button button--quiet" :disabled="loading" @click="refresh">刷新列表</button>
+        <UiLink type="primary" to="/companions/new">创建伴侣</UiLink>
+        <NButton quaternary :disabled="loading" :loading="loading" @click="refresh"
+          >刷新列表</NButton
+        >
       </div>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <p v-if="loading" role="status">正在读取伴侣…</p>
+      <NAlert v-if="error" type="error" :show-icon="false">{{ error }}</NAlert>
+      <div v-if="loading" class="companions__loading" role="status">
+        <NSpin size="small" />正在读取伴侣…
+      </div>
       <section v-if="!loading && !items.length && !error" class="persona-page__panel">
-        <h2>还没有伴侣</h2>
-        <p class="persona-page__muted">不必先填写复杂表格，写下你希望认识的那个人就好。</p>
+        <NEmpty description="还没有伴侣">
+          <template #extra
+            ><p class="persona-page__muted">
+              不必先填写复杂表格，写下你希望认识的那个人就好。
+            </p></template
+          >
+        </NEmpty>
       </section>
       <div class="persona-page__grid">
         <article v-for="companion in items" :key="companion.id" class="persona-page__card">
           <CompanionAvatar :name="companion.name" :avatar="companion.avatar" :size="64" />
           <h2 class="persona-page__card-title">{{ companion.name }}</h2>
-          <p class="persona-page__muted">
+          <NTag class="companions__status" :bordered="false" size="small" type="info">
             {{ companion.currentPersonaVersion.document ? '初始人格已建立' : '原稿已保存' }}
-          </p>
+          </NTag>
           <p class="persona-page__text">
             {{ companion.initialSnapshot.profileText.slice(0, 120)
             }}{{ companion.initialSnapshot.profileText.length > 120 ? '…' : '' }}
           </p>
-          <RouterLink class="button button--secondary" :to="`/companions/${companion.id}`"
-            >查看 {{ companion.name }}</RouterLink
+          <UiLink class="companions__profile-link" secondary :to="`/companions/${companion.id}`"
+            >查看 {{ companion.name }}</UiLink
           >
         </article>
       </div>
-      <button v-if="nextAfterId" class="button button--secondary" :disabled="loading" @click="more">
+      <NButton v-if="nextAfterId" secondary :disabled="loading" :loading="loading" @click="more">
         加载更多伴侣
-      </button>
+      </NButton>
     </div>
   </ChatLayout>
 </template>
@@ -42,7 +51,8 @@
 <script setup lang="ts">
 import CompanionAvatar from '@/components/CompanionAvatar.vue';
 import { onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import { NAlert, NButton, NEmpty, NSpin, NTag } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import type { CompanionDetail } from '@memory-weave/contracts';
 import ChatLayout from '@/components/ChatLayout.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
@@ -77,3 +87,22 @@ async function more(): Promise<void> {
   }
 }
 </script>
+
+<style scoped lang="scss">
+.companions__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-ink-soft);
+}
+.companions__status {
+  justify-self: start;
+}
+.companions__profile-link {
+  min-width: 0;
+  height: auto;
+  min-height: 36px;
+  white-space: normal;
+  line-height: 1.6;
+}
+</style>

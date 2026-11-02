@@ -39,6 +39,16 @@ const qdrantPort = configure('QDRANT_PORT', '6333');
 configure('QDRANT_URL', `http://127.0.0.1:${qdrantPort}`);
 configure('QDRANT_API_KEY', randomBytes(24).toString('hex'));
 configure('ADMIN_PASSWORD', randomBytes(24).toString('base64url'));
+const redisPassword = configure('REDIS_PASSWORD', randomBytes(24).toString('hex'));
+const redisPort = configure('REDIS_PORT', '6379');
+configure('REDIS_NAMESPACE', `memory-weave:${randomBytes(8).toString('hex')}`);
+configure('AUTH_SESSION_SECRET', randomBytes(32).toString('hex'));
+if (!existing.REDIS_URL) {
+  const redisUrl = new URL('redis://127.0.0.1/0');
+  redisUrl.port = redisPort;
+  redisUrl.password = encodeURIComponent(redisPassword);
+  configure('REDIS_URL', redisUrl.toString());
+}
 
 if (legacy || !existing.DATABASE_URL) {
   const databaseUrl = new URL('mysql://127.0.0.1/memory_weave');

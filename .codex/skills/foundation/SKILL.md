@@ -32,7 +32,7 @@ description: >-
 - API 路径大小写与 Express 匹配保持一致；静态资源 fallback 不返回 API 的 HTML 页面。
 - HTTP 入口不自动升级资源到 HTTPS；HTTPS 入口必须使用 Secure Cookie。
 - 不记录密码、Cookie 或连接串，不把它们放入 Git、镜像构建上下文或浏览器存储。
-- 会话目前位于进程内，12 小时过期、最多 10 个；服务重启后重登。后续业务持久化不得依赖该会话存储。
+- 会话与来源登录限流位于 Redis；固定 12 小时过期、最多 10 个，访问不续期。重启复用同一 Redis、namespace、部署密码和 AUTH_SESSION_SECRET；停止应用只关连接。Redis 故障返回 50303，不回退 Map、不清 Cookie；测试显式提供 TEST_REDIS_URL 并隔离前缀。后续业务持久化不得依赖该会话存储。
 - 仅在 MySQL 可查询、Qdrant 已就绪且密钥可访问、数据库迁移与当前发布一致、文件目录可写时报告就绪。迁移与业务数据边界另见 data-foundation 技能。
 - 生产打包使用 workspace 注入、build 同步与锁文件；依赖变更后核对标准 `pnpm deploy` 和 Docker 构建。
 - dev 及编辑器使用 `memory-weave-source` 条件直读共享包源码，根目录 dev/typecheck 无须先 build。server build 必须去掉源码条件，Vite 仅 serve 启用；普通 exports 和生产包仍读取 dist。修改相关配置时验证无 dist 启动、前后端自动更新、原子保存与新增模块，以及生产部署。新增共享包需核对实际 workspace 源码链接，不能依赖注入副本随 build 同步来提供热更新。

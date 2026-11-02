@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
@@ -10,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
@@ -21,6 +22,8 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
+
+afterAll(disposeTestAuth);
 
 describe('检索与未整理补读的公开协议', () => {
   let app: INestApplication;
@@ -43,6 +46,7 @@ describe('检索与未整理补读的公开协议', () => {
       databaseUrl: database.databaseUrl,
       qdrantUrl: process.env.TEST_QDRANT_URL!,
       qdrantApiKey: process.env.TEST_QDRANT_API_KEY!,
+      ...createTestAuthConfig(),
       adminPassword: 'retrieval-test-password',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
@@ -154,6 +158,7 @@ describe('检索与未整理补读的公开协议', () => {
     await app.close();
     config = loadServerConfig({
       DATABASE_URL: database.databaseUrl,
+      ...testAuthEnvironment(config),
       ADMIN_PASSWORD: 'retrieval-test-password',
       QDRANT_URL: process.env.TEST_QDRANT_URL,
       QDRANT_API_KEY: process.env.TEST_QDRANT_API_KEY,
@@ -751,6 +756,7 @@ describe('检索与未整理补读的公开协议', () => {
         env: {
           ...process.env,
           DATABASE_URL: database.databaseUrl,
+          ...testAuthEnvironment(config),
           ADMIN_PASSWORD: config.adminPassword,
           DATA_DIR: dataDir,
           QDRANT_URL: `http://127.0.0.1:${address.port}`,

@@ -1,14 +1,17 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+
+afterAll(disposeTestAuth);
 
 describe('人设模板的公开 HTTP 契约', () => {
   let app: INestApplication;
@@ -25,6 +28,7 @@ describe('人设模板的公开 HTTP 契约', () => {
       databaseUrl: database.databaseUrl,
       qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
       qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
+      ...createTestAuthConfig(),
       adminPassword: 'personas-test-password',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,

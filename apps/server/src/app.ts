@@ -69,7 +69,7 @@ import { TasksController } from './modules/tasks/tasks.controller';
 class ApplicationModule {
   /** 注册应用配置、控制器和服务依赖。 */
   static register(config: ServerConfig): DynamicModule {
-    const { adminPassword, ...runtimeConfig } = config;
+    const { adminPassword, authSessionSecret, ...runtimeConfig } = config;
     return {
       module: ApplicationModule,
       controllers: [
@@ -99,7 +99,8 @@ class ApplicationModule {
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
         {
           provide: AuthService /** 创建应用认证服务。 */,
-          useFactory: () => AuthService.create(adminPassword),
+          useFactory: () =>
+            AuthService.create(adminPassword, { ...runtimeConfig, authSessionSecret }),
         },
         { provide: APP_GUARD, useClass: AuthGuard },
         MemoriesService,

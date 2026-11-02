@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -18,6 +19,8 @@ import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
 import { expectApiError, expectApiSuccess } from './support/http';
+
+afterAll(disposeTestAuth);
 
 describe('伴侣视角的原文查询与独立接收', () => {
   let app: INestApplication;
@@ -42,6 +45,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,
+      ...createTestAuthConfig(),
       adminPassword: 'test-password-for-receiving',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,

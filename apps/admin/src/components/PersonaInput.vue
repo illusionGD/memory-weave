@@ -1,57 +1,80 @@
 <template>
-  <form class="persona-input" @submit.prevent="submit">
-    <div class="persona-input__field">
-      <label for="persona-name">{{ templateMode ? '模板名称' : '名字（可选）' }}</label>
-      <input
-        id="persona-name"
-        v-model="name"
-        :required="templateMode"
-        maxlength="80"
+  <NForm class="persona-input" label-placement="top" @submit.prevent="submit">
+    <NFormItem
+      :label="templateMode ? '模板名称' : '名字（可选）'"
+      :label-props="{ for: 'persona-name' }"
+      :show-feedback="false"
+    >
+      <NInput
+        v-model:value="name"
+        :input-props="{ id: 'persona-name', autocomplete: 'off', required: templateMode }"
+        :maxlength="80"
         :disabled="busy"
-        autocomplete="off"
       />
-    </div>
-    <div class="persona-input__field">
-      <label for="persona-profile">一段人设</label>
-      <textarea
-        id="persona-profile"
-        v-model="profileText"
-        rows="8"
-        required
-        maxlength="4000"
-        :disabled="busy"
-        aria-describedby="profile-hint"
-        placeholder="她是谁，有怎样的背景，喜欢什么，如何看待世界……"
-      />
-      <p id="profile-hint" class="persona-input__hint">
-        {{ profileText.length }} / 4000 字。原稿会一直保留，无需逐项确认整理结果。
-      </p>
-    </div>
-    <details :open="Boolean(initial?.lockedFeatures.length)">
-      <summary>明确要长期保留的约束（可选）</summary>
+    </NFormItem>
+    <NFormItem label="一段人设" :label-props="{ for: 'persona-profile' }" :show-feedback="false">
       <div class="persona-input__field">
-        <label for="persona-locks">明确约束，每行一条</label>
-        <textarea
-          id="persona-locks"
-          v-model="locks"
-          rows="3"
+        <NInput
+          v-model:value="profileText"
+          type="textarea"
+          :input-props="{
+            id: 'persona-profile',
+            required: true,
+            'aria-describedby': 'profile-hint',
+          }"
+          :autosize="{ minRows: 8, maxRows: 16 }"
+          :maxlength="4000"
           :disabled="busy"
-          placeholder="例如：始终保留独立思考"
+          placeholder="她是谁，有怎样的背景，喜欢什么，如何看待世界……"
         />
-        <p class="persona-input__hint">
-          普通兴趣和性格可以逐渐发展；只有明确要保留的内容才需要填在这里。
+        <p id="profile-hint" class="persona-input__hint">
+          {{ profileText.length }} / 4000 字。原稿会一直保留，无需逐项确认整理结果。
         </p>
       </div>
-    </details>
-    <p v-if="validation" class="notice notice--error" role="alert">{{ validation }}</p>
-    <button class="button button--primary" type="submit" :disabled="busy" :aria-busy="busy">
+    </NFormItem>
+    <NCollapse :default-expanded-names="initial?.lockedFeatures.length ? ['locks'] : []">
+      <NCollapseItem name="locks">
+        <template #header="{ collapsed }">
+          <NButton
+            class="persona-input__collapse-title"
+            text
+            :aria-expanded="!collapsed"
+            aria-controls="persona-locks-fields"
+          >
+            明确要长期保留的约束（可选）
+          </NButton>
+        </template>
+        <NFormItem
+          label="明确约束，每行一条"
+          :label-props="{ for: 'persona-locks' }"
+          :show-feedback="false"
+        >
+          <div id="persona-locks-fields" class="persona-input__field">
+            <NInput
+              v-model:value="locks"
+              type="textarea"
+              :input-props="{ id: 'persona-locks' }"
+              :autosize="{ minRows: 3, maxRows: 10 }"
+              :disabled="busy"
+              placeholder="例如：始终保留独立思考"
+            />
+            <p class="persona-input__hint">
+              普通兴趣和性格可以逐渐发展；只有明确要保留的内容才需要填在这里。
+            </p>
+          </div>
+        </NFormItem>
+      </NCollapseItem>
+    </NCollapse>
+    <NAlert v-if="validation" type="error" role="alert">{{ validation }}</NAlert>
+    <NButton type="primary" attr-type="submit" :loading="busy" :disabled="busy" :aria-busy="busy">
       {{ busy ? '正在保存…' : submitLabel }}
-    </button>
-  </form>
+    </NButton>
+  </NForm>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import { NAlert, NButton, NCollapse, NCollapseItem, NForm, NFormItem, NInput } from 'naive-ui';
 import { lockedFeaturesSchema } from '@memory-weave/contracts';
 interface InputValue {
   name: string;
@@ -110,6 +133,7 @@ function submit(): void {
   display: grid;
   gap: var(--space-6);
   &__field {
+    width: 100%;
     display: grid;
     gap: var(--space-2);
   }
@@ -117,21 +141,15 @@ function submit(): void {
     color: var(--color-ink-soft);
     font-size: 0.85rem;
   }
-  input,
-  textarea {
-    width: 100%;
-    padding: var(--space-3);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    color: var(--color-ink);
-    resize: vertical;
+  &__collapse-title {
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    text-align: left;
+    line-height: 1.6;
   }
-  summary {
-    cursor: pointer;
-    margin-bottom: var(--space-3);
-  }
-  button {
+  > .n-button {
     justify-self: start;
   }
 }

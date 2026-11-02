@@ -8,10 +8,8 @@
           <p>{{ companion?.name ?? '伴侣' }} · 第 {{ epoch }} 段人生 · 查看记忆如何形成与变化</p>
         </div>
         <div class="memory-explorer__actions">
-          <RouterLink class="button button--quiet" to="/memories">选择伴侣</RouterLink
-          ><button class="button button--primary" :disabled="loading" @click="refresh()">
-            刷新记忆
-          </button>
+          <UiLink quaternary to="/memories">选择伴侣</UiLink
+          ><NButton type="primary" :disabled="loading" @click="refresh()"> 刷新记忆 </NButton>
         </div>
       </header>
       <MemoryFilters
@@ -24,24 +22,29 @@
         @more-conversations="loadConversations(conversationsNext ?? undefined)"
         @first-conversations="loadConversations()"
       />
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+      <NAlert v-if="error" type="error" role="alert">{{ error }}</NAlert>
+      <NAlert v-if="notice" type="info" role="status">{{ notice }}</NAlert>
       <nav class="memory-explorer__tabs" aria-label="记忆视图">
-        <button
+        <NButton
           v-for="tab in tabs"
           :key="tab.value"
           :aria-pressed="view === tab.value"
-          :class="{ 'is-active': view === tab.value }"
+          :type="view === tab.value ? 'primary' : 'default'"
+          :tertiary="view !== tab.value"
           :disabled="loading"
           @click="changeView(tab.value)"
         >
-          {{ tab.label }}</button
-        ><span v-if="loading" role="status">正在读取…</span>
+          {{ tab.label }}</NButton
+        ><span v-if="loading" class="memory-explorer__loading" role="status"
+          ><NSpin size="small" />正在读取…</span
+        >
       </nav>
       <p v-if="view === 'timeline'" class="memory-explorer__hint">
         按记下时间排序；经历时间保留原有描述。
       </p>
-      <p v-if="suspended" role="status">正在核对页面内容…</p>
+      <div v-if="suspended" class="memory-explorer__loading" role="status">
+        <NSpin size="small" />正在核对页面内容…
+      </div>
       <div
         v-else
         class="memory-explorer__workspace"
@@ -49,9 +52,11 @@
       >
         <section class="memory-explorer__main" aria-label="记忆浏览结果">
           <template v-if="view !== 'graph'">
-            <p v-if="!items.length && !loading" class="memory-explorer__empty">
-              当前范围还没有符合条件的记忆。
-            </p>
+            <NEmpty
+              v-if="!items.length && !loading"
+              class="memory-explorer__empty"
+              description="当前范围还没有符合条件的记忆。"
+            />
             <div
               class="memory-explorer__records"
               :class="{ 'memory-explorer__records--timeline': view === 'timeline' }"
@@ -59,9 +64,11 @@
               <article v-for="item in items" :key="item.versionId" class="memory-explorer__record">
                 <div class="memory-explorer__meta">
                   <time :datetime="item.learnedAt">{{ memoryTime(item.learnedAt) }}</time
-                  ><span :class="{ 'memory-explorer__warning': item.status !== 'active' }">{{
-                    MEMORY_STATUS_LABELS[item.status]
-                  }}</span
+                  ><NTag
+                    size="small"
+                    :bordered="false"
+                    :type="item.status === 'active' ? 'success' : 'warning'"
+                    >{{ MEMORY_STATUS_LABELS[item.status] }}</NTag
                   ><span>{{ item.isCurrent ? '当前版本' : '历史版本' }} {{ item.version }}</span>
                 </div>
                 <h2 v-if="view === 'timeline'">{{ MEMORY_OPERATION_LABELS[item.operation] }}</h2>
@@ -69,11 +76,27 @@
                   {{ item.document?.text ?? '该版本来源已失效，正文已清除。' }}
                 </p>
                 <div v-if="item.document" class="memory-explorer__tags">
-                  <span>{{ MEMORY_KIND_LABELS[item.document.kind] }}</span
-                  ><span>{{ MEMORY_EPISTEMIC_LABELS[item.document.epistemic] }}</span
-                  ><span v-if="item.document.reality === 'fictional'"
-                    >创作 · {{ item.document.storyKey }}</span
-                  ><span v-else-if="item.document.reality === 'unspecified'">现实范围未明确</span>
+                  <NTag size="small" :bordered="false">{{
+                    MEMORY_KIND_LABELS[item.document.kind]
+                  }}</NTag
+                  ><NTag size="small" :bordered="false">{{
+                    MEMORY_EPISTEMIC_LABELS[item.document.epistemic]
+                  }}</NTag
+                  ><NTag
+                    v-if="item.document.reality === 'fictional'"
+                    class="memory-explorer__story-tag"
+                    size="small"
+                    :bordered="false"
+                    type="info"
+                    ><span class="memory-explorer__story-label"
+                      >创作 · {{ item.document.storyKey }}</span
+                    ></NTag
+                  ><NTag
+                    v-else-if="item.document.reality === 'unspecified'"
+                    size="small"
+                    :bordered="false"
+                    >现实范围未明确</NTag
+                  >
                 </div>
                 <p v-if="view === 'timeline'" class="memory-explorer__hint">
                   经历时间：{{ item.document?.eventTime ?? '未知'
@@ -85,30 +108,21 @@
                 <div class="memory-explorer__record-footer">
                   <span>{{ item.conversationTitle }}</span>
                   <div class="memory-explorer__actions">
-                    <button class="button button--quiet" :disabled="loading" @click="inspect(item)">
-                      查看来源与历史</button
-                    ><button
-                      class="button button--secondary"
+                    <NButton quaternary :disabled="loading" @click="inspect(item)">
+                      查看来源与历史</NButton
+                    ><NButton
                       :disabled="loading"
                       @click="showGraph(item, view === 'timeline' ? 'version' : 'memory')"
                     >
                       查看关系图谱
-                    </button>
+                    </NButton>
                   </div>
                 </div>
               </article>
             </div>
             <div class="memory-explorer__actions">
-              <button
-                v-if="next"
-                class="button button--secondary"
-                :disabled="loading"
-                @click="refresh(next)"
-              >
-                下一页记忆</button
-              ><button class="button button--quiet" :disabled="loading" @click="refresh()">
-                回到第一页
-              </button>
+              <NButton v-if="next" :disabled="loading" @click="refresh(next)"> 下一页记忆</NButton
+              ><NButton quaternary :disabled="loading" @click="refresh()"> 回到第一页 </NButton>
             </div>
           </template>
           <template v-else>
@@ -118,19 +132,11 @@
                 {{ selected.document?.text ?? '正文已清除' }}</span
               >
               <div class="memory-explorer__actions">
-                <button
-                  class="button button--secondary"
-                  :disabled="loading"
-                  @click="inspect(selected)"
-                >
-                  查看选中版本的来源与历史</button
-                ><button
-                  class="button button--quiet"
-                  :disabled="loading"
-                  @click="showGraph(selected)"
-                >
+                <NButton :disabled="loading" @click="inspect(selected)">
+                  查看选中版本的来源与历史</NButton
+                ><NButton quaternary :disabled="loading" @click="showGraph(selected)">
                   以选中记忆重建图谱
-                </button>
+                </NButton>
               </div>
             </div>
             <MemoryGraph
@@ -142,15 +148,14 @@
               @select="selectNode"
             />
             <div class="memory-explorer__actions">
-              <button
+              <NButton
                 v-for="(query, center) in graphPages"
                 :key="center"
-                class="button button--secondary"
                 :disabled="loading || graphLimit"
                 @click="expandGraph(query)"
               >
                 继续展开 {{ centerLabel(String(center)) }}
-              </button>
+              </NButton>
             </div>
             <p class="memory-explorer__hint">
               每次只展开一层关系。图中显示当前已加载的部分，展开会包含相关版本与来源。
@@ -186,8 +191,10 @@
 </template>
 <script setup lang="ts">
 import { computed } from 'vue';
-import { RouterLink, useRoute } from 'vue-router';
+import { useRoute } from 'vue-router';
+import { NAlert, NButton, NEmpty, NSpin, NTag } from 'naive-ui';
 import AdminLayout from '@/components/AdminLayout.vue';
+import UiLink from '@/components/UiLink.vue';
 import { useMemoryExplorer } from '@/composables/useMemoryExplorer';
 import {
   MEMORY_KIND_LABELS,
@@ -281,23 +288,16 @@ function centerLabel(id: string): string {
   }
   &__tabs {
     display: flex;
-    gap: var(--space-4);
+    flex-wrap: wrap;
+    gap: var(--space-2);
     align-items: center;
-    border-bottom: 1px solid var(--color-border);
   }
-  &__tabs button {
-    padding: var(--space-3) 0;
-    font: inherit;
-    border: 0;
-    background: none;
-    border-bottom: 2px solid transparent;
+  &__loading {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
     color: var(--color-ink-soft);
-    cursor: pointer;
-  }
-  &__tabs button.is-active {
-    border-bottom-color: var(--color-accent);
-    color: var(--color-accent);
-    font-weight: 600;
+    font-size: 13px;
   }
   &__workspace {
     display: grid;
@@ -348,10 +348,14 @@ function centerLabel(id: string): string {
     font-size: 12px;
     color: var(--color-accent);
   }
-  &__tags span {
-    padding: var(--space-1) var(--space-2);
-    border-radius: var(--radius-sm);
-    background: var(--color-accent-soft);
+  &__story-tag {
+    max-width: 100%;
+    height: auto;
+  }
+  &__story-label {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.7;
   }
   &__record-footer {
     display: flex;
@@ -369,9 +373,6 @@ function centerLabel(id: string): string {
     font-size: 12px;
     line-height: 1.7;
     margin: 0;
-  }
-  &__warning {
-    color: var(--color-warning);
   }
   &__empty {
     text-align: center;
@@ -398,10 +399,6 @@ function centerLabel(id: string): string {
   }
 }
 @media (max-width: 700px) {
-  .memory-explorer__tabs {
-    gap: var(--space-3);
-    font-size: 13px;
-  }
   .memory-explorer__records--timeline {
     padding-left: var(--space-3);
   }

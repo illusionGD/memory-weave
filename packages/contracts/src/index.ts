@@ -49,6 +49,16 @@ const vectorStoreStatusShape = {
 const vectorStoreStatusSchema: z.ZodObject<typeof vectorStoreStatusShape> =
   z.object(vectorStoreStatusShape);
 
+const authenticationStoreStatusShape = {
+  /** 会话与登录限流使用的共享存储引擎。 */
+  engine: z.literal('redis'),
+  /** connected 表示当前连接可执行 Redis 命令；不暴露地址或认证信息。 */
+  status: z.enum(['connected', 'unavailable']),
+};
+
+const authenticationStoreStatusSchema: z.ZodObject<typeof authenticationStoreStatusShape> =
+  z.object(authenticationStoreStatusShape);
+
 const storageStatusShape = {
   /** ready 表示目录可创建且临时文件写入、删除成功；任一步骤失败时为 unavailable。 */
   status: z.enum(['ready', 'unavailable']),
@@ -76,6 +86,8 @@ const systemStatusShape = {
   database: databaseStatusSchema,
   /** 独立 Qdrant 的连接与访问权限，不代表记忆索引已经建立。 */
   vectorStore: vectorStoreStatusSchema,
+  /** 当前会话存储的探测结果；依赖故障不等同于登录到期。 */
+  authenticationStore: authenticationStoreStatusSchema,
   /** 配置的持久文件目录的可用性探测结果，不向客户端暴露实际路径。 */
   storage: storageStatusSchema,
   /** 数据库结构与当前服务版本的兼容状态，连接成功不代表结构已就绪。 */

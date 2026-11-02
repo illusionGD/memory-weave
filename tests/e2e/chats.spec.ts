@@ -19,8 +19,20 @@ test('从伴侣开始私聊，原文与回复刷新后保留，断网重试不�
   await page.goto(`/companions/${companion.id}`);
   await page.getByRole('button', { name: '开始聊天', exact: true }).click();
   await expect(page).toHaveURL(/\/chats\/[0-9a-f-]+$/);
-  await page.getByLabel('消息', { exact: true }).fill('我刚搬到杭州。');
-  await page.getByRole('button', { name: '发送', exact: true }).click();
+  const composer = page.getByLabel('消息', { exact: true });
+  await composer.fill('我刚搬到杭州。');
+  await composer.dispatchEvent('compositionstart');
+  await composer.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true });
+  await expect(composer).toHaveValue('我刚搬到杭州。');
+  await expect(
+    page.getByRole('log', { name: '聊天记录' }).getByText('我刚搬到杭州。', { exact: true }),
+  ).toHaveCount(0);
+  await composer.dispatchEvent('compositionend', { data: '州' });
+  await composer.press('End');
+  await composer.press('Shift+Enter');
+  await expect(composer).toHaveValue('我刚搬到杭州。\n');
+  await composer.press('Backspace');
+  await composer.press('Enter');
   await expect(page.getByText('测试模型已收到：我刚搬到杭州。', { exact: true })).toBeVisible();
   await expect(page.getByText('回复已完成', { exact: true })).toBeVisible();
   await page.reload();
@@ -32,6 +44,7 @@ test('从伴侣开始私聊，原文与回复刷新后保留，断网重试不�
   await page.getByLabel('消息', { exact: true }).fill('周末想去散步。');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(page.getByRole('alert')).toBeVisible();
+  await expect(composer).toHaveValue('周末想去散步。');
   await context.setOffline(false);
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(page.getByText('测试模型已收到：周末想去散步。', { exact: true })).toBeVisible();

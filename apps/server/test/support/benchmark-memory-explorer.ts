@@ -12,6 +12,7 @@ import { TaskWorkerService } from '../../src/modules/tasks/task-worker.service';
 import { createTestDatabase } from './database';
 import { mysqlConnectionOptions } from '../../src/database/connection';
 import type { MemoryExplorerPage } from '@memory-weave/contracts';
+import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './redis';
 
 // 所有业务记录经 HTTP/固定模型 fixture 创建；SQL 仅用于查询计划和隔离索引实验。
 const database = await createTestDatabase();
@@ -31,6 +32,7 @@ const address = provider.address();
 if (!address || typeof address === 'string') throw new Error('fixture unavailable');
 const app = await createApplication(
   loadServerConfig({
+    ...testAuthEnvironment(createTestAuthConfig()),
     DATABASE_URL: database.databaseUrl,
     ADMIN_PASSWORD: 'isolated-benchmark-only-password',
     DATA_DIR: directory,
@@ -297,6 +299,7 @@ try {
 } finally {
   await connection.end();
   await app.close();
+  await disposeTestAuth();
   provider.closeAllConnections();
   await new Promise<void>((resolve) => provider.close(() => resolve()));
   await database.dispose();

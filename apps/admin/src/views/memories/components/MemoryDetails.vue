@@ -41,68 +41,78 @@
       </div>
     </dl>
     <p v-if="record.reason" class="memory-details__muted">{{ record.reason }}</p>
-    <h3>这个版本的原文依据</h3>
-    <p v-if="!evidence?.items.length" class="memory-details__muted">当前没有可展示的精确引文。</p>
-    <blockquote
-      v-for="quote in evidence?.items"
-      :key="`${quote.messageId}:${quote.startOffset}:${quote.endOffset}`"
-      class="memory-details__quote"
-    >
-      <p>{{ quote.quote }}</p>
-      <button
-        class="button button--quiet"
-        :disabled="loading"
-        @click="emit('source', quote.messageId, quote.contentVersion)"
-      >
-        查看完整原文
-      </button>
-    </blockquote>
-    <button
-      v-if="evidence?.nextAfterId"
-      class="button button--secondary"
-      :disabled="loading"
-      @click="emit('moreEvidence')"
-    >
-      下一页引文
-    </button>
-    <h3>本页历史版本</h3>
-    <ol class="memory-details__history">
-      <li v-for="version in sortedVersions" :key="version.versionId">
-        <strong
-          >版本 {{ version.version }} · {{ MEMORY_OPERATION_LABELS[version.operation] }}</strong
-        ><time :datetime="version.learnedAt">{{ memoryTime(version.learnedAt) }}</time>
-        <p>{{ version.document?.text ?? '正文已清除' }}</p>
-        <button
-          class="button button--quiet"
-          :disabled="loading"
-          @click="emit('version', version.versionId)"
-        >
-          在图谱查看版本 {{ version.version }}
-        </button>
-      </li>
-    </ol>
-    <button
-      v-if="detail?.nextAfterId"
-      class="button button--secondary"
-      :disabled="loading"
-      @click="emit('moreVersions')"
-    >
-      下一页历史版本
-    </button>
-    <RouterLink
-      class="button button--quiet"
+    <NCollapse :default-expanded-names="['evidence', 'history']" display-directive="show">
+      <NCollapseItem name="evidence">
+        <template #header="{ collapsed }">
+          <NButton text :aria-expanded="!collapsed"
+            ><span class="memory-details__collapse-label">这个版本的原文依据</span></NButton
+          >
+        </template>
+        <div class="memory-details__section">
+          <NEmpty
+            v-if="!evidence?.items.length"
+            description="当前没有可展示的精确引文。"
+            size="small"
+          />
+          <blockquote
+            v-for="quote in evidence?.items"
+            :key="`${quote.messageId}:${quote.startOffset}:${quote.endOffset}`"
+            class="memory-details__quote"
+          >
+            <p>{{ quote.quote }}</p>
+            <NButton
+              quaternary
+              :disabled="loading"
+              @click="emit('source', quote.messageId, quote.contentVersion)"
+            >
+              查看完整原文
+            </NButton>
+          </blockquote>
+          <NButton v-if="evidence?.nextAfterId" :disabled="loading" @click="emit('moreEvidence')">
+            下一页引文
+          </NButton>
+        </div>
+      </NCollapseItem>
+      <NCollapseItem name="history">
+        <template #header="{ collapsed }">
+          <NButton text :aria-expanded="!collapsed"
+            ><span class="memory-details__collapse-label">本页历史版本</span></NButton
+          >
+        </template>
+        <div class="memory-details__section">
+          <ol class="memory-details__history">
+            <li v-for="version in sortedVersions" :key="version.versionId">
+              <strong
+                >版本 {{ version.version }} ·
+                {{ MEMORY_OPERATION_LABELS[version.operation] }}</strong
+              ><time :datetime="version.learnedAt">{{ memoryTime(version.learnedAt) }}</time>
+              <p>{{ version.document?.text ?? '正文已清除' }}</p>
+              <NButton quaternary :disabled="loading" @click="emit('version', version.versionId)">
+                在图谱查看版本 {{ version.version }}
+              </NButton>
+            </li>
+          </ol>
+          <NButton v-if="detail?.nextAfterId" :disabled="loading" @click="emit('moreVersions')">
+            下一页历史版本
+          </NButton>
+        </div>
+      </NCollapseItem>
+    </NCollapse>
+    <UiLink
+      quaternary
       :to="{
         name: 'memories',
         params: { id: companionId, conversationId: record.conversationId },
         query: { runtimeEpoch },
       }"
-      >查看这段会话的整理记录</RouterLink
+      >查看这段会话的整理记录</UiLink
     >
   </section>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue';
-import { RouterLink } from 'vue-router';
+import { NButton, NCollapse, NCollapseItem, NEmpty } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import type { MemoryDetail, MemoryEvidencePage, MemoryExplorerItem } from '@memory-weave/contracts';
 import {
   MEMORY_OPERATION_LABELS,
@@ -130,6 +140,11 @@ const sortedVersions = computed(() =>
 </script>
 <style scoped lang="scss">
 .memory-details {
+  &__collapse-label {
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
   display: grid;
   gap: var(--space-4);
   padding: var(--space-5);
@@ -188,6 +203,11 @@ const sortedVersions = computed(() =>
     padding: var(--space-3);
     background: var(--color-accent-soft);
     white-space: pre-wrap;
+  }
+  &__section {
+    display: grid;
+    gap: var(--space-4);
+    min-width: 0;
   }
   &__history {
     display: grid;

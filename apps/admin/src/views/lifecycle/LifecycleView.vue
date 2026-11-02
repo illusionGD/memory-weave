@@ -6,14 +6,27 @@
       <p class="persona-page__muted">
         操作一旦提交，限制立即生效。离开页面不会停止清理，暂停或失败也不会恢复已限制的数据。
       </p>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <section v-if="operation" class="persona-page__panel" aria-label="清理进度">
+      <NAlert v-if="error" type="error" role="alert">{{ error }}</NAlert>
+      <NCard
+        v-if="operation"
+        role="region"
+        class="persona-page__panel"
+        content-class="persona-page__panel-content"
+        aria-label="清理进度"
+      >
         <h2>{{ operation.status === 'completed' ? '清理已完成' : '清理尚未完成' }}</h2>
         <p>{{ kindLabel(operation.kind) }}</p>
         <p>
           已完成 {{ operation.completedStages }} / {{ operation.totalStages }} 个阶段，已处理
           {{ operation.processedRecords }} 条记录。
         </p>
+        <NProgress
+          type="line"
+          :percentage="progress"
+          :status="operation.status === 'completed' ? 'success' : 'default'"
+          :show-indicator="false"
+          aria-label="清理阶段进度"
+        />
         <p v-if="operation.status !== 'completed'" role="status">{{ taskLabel }}</p>
         <p v-if="operation.kind === 'reset_companion'">
           初始人生已保留。清理完成后，可从新会话开始；旧会话保留为只读历史。
@@ -23,55 +36,54 @@
         </p>
         <p v-else>选中的原文及其依赖内容已停止使用；独立原文仍然保留。</p>
         <div class="persona-page__toolbar">
-          <button v-if="canRetry" class="button button--primary" :disabled="saving" @click="retry">
+          <NButton v-if="canRetry" type="primary" :disabled="saving" @click="retry">
             继续清理
-          </button>
-          <RouterLink
+          </NButton>
+          <UiLink
             v-if="operation.kind === 'reset_companion' && operation.status === 'completed'"
-            class="button button--primary"
+            type="primary"
             :to="`/companions/${operation.companionId}`"
-            >查看伴侣</RouterLink
+            >查看伴侣</UiLink
           >
-          <a
+          <NButton
             v-if="operation.conversationId"
-            class="button button--secondary"
+            tag="a"
+            secondary
             :href="chatUrl(`/chats/${operation.conversationId}`)"
             target="_blank"
             rel="noopener"
-            >在聊天端查看 ↗</a
+            >在聊天端查看 ↗</NButton
           >
-          <RouterLink class="button button--quiet" to="/companions">伴侣列表</RouterLink>
+          <UiLink quaternary to="/companions">伴侣列表</UiLink>
         </div>
-      </section>
+      </NCard>
       <template v-else>
-        <p v-if="!loading && !items.length">暂无清理记录。</p>
-        <section v-for="item in items" :key="item.id" class="persona-page__panel">
-          <RouterLink :to="`/lifecycle/${item.id}`"
+        <NEmpty v-if="!loading && !items.length" description="暂无清理记录。" />
+        <NCard
+          v-for="item in items"
+          :key="item.id"
+          class="persona-page__panel"
+          content-class="persona-page__panel-content"
+        >
+          <UiLink :to="`/lifecycle/${item.id}`"
             >{{ kindLabel(item.kind) }} ·
-            {{ item.status === 'completed' ? '已完成' : '尚未完成' }}</RouterLink
+            {{ item.status === 'completed' ? '已完成' : '尚未完成' }}</UiLink
           >
           <p class="persona-page__muted">{{ new Date(item.createdAt).toLocaleString() }}</p>
-        </section>
-        <button
-          v-if="nextAfterId"
-          class="button button--secondary"
-          :disabled="loading"
-          @click="next"
-        >
-          下一页
-        </button>
+        </NCard>
+        <NButton v-if="nextAfterId" secondary :disabled="loading" @click="next"> 下一页 </NButton>
       </template>
-      <button class="button button--quiet" :disabled="loading || saving" @click="refresh">
-        刷新进度
-      </button>
+      <NButton quaternary :disabled="loading || saving" @click="refresh"> 刷新进度 </NButton>
     </div>
   </AdminLayout>
 </template>
 
 <script setup lang="ts">
+import { NAlert, NButton, NCard, NEmpty, NProgress } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import { computed, onScopeDispose, ref, watch } from 'vue';
 import { chatUrl } from '@/utils/chat-url';
-import { RouterLink, useRoute } from 'vue-router';
+import { useRoute } from 'vue-router';
 import type { LifecycleOperation } from '@memory-weave/contracts';
 import AdminLayout from '@/components/AdminLayout.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
@@ -87,6 +99,11 @@ const identify = useCommandIdentity();
 const operation = ref<LifecycleOperation | null>(null);
 const items = ref<LifecycleOperation[]>([]);
 const nextAfterId = ref<string | null>(null);
+const progress = computed(() =>
+  operation.value?.totalStages
+    ? Math.round((operation.value.completedStages / operation.value.totalStages) * 100)
+    : 0,
+);
 const canRetry = computed(
   () =>
     operation.value?.status === 'pending' &&

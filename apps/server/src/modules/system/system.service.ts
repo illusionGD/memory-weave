@@ -11,6 +11,7 @@ import type { SystemStatus } from '@memory-weave/contracts';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
 import { DatabaseService } from '../../database/database.service';
+import { AuthService } from '../auth/auth.service';
 
 const PACKAGE_INFO = JSON.parse(
   readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'),
@@ -21,10 +22,11 @@ const PACKAGE_INFO = JSON.parse(
 export class SystemService implements OnModuleDestroy {
   private readonly pool: Pool;
 
-  /** 初始化数据库、向量和存储检查服务。 */
+  /** 初始化数据库、向量、认证和文件存储的检查服务。 */
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
     @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(AuthService) private readonly auth: AuthService,
   ) {
     this.pool = createPool({
       ...mysqlConnectionOptions(config.databaseUrl),
@@ -36,17 +38,18 @@ export class SystemService implements OnModuleDestroy {
   }
 
   /**
-   * 汇总数据库、向量服务和存储目录的检查结果。
+   * 汇总数据库、向量、认证服务和存储目录的检查结果。
    *
    * 为登录后的运行状态页面提供已脱敏的检查结果。
-   * @returns 应用、MySQL、Qdrant 和可写存储目录的可用状态。
+   * @returns 应用、MySQL、Qdrant、Redis 和可写存储目录的可用状态。
    */
   async getStatus(): Promise<SystemStatus> {
-    const [database, storage, schema, vectorStore] = await Promise.all([
+    const [database, storage, schema, vectorStore, authAvailable] = await Promise.all([
       this.probeDatabase(),
       this.probeStorage(),
       this.database.getSchemaStatus(),
       this.probeVectorStore(),
+      this.auth.isAvailable(),
     ]);
     return {
       service: 'memory-weave',
@@ -54,6 +57,7 @@ export class SystemService implements OnModuleDestroy {
       stage: 'foundation',
       database,
       vectorStore,
+      authenticationStore: { engine: 'redis', status: authAvailable ? 'connected' : 'unavailable' },
       storage,
       schema,
     };

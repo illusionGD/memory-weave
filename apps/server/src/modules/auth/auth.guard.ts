@@ -24,14 +24,14 @@ export class AuthGuard implements CanActivate {
    * @param context 路由元数据与请求上下文。
    * @returns 请求是否可以访问目标路由。
    */
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(PUBLIC_ROUTE, [
       context.getHandler(),
       context.getClass(),
     ]);
     if (isPublic) return true;
     const request = context.switchToHttp().getRequest<Request>();
-    if (this.auth.hasSession(readSessionCookie(request))) return true;
+    if (await this.auth.hasSession(readSessionCookie(request))) return true;
     throw new ApiException(API_CODES.AUTH_REQUIRED);
   }
 }

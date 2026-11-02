@@ -7,64 +7,48 @@
         <p class="persona-page__muted">管理伴侣实例，查看初始人生、人格版本与运行状态。</p>
       </section>
       <div class="persona-page__toolbar">
-        <RouterLink class="button button--primary" to="/companions/new">创建伴侣</RouterLink>
-        <RouterLink class="button button--secondary" to="/persona-templates"
-          >管理人设模板</RouterLink
-        >
-        <button class="button button--quiet" :disabled="loading" @click="refresh">刷新列表</button>
+        <UiLink type="primary" to="/companions/new">创建伴侣</UiLink>
+        <UiLink secondary to="/persona-templates">管理人设模板</UiLink>
+        <NButton quaternary :disabled="loading" @click="refresh">刷新列表</NButton>
       </div>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <p v-if="loading" role="status">正在读取伴侣…</p>
-      <section v-if="!loading && !items.length && !error" class="persona-page__panel">
+      <NAlert v-if="error" type="error" role="alert">{{ error }}</NAlert>
+      <NSpin
+        v-if="loading && !items.length"
+        size="small"
+        role="status"
+        description="正在读取伴侣…"
+      />
+      <NCard
+        v-if="!loading && !items.length && !error"
+        class="persona-page__panel"
+        content-class="persona-page__panel-content"
+      >
         <h2>还没有伴侣</h2>
-        <p class="persona-page__muted">不必先填写复杂表格，写下你希望认识的那个人就好。</p>
-      </section>
-      <div v-if="items.length" class="admin-table-wrap">
-        <table class="admin-table">
-          <thead>
-            <tr>
-              <th scope="col">伴侣</th>
-              <th scope="col">初始设定</th>
-              <th scope="col">人格状态</th>
-              <th scope="col">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="companion in items" :key="companion.id">
-              <td>
-                <CompanionAvatar :name="companion.name" :avatar="companion.avatar" :size="32" />
-                <strong>{{ companion.name }}</strong
-                ><small class="companion-table__id">{{ companion.id.slice(0, 8) }}</small>
-              </td>
-              <td class="companion-table__profile">
-                {{ companion.initialSnapshot.profileText.slice(0, 80)
-                }}{{ companion.initialSnapshot.profileText.length > 80 ? '…' : '' }}
-              </td>
-              <td>
-                <span class="admin-tag">{{
-                  companion.currentPersonaVersion.document ? '已建立' : '原稿已保存'
-                }}</span>
-              </td>
-              <td>
-                <RouterLink :to="`/companions/${companion.id}`"
-                  >查看 {{ companion.name }}</RouterLink
-                >
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <button v-if="nextAfterId" class="button button--secondary" :disabled="loading" @click="more">
+        <NEmpty description="不必先填写复杂表格，写下你希望认识的那个人就好。" />
+      </NCard>
+      <NDataTable
+        v-if="items.length"
+        :columns="columns"
+        :data="items"
+        :row-key="companionKey"
+        :loading="loading"
+        :scroll-x="760"
+        :bordered="false"
+        aria-label="伴侣列表"
+      />
+      <NButton v-if="nextAfterId" secondary :disabled="loading" @click="more">
         加载更多伴侣
-      </button>
+      </NButton>
     </div>
   </AdminLayout>
 </template>
 
 <script setup lang="ts">
+import { NAlert, NButton, NCard, NDataTable, NEmpty, NSpin, NTag } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import CompanionAvatar from '@/components/CompanionAvatar.vue';
-import { onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import { h, onMounted, ref } from 'vue';
+import type { DataTableColumns } from 'naive-ui';
 import type { CompanionDetail } from '@memory-weave/contracts';
 import AdminLayout from '@/components/AdminLayout.vue';
 import { usePersonaPage } from '@/composables/usePersonaPage';
@@ -72,7 +56,56 @@ import { listCompanions } from '@memory-weave/browser-client/personas';
 const { loading, error, run } = usePersonaPage();
 const items = ref<CompanionDetail[]>([]);
 const nextAfterId = ref<string | null>(null);
+const columns: DataTableColumns<CompanionDetail> = [
+  {
+    title: '伴侣',
+    key: 'name',
+    width: 230,
+    render: (companion) =>
+      h('div', { class: 'companion-table__identity' }, [
+        h(CompanionAvatar, { name: companion.name, avatar: companion.avatar, size: 32 }),
+        h('div', [
+          h('strong', companion.name),
+          h('small', { class: 'companion-table__id' }, companion.id.slice(0, 8)),
+        ]),
+      ]),
+  },
+  {
+    title: '初始设定',
+    key: 'initialSnapshot.profileText',
+    minWidth: 260,
+    render: (companion) =>
+      companion.initialSnapshot.profileText.slice(0, 80) +
+      (companion.initialSnapshot.profileText.length > 80 ? '…' : ''),
+  },
+  {
+    title: '人格状态',
+    key: 'status',
+    width: 130,
+    render: (companion) =>
+      h(
+        NTag,
+        { type: companion.currentPersonaVersion.document ? 'success' : 'info', bordered: false },
+        { default: () => (companion.currentPersonaVersion.document ? '已建立' : '原稿已保存') },
+      ),
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 190,
+    render: (companion) =>
+      h(
+        UiLink,
+        { to: `/companions/${companion.id}`, text: true, type: 'primary' },
+        { default: () => `查看 ${companion.name}` },
+      ),
+  },
+];
 onMounted(refresh);
+/** 返回伴侣表格行的稳定标识。 */
+function companionKey(companion: CompanionDetail): string {
+  return companion.id;
+}
 /**
  * 刷新伴侣列表的第一页。
  *
@@ -101,15 +134,15 @@ async function more(): Promise<void> {
 </script>
 
 <style scoped lang="scss">
-.companion-table__id {
+:deep(.companion-table__identity) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+:deep(.companion-table__id) {
   display: block;
   color: var(--color-ink-soft);
   font-size: 11px;
   margin-top: 4px;
-}
-.companion-table__profile {
-  max-width: 400px;
-  min-width: 200px;
-  color: var(--color-ink-soft);
 }
 </style>

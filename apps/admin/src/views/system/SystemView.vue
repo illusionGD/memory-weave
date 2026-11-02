@@ -7,25 +7,34 @@
           <h1 id="status-title" class="overview__title">运行状态</h1>
           <p class="overview__description">服务连接、存储与数据结构的实时检查。</p>
         </div>
-        <button
-          class="button button--secondary"
-          type="button"
+        <NButton
+          secondary
+          :loading="system.loading"
           :disabled="system.loading || auth.loggingOut"
           :aria-busy="system.loading"
           @click="handleRefresh"
         >
           {{ system.loading ? '正在检查…' : '刷新状态' }}
-        </button>
+        </NButton>
       </section>
 
-      <p v-if="auth.error" class="notice notice--error" role="alert">{{ auth.error }}</p>
-      <p v-if="system.error" class="notice notice--error" role="alert">{{ system.error }}</p>
+      <NAlert v-if="system.error" type="error" role="alert">{{ system.error }}</NAlert>
 
-      <section class="status-panel" :aria-busy="system.loading" aria-label="服务检查结果">
+      <NCard
+        role="region"
+        class="status-panel"
+        :content-style="{ padding: '0' }"
+        :aria-busy="system.loading"
+        aria-label="服务检查结果"
+      >
         <div class="status-panel__heading">
           <div class="status-panel__label">
-            <span class="status-panel__dot" :class="statusClass" aria-hidden="true"></span>
-            <h2 class="status-panel__title">{{ statusLabel }}</h2>
+            <NTag
+              :type="system.status ? (allReady ? 'success' : 'warning') : 'default'"
+              :bordered="false"
+            >
+              <h2 class="status-panel__title">{{ statusLabel }}</h2>
+            </NTag>
           </div>
           <span class="status-panel__time">{{ checkedAtLabel }}</span>
         </div>
@@ -65,26 +74,39 @@
             <p class="status-item__value" :class="storageClass">{{ storageLabel }}</p>
             <p class="status-item__detail">{{ storageDetail }}</p>
           </article>
+
+          <article class="status-item">
+            <span class="status-item__index" aria-hidden="true">06</span>
+            <h3 class="status-item__title">鉴权存储</h3>
+            <p class="status-item__value" :class="authenticationClass">{{ authenticationLabel }}</p>
+            <p class="status-item__detail">{{ authenticationDetail }}</p>
+          </article>
         </div>
 
         <p v-else class="status-panel__placeholder" role="status">{{ placeholderLabel }}</p>
-      </section>
+      </NCard>
 
       <section class="quick-links" aria-label="管理入口">
         <RouterLink to="/companions"
-          ><span>01 / COMPANIONS</span>
-          <h2>伴侣管理 <span aria-hidden="true">↗</span></h2>
-          <p>查看人格版本、初始人生与实例状态</p></RouterLink
+          ><NCard hoverable content-class="quick-links__content"
+            ><span>01 / COMPANIONS</span>
+            <h2>伴侣管理 <span aria-hidden="true">↗</span></h2>
+            <p>查看人格版本、初始人生与实例状态</p></NCard
+          ></RouterLink
         >
         <RouterLink to="/memories"
-          ><span>02 / MEMORIES</span>
-          <h2>记忆记录 <span aria-hidden="true">↗</span></h2>
-          <p>回查来源、整理批次与历史变更</p></RouterLink
+          ><NCard hoverable content-class="quick-links__content"
+            ><span>02 / MEMORIES</span>
+            <h2>记忆记录 <span aria-hidden="true">↗</span></h2>
+            <p>回查来源、整理批次与历史变更</p></NCard
+          ></RouterLink
         >
         <RouterLink to="/lifecycle"
-          ><span>03 / OPERATIONS</span>
-          <h2>清理记录 <span aria-hidden="true">↗</span></h2>
-          <p>追踪内容删除与实例重置的执行结果</p></RouterLink
+          ><NCard hoverable content-class="quick-links__content"
+            ><span>03 / OPERATIONS</span>
+            <h2>清理记录 <span aria-hidden="true">↗</span></h2>
+            <p>追踪内容删除与实例重置的执行结果</p></NCard
+          ></RouterLink
         >
       </section>
     </div>
@@ -93,6 +115,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue';
+import { NAlert, NButton, NCard, NTag } from 'naive-ui';
 import { RouterLink, useRouter } from 'vue-router';
 import AdminLayout from '@/components/AdminLayout.vue';
 import { useAuthStore } from '@/stores/auth';
@@ -106,18 +129,22 @@ const databaseReady = computed(() => system.status?.database.status === 'connect
 const storageReady = computed(() => system.status?.storage.status === 'ready');
 const schemaReady = computed(() => system.status?.schema.status === 'ready');
 const vectorReady = computed(() => system.status?.vectorStore.status === 'connected');
+const authenticationReady = computed(
+  () => system.status?.authenticationStore.status === 'connected',
+);
 const allReady = computed(
-  () => databaseReady.value && vectorReady.value && storageReady.value && schemaReady.value,
+  () =>
+    databaseReady.value &&
+    vectorReady.value &&
+    storageReady.value &&
+    schemaReady.value &&
+    authenticationReady.value,
 );
 const statusLabel = computed(() => {
   if (system.loading) return '正在检查服务';
   if (!system.status) return '状态尚未确认';
   return allReady.value ? '服务已就绪' : '部分服务需要处理';
 });
-const statusClass = computed(() => ({
-  'is-ready': Boolean(system.status) && allReady.value,
-  'is-warning': Boolean(system.status) && !allReady.value,
-}));
 const checkedAtLabel = computed(() =>
   system.checkedAt
     ? `检查于 ${system.checkedAt.toLocaleTimeString('zh-CN', { hour12: false })}`
@@ -139,6 +166,11 @@ const storageLabel = computed(() => (storageReady.value ? '可读写' : '暂不�
 const storageClass = computed(() => ({ 'is-warning': !storageReady.value }));
 const storageDetail = computed(() =>
   storageReady.value ? '持久目录已准备好' : '请检查目录权限与磁盘空间',
+);
+const authenticationLabel = computed(() => (authenticationReady.value ? '已连接' : '暂不可用'));
+const authenticationClass = computed(() => ({ 'is-warning': !authenticationReady.value }));
+const authenticationDetail = computed(() =>
+  authenticationReady.value ? 'Redis · 会话与登录限流' : 'Redis 暂不可用，请检查连接',
 );
 const schemaClass = computed(() => ({ 'is-warning': !schemaReady.value }));
 const schemaLabel = computed(() => {
@@ -200,9 +232,6 @@ async function handleRefresh(): Promise<void> {
   color: #8795ac;
 }
 .status-panel {
-  border: 1px solid var(--color-border);
-  background: white;
-  border-radius: 8px;
   overflow: hidden;
 }
 .status-panel__heading {
@@ -218,18 +247,6 @@ async function handleRefresh(): Promise<void> {
   gap: 9px;
   align-items: center;
 }
-.status-panel__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #94a0b0;
-}
-.status-panel__dot.is-ready {
-  background: #58a282;
-}
-.status-panel__dot.is-warning {
-  background: var(--color-warning);
-}
 .status-panel__title {
   font-size: 14px;
 }
@@ -239,7 +256,7 @@ async function handleRefresh(): Promise<void> {
 }
 .status-panel__grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 .status-panel__placeholder {
   padding: 60px 24px;
@@ -280,19 +297,13 @@ async function handleRefresh(): Promise<void> {
   gap: 20px;
 }
 .quick-links a {
+  text-decoration: none;
+}
+.quick-links :deep(.quick-links__content) {
   display: grid;
   gap: 12px;
-  background: white;
-  padding: 24px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  text-decoration: none;
-  transition: border-color 0.2s;
 }
-.quick-links a:hover {
-  border-color: var(--color-accent);
-}
-.quick-links a > span {
+.quick-links :deep(.quick-links__content) > span {
   font-size: 9px;
   letter-spacing: 1px;
   color: #8997ad;

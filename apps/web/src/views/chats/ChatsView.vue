@@ -5,13 +5,11 @@
         <p class="eyebrow">那些还想继续的话</p>
         <h1 class="persona-page__title">私聊</h1>
         <p class="persona-page__muted">留一点时间，给相处。让未说完的话，在这里慢慢继续。</p>
-        <RouterLink class="button button--primary" to="/companions">选择伴侣</RouterLink>
+        <UiLink type="primary" to="/companions">选择伴侣</UiLink>
       </header>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <p v-if="loading" role="status">正在读取私聊…</p>
-      <p v-else-if="!chats.length" class="persona-page__muted">
-        还没有私聊，从一位伴侣的「开始聊天」进入。
-      </p>
+      <NAlert v-if="error" type="error" :show-icon="false">{{ error }}</NAlert>
+      <NSpin v-if="loading" size="small"><span role="status">正在读取私聊…</span></NSpin>
+      <NEmpty v-else-if="!chats.length" description="还没有私聊，从一位伴侣的「开始聊天」进入。" />
       <article v-for="chat in chats" :key="chat.id" class="conversation-card">
         <CompanionAvatar
           :name="chat.companionName ?? chat.title"
@@ -30,11 +28,11 @@
             }}
           </p>
         </div>
-        <RouterLink class="button button--secondary" :to="`/chats/${chat.id}`">继续聊天</RouterLink>
+        <UiLink secondary class="conversation-card__link" :to="`/chats/${chat.id}`"
+          >继续聊天</UiLink
+        >
       </article>
-      <button v-if="nextAfterId" class="button button--quiet" :disabled="loading" @click="more">
-        更多私聊
-      </button>
+      <NButton v-if="nextAfterId" quaternary :disabled="loading" @click="more"> 更多私聊 </NButton>
     </section>
   </ChatLayout>
 </template>
@@ -42,7 +40,8 @@
 <script setup lang="ts">
 import CompanionAvatar from '@/components/CompanionAvatar.vue';
 import { onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
+import { NAlert, NButton, NEmpty, NSpin } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import type { Chat } from '@memory-weave/contracts';
 import ChatLayout from '@/components/ChatLayout.vue';
 import { listChats } from '@memory-weave/browser-client/chats';
@@ -85,7 +84,7 @@ onMounted(more);
   margin-top: 8px;
   color: var(--color-ink-soft);
 }
-.conversation-card .button {
+.conversation-card__link {
   margin-left: auto;
   flex: none;
 }
@@ -95,7 +94,7 @@ onMounted(more);
     gap: 14px;
     flex-wrap: wrap;
   }
-  .conversation-card .button {
+  .conversation-card__link {
     margin: 0 0 0 56px;
   }
 }

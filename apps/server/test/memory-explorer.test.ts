@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
@@ -6,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   companionDetailSchema,
   conversationDetailSchema,
@@ -20,6 +21,8 @@ import { createApplication } from '../src/app';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+
+afterAll(disposeTestAuth);
 
 describe('记忆浏览的公开查询协议', () => {
   let app: INestApplication;
@@ -46,6 +49,7 @@ describe('记忆浏览的公开查询协议', () => {
     app = await createApplication(
       loadServerConfig({
         DATABASE_URL: database.databaseUrl,
+        ...testAuthEnvironment(createTestAuthConfig()),
         ADMIN_PASSWORD: 'explorer-test-password',
         QDRANT_API_KEY: 'test-vector-key',
         DATA_DIR: dataDir,

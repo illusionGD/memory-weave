@@ -7,52 +7,53 @@
         <p class="persona-page__muted">
           聊天原文与整理后的记忆分别保存。伴侣会在停聊或累积一定内容后自动整理。
         </p>
-        <RouterLink class="button button--quiet" :to="chatLink">回到聊天</RouterLink>
+        <UiLink quaternary :to="chatLink">回到聊天</UiLink>
       </header>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
+      <NAlert v-if="error" type="error" :show-icon="false">{{ error }}</NAlert>
       <div class="persona-page__toolbar">
-        <button class="button button--secondary" :disabled="loading || saving" @click="refresh">
-          刷新记忆
-        </button>
-        <span v-if="loading || saving" role="status">正在处理…</span>
+        <NButton secondary :disabled="loading || saving" @click="refresh"> 刷新记忆 </NButton>
+        <div v-if="loading || saving" class="memory-page__loading" role="status">
+          <NSpin size="small" />正在处理…
+        </div>
       </div>
       <section class="persona-page__panel" aria-label="长期记忆">
         <h2>留下的内容</h2>
-        <p v-if="!items.length && !loading" class="persona-page__muted">
-          还没有长期条目。普通闲聊也可以不形成记忆。
-        </p>
+        <NEmpty
+          v-if="!items.length && !loading"
+          description="还没有长期条目。普通闲聊也可以不形成记忆。"
+        />
         <article v-for="item in items" :key="item.id" class="memory-page__entry">
-          <p class="memory-page__meta">版本 {{ item.version }} · {{ statusLabel(item.status) }}</p>
+          <div class="memory-page__meta memory-page__labels">
+            <span>版本 {{ item.version }}</span>
+            <NTag
+              class="memory-page__status"
+              size="small"
+              :bordered="false"
+              :type="statusType(item.status)"
+              >{{ statusLabel(item.status) }}</NTag
+            >
+          </div>
           <p class="persona-page__text">
             {{ item.document?.text ?? '该版本的来源已失效，正文已清除。' }}
           </p>
-          <p v-if="item.document?.reality === 'fictional'" class="persona-page__badge">
-            创作设定 · {{ item.document.storyKey }}
-          </p>
-          <button
-            class="button button--quiet"
-            :disabled="loading || saving"
-            @click="inspect(item.id)"
+          <NTag
+            v-if="item.document?.reality === 'fictional'"
+            class="memory-page__story"
+            size="small"
+            :bordered="false"
           >
+            创作设定 · {{ item.document.storyKey }}
+          </NTag>
+          <NButton quaternary :disabled="loading || saving" @click="inspect(item.id)">
             查看来源与历史
-          </button>
+          </NButton>
         </article>
-        <button
-          v-if="next"
-          class="button button--quiet"
-          :disabled="loading || saving"
-          @click="more"
-        >
+        <NButton v-if="next" quaternary :disabled="loading || saving" @click="more">
           下一页记忆
-        </button>
-        <button
-          v-if="memoryAfter"
-          class="button button--quiet"
-          :disabled="loading || saving"
-          @click="first"
-        >
+        </NButton>
+        <NButton v-if="memoryAfter" quaternary :disabled="loading || saving" @click="first">
           回到记忆首页
-        </button>
+        </NButton>
       </section>
       <section v-if="detail" class="persona-page__panel" aria-label="记忆来源与历史">
         <h2>来源与历史</h2>
@@ -76,31 +77,31 @@
             class="memory-page__evidence"
           >
             <blockquote>{{ evidence.quote }}</blockquote>
-            <button
-              class="button button--quiet"
+            <NButton
+              quaternary
               :disabled="loading || saving"
               @click="showSource(evidence.messageId, evidence.contentVersion)"
             >
               查看完整原文
-            </button>
+            </NButton>
           </div>
-          <button
+          <NButton
             v-if="version.evidenceNextAfterId"
-            class="button button--quiet"
+            quaternary
             :disabled="loading || saving"
             @click="moreEvidence(version.versionId)"
           >
             更多证据
-          </button>
+          </NButton>
         </article>
-        <button
+        <NButton
           v-if="detail.nextAfterId"
-          class="button button--quiet"
+          quaternary
           :disabled="loading || saving"
           @click="moreVersions"
         >
           更多历史版本
-        </button>
+        </NButton>
         <div v-if="source" class="memory-page__source" role="region" aria-label="来源原文">
           <h3>来源原文</h3>
           <p class="persona-page__text">{{ source.text }}</p>
@@ -112,6 +113,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { NAlert, NButton, NEmpty, NSpin, NTag } from 'naive-ui';
+import type { TagProps } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import { useRoute } from 'vue-router';
 import ChatLayout from '@/components/ChatLayout.vue';
 import { useMemories } from '@/composables/useMemories';
@@ -140,6 +144,14 @@ const {
 const sortedVersions = computed(() =>
   [...(detail.value?.versions ?? [])].sort((a, b) => b.version - a.version),
 );
+/**
+ * 将记忆状态映射为对应的提示颜色。
+ * @param status 服务端返回的记忆状态。
+ * @returns 状态标签的视觉类型。
+ */
+function statusType(status: string): TagProps['type'] {
+  return status === 'active' ? 'success' : status === 'disputed' ? 'warning' : 'default';
+}
 /** 将记忆状态转换为显示文本。 */
 function statusLabel(status: string): string {
   return (
@@ -174,6 +186,21 @@ function operationLabel(operation: string): string {
 
 <style scoped lang="scss">
 .memory-page {
+  &__loading,
+  &__labels {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  &__status,
+  &__story {
+    justify-self: start;
+    max-width: 100%;
+    height: auto;
+    white-space: normal;
+    line-height: 1.6;
+  }
   &__entry {
     display: grid;
     gap: var(--space-3);

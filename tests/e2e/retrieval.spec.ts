@@ -32,14 +32,14 @@ test('另一场私聊的新补充出现在本轮来源，刷新后仍能查看',
   await page.getByLabel('消息', { exact: true }).fill('给我寄东西用新地址就好。');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(page.getByText('回复已完成', { exact: true })).toBeVisible();
-  await page.getByText('本轮参考的记忆与新消息', { exact: true }).click();
+  await page.getByRole('button', { name: '本轮参考的记忆与新消息', exact: true }).click();
   await expect(
     page
       .getByRole('region', { name: '本轮回忆来源' })
       .getByText('我已经搬到杭州文三路 18 号。', { exact: true }),
   ).toBeVisible();
   await page.reload();
-  await page.getByText('本轮参考的记忆与新消息', { exact: true }).click();
+  await page.getByRole('button', { name: '本轮参考的记忆与新消息', exact: true }).click();
   await expect(
     page
       .getByRole('region', { name: '本轮回忆来源' })

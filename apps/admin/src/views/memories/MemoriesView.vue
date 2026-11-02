@@ -7,112 +7,125 @@
         <p class="persona-page__muted">
           聊天原文与整理后的记忆分别保存。伴侣会在停聊或累积一定内容后自动整理。
         </p>
-        <RouterLink class="button button--quiet" to="/memories">返回记忆记录</RouterLink>
-        <RouterLink
-          class="button button--secondary"
+        <UiLink quaternary to="/memories">返回记忆记录</UiLink>
+        <UiLink
           :to="{
             name: 'memory-explorer',
             params: { id: companionId },
             query: { runtimeEpoch: epoch, conversationId },
           }"
-          >浏览时间线与图谱</RouterLink
+          >浏览时间线与图谱</UiLink
         >
       </header>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
+      <NAlert v-if="error" type="error" role="alert">{{ error }}</NAlert>
       <div class="persona-page__toolbar">
-        <button class="button button--secondary" :disabled="loading || saving" @click="refresh">
-          刷新记忆
-        </button>
-        <button class="button button--primary" :disabled="loading || saving" @click="organizeNow">
+        <NButton :disabled="loading || saving" @click="refresh"> 刷新记忆 </NButton>
+        <NButton type="primary" :disabled="loading || saving" @click="organizeNow">
           现在整理
-        </button>
-        <span v-if="loading || saving" role="status">正在处理…</span>
+        </NButton>
+        <span v-if="loading || saving" class="memory-page__loading" role="status"
+          ><NSpin size="small" />正在处理…</span
+        >
       </div>
       <section class="persona-page__panel" aria-label="长期记忆">
         <h2>留下的内容</h2>
-        <p v-if="!items.length && !loading" class="persona-page__muted">
-          还没有长期条目。普通闲聊也可以不形成记忆。
-        </p>
+        <NEmpty
+          v-if="!items.length && !loading"
+          description="还没有长期条目。普通闲聊也可以不形成记忆。"
+        />
         <article v-for="item in items" :key="item.id" class="memory-page__entry">
-          <p class="memory-page__meta">版本 {{ item.version }} · {{ statusLabel(item.status) }}</p>
+          <div class="memory-page__meta">
+            版本 {{ item.version }} ·
+            <NTag
+              size="small"
+              :bordered="false"
+              :type="item.status === 'active' ? 'success' : 'warning'"
+              >{{ statusLabel(item.status) }}</NTag
+            >
+          </div>
           <p class="persona-page__text">
             {{ item.document?.text ?? '该版本的来源已失效，正文已清除。' }}
           </p>
-          <p v-if="item.document?.reality === 'fictional'" class="persona-page__badge">
-            创作设定 · {{ item.document.storyKey }}
-          </p>
-          <button
-            class="button button--quiet"
-            :disabled="loading || saving"
-            @click="inspect(item.id)"
+          <NTag
+            v-if="item.document?.reality === 'fictional'"
+            class="memory-page__tag"
+            :bordered="false"
+            type="info"
+            ><span class="memory-page__tag-text"
+              >创作设定 · {{ item.document.storyKey }}</span
+            ></NTag
           >
+          <NButton quaternary :disabled="loading || saving" @click="inspect(item.id)">
             查看来源与历史
-          </button>
+          </NButton>
         </article>
-        <button
-          v-if="next"
-          class="button button--quiet"
-          :disabled="loading || saving"
-          @click="more"
-        >
+        <NButton v-if="next" quaternary :disabled="loading || saving" @click="more">
           下一页记忆
-        </button>
-        <button
-          v-if="memoryAfter"
-          class="button button--quiet"
-          :disabled="loading || saving"
-          @click="first"
-        >
+        </NButton>
+        <NButton v-if="memoryAfter" quaternary :disabled="loading || saving" @click="first">
           回到记忆首页
-        </button>
+        </NButton>
       </section>
       <section v-if="detail" class="persona-page__panel" aria-label="记忆来源与历史">
         <h2>来源与历史</h2>
-        <article
-          v-for="version in sortedVersions"
-          :key="version.versionId"
-          class="memory-page__entry"
-        >
-          <h3>版本 {{ version.version }} · {{ operationLabel(version.operation) }}</h3>
-          <p class="persona-page__text">{{ version.document?.text ?? '正文已清除' }}</p>
-          <p v-if="version.reason" class="persona-page__muted">{{ version.reason }}</p>
-          <p v-if="version.document?.eventTime">经历时间：{{ version.document.eventTime }}</p>
-          <p v-if="version.document?.validFrom || version.document?.validUntil">
-            适用时间：{{ version.document.validFrom ?? '未知' }} 至
-            {{ version.document.validUntil ?? '未知' }}
-          </p>
-          <p class="memory-page__meta">记下于 {{ new Date(version.learnedAt).toLocaleString() }}</p>
-          <div
-            v-for="evidence in version.evidence"
-            :key="`${evidence.messageId}:${evidence.startOffset}`"
-            class="memory-page__evidence"
-          >
-            <blockquote>{{ evidence.quote }}</blockquote>
-            <button
-              class="button button--quiet"
-              :disabled="loading || saving"
-              @click="showSource(evidence.messageId, evidence.contentVersion)"
-            >
-              查看完整原文
-            </button>
-          </div>
-          <button
-            v-if="version.evidenceNextAfterId"
-            class="button button--quiet"
-            :disabled="loading || saving"
-            @click="moreEvidence(version.versionId)"
-          >
-            更多证据
-          </button>
-        </article>
-        <button
-          v-if="detail.nextAfterId"
-          class="button button--quiet"
-          :disabled="loading || saving"
-          @click="moreVersions"
-        >
-          更多历史版本
-        </button>
+        <NCollapse :default-expanded-names="['history']" display-directive="show">
+          <NCollapseItem name="history">
+            <template #header="{ collapsed }">
+              <NButton text :aria-expanded="!collapsed"
+                ><span class="memory-page__collapse-label">历史版本与原文依据</span></NButton
+              >
+            </template>
+            <div class="memory-page__versions">
+              <article
+                v-for="version in sortedVersions"
+                :key="version.versionId"
+                class="memory-page__entry"
+              >
+                <h3>版本 {{ version.version }} · {{ operationLabel(version.operation) }}</h3>
+                <p class="persona-page__text">{{ version.document?.text ?? '正文已清除' }}</p>
+                <p v-if="version.reason" class="persona-page__muted">{{ version.reason }}</p>
+                <p v-if="version.document?.eventTime">经历时间：{{ version.document.eventTime }}</p>
+                <p v-if="version.document?.validFrom || version.document?.validUntil">
+                  适用时间：{{ version.document.validFrom ?? '未知' }} 至
+                  {{ version.document.validUntil ?? '未知' }}
+                </p>
+                <p class="memory-page__meta">
+                  记下于 {{ new Date(version.learnedAt).toLocaleString() }}
+                </p>
+                <div
+                  v-for="evidence in version.evidence"
+                  :key="`${evidence.messageId}:${evidence.startOffset}`"
+                  class="memory-page__evidence"
+                >
+                  <blockquote>{{ evidence.quote }}</blockquote>
+                  <NButton
+                    quaternary
+                    :disabled="loading || saving"
+                    @click="showSource(evidence.messageId, evidence.contentVersion)"
+                  >
+                    查看完整原文
+                  </NButton>
+                </div>
+                <NButton
+                  v-if="version.evidenceNextAfterId"
+                  quaternary
+                  :disabled="loading || saving"
+                  @click="moreEvidence(version.versionId)"
+                >
+                  更多证据
+                </NButton>
+              </article>
+              <NButton
+                v-if="detail.nextAfterId"
+                quaternary
+                :disabled="loading || saving"
+                @click="moreVersions"
+              >
+                更多历史版本
+              </NButton>
+            </div>
+          </NCollapseItem>
+        </NCollapse>
         <div v-if="source" class="memory-page__source" role="region" aria-label="来源原文">
           <h3>来源原文</h3>
           <p class="persona-page__text">{{ source.text }}</p>
@@ -128,43 +141,33 @@
         <p v-else-if="batches" class="persona-page__muted">
           自动整理已关闭。可以点击「现在整理」提前安排一个批次。
         </p>
-        <p v-if="!batches?.items.length">尚无整理批次。</p>
+        <NEmpty v-if="!batches?.items.length && !loading" description="尚无整理批次。" />
         <article v-for="batch in batches?.items" :key="batch.id" class="memory-page__entry">
           <h3>{{ batch.sourceCount }} 条原文 · {{ taskLabel(batch.status) }}</h3>
-          <p v-if="batch.mode === 'test'" class="persona-page__badge">
+          <NAlert v-if="batch.mode === 'test'" type="info">
             测试模式：验证保存与进度，返回空候选，不代表真实提取效果。
-          </p>
+          </NAlert>
           <p v-if="batch.reason" class="persona-page__muted">{{ reasonLabel(batch.reason) }}</p>
           <p v-if="batch.outcomes">
             新增 {{ batch.outcomes.add }} · 合并 {{ batch.outcomes.merge }} · 修订
             {{ batch.outcomes.revise }} · 分歧 {{ batch.outcomes.conflict }} · 暂不成条目
             {{ batch.outcomes.defer }}
           </p>
-          <button
-            v-if="canRetry(batch)"
-            class="button button--secondary"
-            :disabled="loading || saving"
-            @click="organize(batch.id)"
-          >
+          <NButton v-if="canRetry(batch)" :disabled="loading || saving" @click="organize(batch.id)">
             重新整理这一批
-          </button>
+          </NButton>
         </article>
-        <button
+        <NButton
           v-if="batches?.nextAfterId"
-          class="button button--quiet"
+          quaternary
           :disabled="loading || saving"
           @click="moreBatches"
         >
           下一页整理记录
-        </button>
-        <button
-          v-if="batchAfter"
-          class="button button--quiet"
-          :disabled="loading || saving"
-          @click="firstBatches"
-        >
+        </NButton>
+        <NButton v-if="batchAfter" quaternary :disabled="loading || saving" @click="firstBatches">
           回到记录首页
-        </button>
+        </NButton>
       </section>
     </div>
   </AdminLayout>
@@ -172,10 +175,12 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { NAlert, NButton, NCollapse, NCollapseItem, NEmpty, NSpin, NTag } from 'naive-ui';
 import { useRoute } from 'vue-router';
 import { API_CODES } from '@memory-weave/contracts';
 import type { MemoryBatch } from '@memory-weave/contracts';
 import AdminLayout from '@/components/AdminLayout.vue';
+import UiLink from '@/components/UiLink.vue';
 import { useMemories } from '@/composables/useMemories';
 const route = useRoute();
 const companionId = computed(() => String(route.params.id));
@@ -297,6 +302,31 @@ function reasonLabel(reason: string): string {
 
 <style scoped lang="scss">
 .memory-page {
+  &__collapse-label {
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+  &__loading {
+    display: inline-flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  &__versions {
+    display: grid;
+    gap: var(--space-5);
+    min-width: 0;
+  }
+  &__tag {
+    justify-self: start;
+    max-width: 100%;
+    height: auto;
+  }
+  &__tag-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.7;
+  }
   &__entry {
     display: grid;
     gap: var(--space-3);

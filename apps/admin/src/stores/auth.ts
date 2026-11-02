@@ -7,6 +7,8 @@ import { ApiError } from '@memory-weave/browser-client/http';
 export const useAuthStore = defineStore('auth', () => {
   const authenticated = ref(false);
   const initialized = ref(false);
+  const checkingSession = ref(false);
+  const sessionUnavailable = ref(false);
   const loggingIn = ref(false);
   const loggingOut = ref(false);
   const error = ref<string | null>(null);
@@ -41,21 +43,30 @@ export const useAuthStore = defineStore('auth', () => {
    * @returns 当前会话是否有效。
    */
   async function checkSession(): Promise<boolean> {
+    checkingSession.value = true;
     try {
       await authApi.getSession();
       authenticated.value = true;
-      error.value = null;
-    } catch (cause: unknown) {
-      authenticated.value = false;
-      error.value =
-        cause instanceof ApiError && cause.status === 401
-          ? null
-          : '暂时无法检查登录状态，请确认服务可用后重试。';
-    } finally {
       initialized.value = true;
+      sessionUnavailable.value = false;
+      error.value = null;
+      return true;
+    } catch (cause: unknown) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        authenticated.value = false;
+        initialized.value = true;
+        sessionUnavailable.value = false;
+        error.value = null;
+      } else {
+        // 暂时不可用不等于会话失效，保留浏览器 Cookie 并允许重新检查。
+        initialized.value = false;
+        sessionUnavailable.value = true;
+        error.value = '暂时无法检查登录状态，请确认服务可用后重试。';
+      }
+      return false;
+    } finally {
+      checkingSession.value = false;
     }
-
-    return authenticated.value;
   }
 
   /**
@@ -73,6 +84,7 @@ export const useAuthStore = defineStore('auth', () => {
       await authApi.login(password);
       authenticated.value = true;
       initialized.value = true;
+      sessionUnavailable.value = false;
       return true;
     } catch (cause: unknown) {
       authenticated.value = false;
@@ -119,6 +131,7 @@ export const useAuthStore = defineStore('auth', () => {
   function invalidateSession(message: string | null = '登录已过期，请重新登录。'): void {
     authenticated.value = false;
     initialized.value = true;
+    sessionUnavailable.value = false;
     error.value = message;
   }
 
@@ -134,6 +147,8 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     authenticated,
     initialized,
+    checkingSession,
+    sessionUnavailable,
     loggingIn,
     loggingOut,
     error,

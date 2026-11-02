@@ -2,7 +2,7 @@
 
 维护持续身份、记忆与成长的 AI 伴侣系统。后端保存状态，浏览器提供使用入口。
 
-**当前功能：F10 管理后台记忆浏览、时间线与关系图谱。** 可跨私聊查看同一伴侣的记忆，追溯原文、历史、修订与冲突；纠错仍通过聊天自主整理。聊天端与后台是独立项目，同一伴侣的记忆与尚未整理的新补充继续参与聊天。MySQL 8.4.9 保存权威数据，Qdrant 1.18.3 保存可重建向量索引；反思与人格成长按后续阶段加入。
+**当前功能：F10 管理后台记忆浏览、时间线与关系图谱。** 可跨私聊查看同一伴侣的记忆，追溯原文、历史、修订与冲突；纠错仍通过聊天自主整理。聊天端与后台是独立项目，同一伴侣的记忆与尚未整理的新补充继续参与聊天。MySQL 8.4.9 保存权威数据，Qdrant 1.18.3 保存可重建向量索引，Redis 8.4.8 保存登录会话与登录限流；反思与人格成长按后续阶段加入。
 
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
@@ -17,6 +17,8 @@
 - [F08 批量记忆、来源、调度配置与验收](docs/features/f08-memory-organization.md)
 - [F09 回忆来源、检索配置、索引恢复与验收](docs/features/f09-memory-retrieval.md)
 - [F10 记忆浏览、时间线、图谱与隔离验收](docs/features/f10-memory-explorer.md)
+- [Naive UI 双端组件与验收](docs/features/naive-ui.md)
+- [Redis 登录会话、重启保持与故障验收](docs/features/redis-auth.md)
 - [聊天端与管理后台：启动、部署与验收](docs/features/frontend-split.md)
 - [各终端共用的 HTTP 响应与错误约定](docs/api-conventions.md)
 
@@ -30,22 +32,39 @@ git switch dev
 git pull --ff-only origin dev
 pnpm install --frozen-lockfile
 pnpm run setup
-docker compose --env-file .env -f deploy/compose.yaml up -d --wait mysql qdrant
+docker compose --env-file .env -f deploy/compose.yaml up -d --wait mysql qdrant redis
 pnpm db:migrate
 pnpm dev
 ```
 
-聊天端打开 **http://localhost:5173**，管理后台打开 **http://localhost:5174/admin/**。`pnpm dev` 同时启动后端和两个独立 Vite 项目；`pnpm dev:web`/`pnpm dev:admin`可只启动后端与指定前端。在本地生成的`.env`中查看`ADMIN_PASSWORD`，将它填入登录页的“部署密码”。`pnpm run setup` 生成或补齐 MySQL、Qdrant 与登录配置，不输出密码；已有登录密码和 MySQL 凭据保持不变。
+聊天端打开 **http://localhost:5173**，管理后台打开 **http://localhost:5174/admin/**。`pnpm dev` 同时启动后端和两个独立 Vite 项目；`pnpm dev:web`/`pnpm dev:admin`可只启动后端与指定前端。在本地生成的`.env`中查看`ADMIN_PASSWORD`，将它填入登录页的“部署密码”。`pnpm run setup` 生成或补齐 MySQL、Qdrant、Redis 与登录配置，不输出密码；已有密码、连接串、Redis 命名空间和会话密钥保持不变。
 
 从旧 PostgreSQL 版本更新时，先停止正在运行的 `pnpm dev`，再执行上述命令。setup 会将旧 `.env` 备份到 `.env.postgresql-backup`，切换到新的 MySQL 连接，并保留登录密码。按开发阶段约定，不迁移 PostgreSQL 数据；MySQL 使用新的 `mysql-data` 卷，旧实例和聊天不会出现在新库，旧数据卷不会被删除。已有旧 Docker 应用时，在 setup 后先执行 `docker compose --env-file .env -f deploy/compose.yaml down --remove-orphans` 停止旧服务，再启动新组合。
 
-开发模式由 Vite 将 `/api` 转发到 `127.0.0.1:3000`。MySQL 默认监听本机 3306，Qdrant HTTP 默认监听本机 6333，两者均不对公网开放。修改端口时同步更新 `.env` 的 `MYSQL_PORT` / `DATABASE_URL` 或 `QDRANT_PORT` / `QDRANT_URL`。初始化后 MySQL 卷中的密码不会随 `.env` 自动改变；Qdrant 的访问密钥通过 `QDRANT_API_KEY` 配置，后端校验实际连接与访问权限。
+开发模式由 Vite 将 `/api` 转发到 `127.0.0.1:3000`。MySQL 默认监听本机 3306，Qdrant HTTP 默认监听本机 6333，Redis 默认监听本机 6379，均不对公网开放。修改端口时同步更新 `.env` 的 `MYSQL_PORT` / `DATABASE_URL`、`QDRANT_PORT` / `QDRANT_URL` 或 `REDIS_PORT` / `REDIS_URL`。初始化后 MySQL 卷中的密码不会随 `.env` 自动改变；Qdrant 的访问密钥通过 `QDRANT_API_KEY` 配置，后端校验实际连接与访问权限。
 
 后续 MySQL 结构更新时，停止旧应用、执行 `pnpm db:migrate` 再启动；`pnpm db:status` 可只读检查。迁移失败会保留未完成标记并阻止就绪，MySQL DDL 不保证整批回滚，恢复方式见 [F02 迁移说明](docs/features/f02-data-foundation.md#数据库迁移与部署)。
 
-`pnpm dev` 直接读取 `packages/contracts/src` 和 `packages/browser-client/src`，不需要先构建共享包。修改共享 schema、常量或新增导出后，前端由 Vite 热更新或自动刷新；修改公共契约时后端由 tsx 自动重启，修改 browser-client 不重启后端；类型提示和 `pnpm typecheck` 也直接使用源码。后端重启会清空当前内存登录会话，需要时重新登录。修改 `package.json`、依赖或开发配置后应重新安装依赖并重启 dev；生产部署继续使用 `pnpm build` 生成的产物。
+`pnpm dev` 直接读取 `packages/contracts/src` 和 `packages/browser-client/src`，不需要先构建共享包。修改共享 schema、常量或新增导出后，前端由 Vite 热更新或自动刷新；修改公共契约时后端由 tsx 自动重启，修改 browser-client 不重启后端；类型提示和 `pnpm typecheck` 也直接使用源码。后端热重启或正常重启会继续读取 Redis 中未到期的登录会话；有效期仍为登录后的固定 12 小时，不因访问或重启自动延长。修改 `package.json`、依赖或开发配置后应重新安装依赖并重启 dev；生产部署继续使用 `pnpm build` 生成的产物。
 
 登录聊天端后可从导航进入“个人设置”，修改用户的显示名称。默认名称为“用户”，去掉首尾空白后为 1～80 个字符；保存后刷新或重启仍保留。名称用于显示，不参与登录，也不会改变历史消息的用户身份关联。MySQL 初始结构已经包含资料字段。
+
+## 从内存会话升级到 Redis
+
+停止旧后端，拉取本次提交后运行：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm run setup
+docker compose --env-file .env -f deploy/compose.yaml up -d --wait redis
+pnpm dev
+```
+
+MySQL 和 Qdrant 已运行时，本次只需新增 Redis；没有新的 SQL 迁移。首次升级仍需登录一次，之后热重载、重启或 PM2 更新后端都能继续使用未满 12 小时的登录。`AUTH_SESSION_SECRET` 是稳定配置，不要每次启动重新生成；修改它或 `ADMIN_PASSWORD` 后，全部后端进程切换新配置才会统一拒绝旧会话。
+
+使用独立安装的 MySQL 时，保留现有 `DATABASE_URL`；仅用 Compose 启动 `qdrant redis` 即可。如果 Redis 也独立安装，在 `.env` 中把 `REDIS_URL` 设置为实际 `redis://` 地址（受管 TLS 服务使用 `rediss://`），凭据中的特殊字符必须 URL 编码。保留 setup 生成的 `REDIS_NAMESPACE` 和 `AUTH_SESSION_SECRET`；`REDIS_PASSWORD` / `REDIS_PORT` 仅用于 Compose，本机独立 Redis 的监听、认证和持久化由自己的服务配置负责。
+
+Redis 是独立服务，PM2 只管理后端进程。PM2 更新时必须继续使用同一 Redis、命名空间和会话密钥；本次不启用多进程业务 worker，也不更改后续正式 PM2 部署方案。Redis 应只允许后端网络访问，避免开放公网端口。重建 Redis 数据卷会丢失登录状态；从旧备份恢复后可轮换 `AUTH_SESSION_SECRET` 使旧登录统一失效。详细行为与验收见 [Redis 登录会话](docs/features/redis-auth.md)。
 
 ## 聊天外观与伴侣头像
 
@@ -91,7 +110,7 @@ pnpm verify:f07
 
 在管理后台进入「记忆记录」，选择伴侣后浏览列表、时间线或关系图谱。默认汇总当前人生的私聊，群聊需明确选择；支持来源、历史和组合筛选。本版只读，修正继续通过聊天补充。默认 test 模型不会产生记忆，因此空状态正常。
 
-配置独立测试 MySQL/Qdrant 后可运行 `pnpm verify:f10`，用固定非空语料验证桌面和手机流程，自动清理隔离数据库。启动、迁移和逐步操作见 [F10 说明](docs/features/f10-memory-explorer.md)。
+配置独立测试 MySQL/Qdrant/Redis 后可运行 `pnpm verify:f10`，用固定非空语料验证桌面和手机流程，自动清理隔离数据库。启动、迁移和逐步操作见 [F10 说明](docs/features/f10-memory-explorer.md)。
 
 ## 模型基础验收与配置
 
@@ -136,11 +155,11 @@ docker compose --env-file .env -f deploy/compose.yaml up -d --build --wait
 docker compose --env-file .env -f deploy/compose.yaml ps
 ```
 
-聊天端打开 **http://localhost:8080**，管理后台打开 **http://localhost:8080/admin/**。Compose 会等待 MySQL 可连接，执行一次性 `migrate` 服务，并等待 Qdrant 健康后启动应用；迁移失败时应用不会按就绪状态启动。查看升级结果使用 `docker compose --env-file .env -f deploy/compose.yaml logs migrate`。后端镜像分别托管 `apps/web/dist` 与 `apps/admin/dist`，两端拥有独立入口、资源和路由，因此运行时不需要 Vite 服务。
+聊天端打开 **http://localhost:8080**，管理后台打开 **http://localhost:8080/admin/**。Compose 会等待 MySQL 可连接，执行一次性 `migrate` 服务，并等待 Qdrant 和 Redis 健康后启动应用；迁移失败时应用不会按就绪状态启动。查看升级结果使用 `docker compose --env-file .env -f deploy/compose.yaml logs migrate`。后端镜像分别托管 `apps/web/dist` 与 `apps/admin/dist`，两端拥有独立入口、资源和路由，因此运行时不需要 Vite 服务。
 
-服务器只有 Docker 时，可先复制 `.env.example` 为 `.env`，填写独立随机的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`QDRANT_API_KEY` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器数据库连接串，不依赖宿主配置中的 `DATABASE_URL`；在该方式下可以将其留空。其他环境变量仍按示例设置。
+服务器只有 Docker 时，可先复制 `.env.example` 为 `.env`，填写独立随机的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`QDRANT_API_KEY`、`REDIS_PASSWORD`、稳定的 `REDIS_NAMESPACE`、64 位小写 hex 的 `AUTH_SESSION_SECRET` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器 MySQL 与 Redis 连接串，不依赖宿主配置中的 `DATABASE_URL` / `REDIS_URL`；在该方式下可以将这两项留空。其他环境变量仍按示例设置。
 
-MySQL、Qdrant 数据和快照、应用文件分别保存在 Compose 的持久卷中。Qdrant 保存 F09 可重建的记忆索引；默认 test 模型不创建无语义向量，F03 的 embedding 诊断也不写 Qdrant。普通停止使用：
+MySQL、Qdrant 数据和快照、Redis 会话、应用文件分别保存在 Compose 的持久卷中。Redis 使用 AOF 每秒落盘，正常容器重启会保留已保存的会话；突然掉电仍可能丢失最近一秒的变化。Qdrant 保存 F09 可重建的记忆索引；默认 test 模型不创建无语义向量，F03 的 embedding 诊断也不写 Qdrant。普通停止使用：
 
 ```bash
 docker compose --env-file .env -f deploy/compose.yaml down
@@ -188,7 +207,7 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-HTTP 测试验证真实 NestJS、MySQL 与 Qdrant。运行 `pnpm test` 前，必须设置指向独立测试 MySQL 的 `TEST_DATABASE_URL`，该角色需要创建/删除临时数据库的权限；另设置 `TEST_QDRANT_URL` 和 `TEST_QDRANT_API_KEY`。不要给生产应用账号授予跨库管理权限。测试只在随机命名的临时数据库内写入业务数据，并清理自己创建的库；不提供测试连接会明确失败。浏览器测试启动独立服务，覆盖桌面和移动视口。
+HTTP 测试验证真实 NestJS、MySQL、Qdrant 与 Redis。运行 `pnpm test` 前，必须设置指向独立测试 MySQL 的 `TEST_DATABASE_URL`，该角色需要创建/删除临时数据库的权限；另设置 `TEST_QDRANT_URL`、`TEST_QDRANT_API_KEY` 和独立测试 Redis 的 `TEST_REDIS_URL`。不要给生产应用账号授予跨库管理权限。测试只在随机命名的临时数据库内写入业务数据，并清理自己创建的库；不提供测试连接会明确失败。Redis 测试使用随机前缀并只清理该前缀，不能指向生产 Redis。浏览器测试同样要求 `TEST_REDIS_URL`，为每轮与每个视口项目创建独立认证前缀，结束后清理；覆盖桌面和移动视口。
 
 服务启动后，另开一个位于仓库根目录的终端执行 `pnpm verify:f02`，通过 HTTP 验收 F02。脚本读取 `.env` 的登录密码，默认访问 `APP_ORIGIN`，可用 `VERIFY_BASE_URL` 指定其他入口。它会永久创建带“F02 验收”名称的实例和会话；重复执行会创建新的验收数据，不会删除或修改已有实例。
 
@@ -214,7 +233,7 @@ APP_ORIGIN=http://localhost:3000 pnpm start
 - 单用户部署密码来自服务端环境，浏览器使用 HttpOnly Cookie；不把会话密钥放入 localStorage。
 - 后端默认要求 API 登录，公开例外为登录及基础健康检查；运行检查详情需要登录。
 - 登录有频率限制；写操作核对浏览器 Origin。服务只接受配置的页面来源。
-- F01 的会话存于单后端进程，最多 10 个会话，有效期 12 小时；退出会立即撤销，后端重启后需要重新登录。实例、会话、消息、人格版本和后台任务已持久化。
+- 登录会话及限流存于 Redis，最多 10 个会话，登录后固定 12 小时到期；退出会撤销当前会话，同配置的后端进程重启后继续有效。Redis 不可用时受保护请求返回服务异常，不回退 Map 或误报退出。伴侣、聊天、消息、人格版本和后台任务仍存于 MySQL。
 - 登录限制为每个直接连接来源每分钟 5 次，当前不信任转发的来源 IP；使用反向代理时，同一代理后的请求共享该基础额度。
 - `.env`、凭据、数据库文件、附件和浏览器测试产物不进入 Git。
 

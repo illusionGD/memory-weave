@@ -7,10 +7,14 @@
       <ul v-else class="persona-document__items">
         <li v-for="item in section.items" :key="`${item.text}:${item.evidence}`">
           <p>{{ item.text }}</p>
-          <details>
-            <summary>原稿依据</summary>
-            <blockquote>{{ item.evidence }}</blockquote>
-          </details>
+          <NCollapse class="persona-document__evidence">
+            <NCollapseItem name="evidence">
+              <template #header="{ collapsed }">
+                <NButton text size="small" :aria-expanded="!collapsed">原稿依据</NButton>
+              </template>
+              <blockquote>{{ item.evidence }}</blockquote>
+            </NCollapseItem>
+          </NCollapse>
         </li>
       </ul>
     </section>
@@ -26,6 +30,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { NButton, NCollapse, NCollapseItem } from 'naive-ui';
 import type { PersonaDocument } from '@memory-weave/contracts';
 const props = defineProps<{ document: PersonaDocument }>();
 const sections = computed(() => [
@@ -67,12 +72,9 @@ const sections = computed(() => [
     padding-left: var(--space-5);
     line-height: 1.8;
   }
-  details {
+  &__evidence {
     font-size: 0.85rem;
     color: var(--color-ink-soft);
-  }
-  summary {
-    cursor: pointer;
   }
   blockquote {
     border-left: 2px solid var(--color-border);

@@ -12,49 +12,54 @@
         选一张属于 {{ companion.name }} 的照片。JPG、PNG、WebP，最大 2 MB，保存时居中裁成正方形。
       </p>
       <div class="avatar-editor__actions">
-        <button
-          class="button button--secondary"
-          :disabled="busy || restricted"
-          @click="picker?.click()"
-        >
-          {{ companion.avatar ? '更换头像' : '选择头像' }}
-        </button>
-        <input
-          ref="picker"
-          class="visually-hidden"
-          type="file"
+        <!-- 选择队列由业务状态保存，组件只负责选图，避免触发内置上传。 -->
+        <NUpload
+          class="avatar-editor__upload"
           accept="image/jpeg,image/png,image/webp"
-          aria-label="选择头像图片"
+          :default-upload="false"
+          :show-file-list="false"
+          :file-list="[]"
           :disabled="busy || restricted"
+          :input-props="{ 'aria-label': '选择头像图片' }"
           @change="select"
-        />
-        <button
+        >
+          <NButton secondary size="small" :disabled="busy || restricted">
+            {{ companion.avatar ? '更换头像' : '选择头像' }}
+          </NButton>
+        </NUpload>
+        <NButton
           v-if="selected"
-          class="button button--primary"
+          type="primary"
+          size="small"
           :disabled="busy || restricted"
+          :loading="busy"
           @click="save"
         >
           {{ busy ? '正在保存…' : '保存头像' }}
-        </button>
-        <button v-if="selected" class="button button--quiet" :disabled="busy" @click="discard">
-          取消
-        </button>
-        <button
+        </NButton>
+        <NButton v-if="selected" quaternary size="small" :disabled="busy" @click="discard"
+          >取消</NButton
+        >
+        <NButton
           v-else-if="companion.avatar"
-          class="button button--quiet"
+          quaternary
+          size="small"
           :disabled="busy || restricted"
+          :loading="busy"
           @click="reset"
         >
           恢复默认头像
-        </button>
+        </NButton>
       </div>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
+      <NAlert v-if="error" type="error" :show-icon="false">{{ error }}</NAlert>
       <p v-if="message" class="avatar-editor__hint" role="status">{{ message }}</p>
     </div>
   </section>
 </template>
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, watch } from 'vue';
+import { NAlert, NButton, NUpload } from 'naive-ui';
+import type { UploadFileInfo } from 'naive-ui';
 import { AVATAR_MAX_BYTES, AVATAR_MEDIA_TYPES } from '@memory-weave/contracts';
 import type { AvatarState, CompanionDetail, ChangeAvatar } from '@memory-weave/contracts';
 import { uploadAvatar, clearAvatar } from '@memory-weave/browser-client/avatars';
@@ -62,7 +67,6 @@ import { ApiError } from '@memory-weave/browser-client/http';
 import CompanionAvatar from './CompanionAvatar.vue';
 const props = defineProps<{ companion: CompanionDetail }>();
 const emit = defineEmits<{ changed: [state: AvatarState]; refresh: [] }>();
-const picker = ref<HTMLInputElement | null>(null);
 const selected = ref<File | null>(null);
 const preview = ref<string | null>(null);
 const busy = ref(false);
@@ -71,6 +75,7 @@ const message = ref('');
 const restricted = computed(() => Boolean(props.companion.lifecycleOperationId));
 let command: ChangeAvatar | null = null;
 let generation = 0;
+let disposed = false;
 watch([() => props.companion.id, () => props.companion.runtimeEpoch], () => {
   generation++;
   discard();
@@ -79,6 +84,7 @@ watch([() => props.companion.id, () => props.companion.runtimeEpoch], () => {
   message.value = '';
 });
 onScopeDispose(() => {
+  disposed = true;
   generation++;
   discard();
 });
@@ -92,16 +98,15 @@ function discard(): void {
   preview.value = null;
   selected.value = null;
   command = null;
-  if (picker.value) picker.value.value = '';
 }
 /**
  * 读取选中的头像图片并准备预览。
  *
  * 选图时固定版本，避免保存过程中用新版本覆盖其他终端的修改。
  */
-function select(event: Event): void {
-  const file = (event.target as HTMLInputElement).files?.[0];
-  if (!file) return;
+function select({ file: candidate }: { file: UploadFileInfo }): void {
+  const file = candidate.file;
+  if (!file || disposed || busy.value || restricted.value) return;
   discard();
   error.value = '';
   message.value = '';
@@ -203,10 +208,8 @@ async function reset(): Promise<void> {
   gap: 8px;
   flex-wrap: wrap;
 }
-.avatar-editor .button {
-  font-size: 12px;
-  min-height: 36px;
-  padding: 8px 12px;
+.avatar-editor__upload {
+  width: auto;
 }
 @media (max-width: 560px) {
   .avatar-editor {

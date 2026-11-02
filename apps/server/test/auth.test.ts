@@ -1,20 +1,29 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { request as httpRequest } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
+import { createRedisFaultProxy } from './support/redis-proxy';
+
+afterAll(disposeTestAuth);
 
 describe('single-owner HTTP access', () => {
   let app: INestApplication;
   let dataDir: string;
   let config: ServerConfig;
+  let redisProxy: Awaited<ReturnType<typeof createRedisFaultProxy>> | undefined;
 
   beforeEach(async () => {
     dataDir = await mkdtemp(join(tmpdir(), 'memory-weave-auth-'));
     config = {
+      ...createTestAuthConfig(),
       qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
       qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
       host: '127.0.0.1',
@@ -30,8 +39,9 @@ describe('single-owner HTTP access', () => {
   });
 
   afterEach(async () => {
-    vi.restoreAllMocks();
     await app?.close();
+    await redisProxy?.close();
+    redisProxy = undefined;
     await rm(dataDir, { recursive: true, force: true });
   });
 
@@ -63,6 +73,7 @@ describe('single-owner HTTP access', () => {
     expect(login.headers['set-cookie']).toEqual([
       expect.stringMatching(/memory_weave_session=.*HttpOnly.*SameSite=Strict/),
     ]);
+    expect(login.headers['set-cookie']?.[0]).toContain('Max-Age=43200');
     const session = await agent.get('/api/auth/session');
     expect(session.status).toBe(200);
     expect(session.body).toEqual({
@@ -155,6 +166,39 @@ describe('single-owner HTTP access', () => {
     expect(limited.headers['set-cookie']).toBeUndefined();
   });
 
+  it('在两个后端进程间共享登录尝试次数', async () => {
+    const second = await createApplication(config);
+    try {
+      for (const target of [app, second, app, second, app]) {
+        await request(target.getHttpServer())
+          .post('/api/auth/login')
+          .send({ password: 'wrong-password' })
+          .expect(401);
+      }
+      const limited = await request(second.getHttpServer())
+        .post('/api/auth/login')
+        .send({ password: config.adminPassword })
+        .expect(429);
+      expect(limited.headers['set-cookie']).toBeUndefined();
+    } finally {
+      await second.close();
+    }
+  });
+
+  it('并发创建会话时仍最多保留十个并淘汰最早登录', async () => {
+    await app.listen(0, '127.0.0.1');
+    const port = (app.getHttpServer().address() as AddressInfo).port;
+    const oldest = await loginFromSource(port, config.adminPassword, '127.0.0.2');
+    const cookies = await Promise.all(
+      Array.from({ length: 10 }, (_, index) =>
+        loginFromSource(port, config.adminPassword, `127.0.0.${index + 3}`),
+      ),
+    );
+    await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', oldest).expect(401);
+    for (const cookie of cookies)
+      await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(200);
+  });
+
   it('rejects oversized JSON before attempting password verification', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/auth/login')
@@ -211,18 +255,164 @@ describe('single-owner HTTP access', () => {
     });
   });
 
-  it('rejects a session after its twelve-hour lifetime', async () => {
+  it('访问和重建应用都不延长会话的 Redis 绝对有效期', async () => {
+    await app.close();
+    config.authSessionLifetimeMs = 2400;
+    app = await createApplication(config);
     const login = await request(app.getHttpServer())
       .post('/api/auth/login')
       .send({ password: config.adminPassword })
       .expect(200);
     const cookie = String(login.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '';
-    const later = Date.now() + 13 * 60 * 60 * 1000;
-    vi.spyOn(Date, 'now').mockReturnValue(later);
+    await delay(1000);
+    await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(200);
+    await app.close();
+    app = await createApplication(config);
+    await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(200);
+    await delay(1500);
     await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(401);
   });
 
-  it('requires signing in again after the server restarts', async () => {
+  it('多应用共享会话并同步退出，关闭一个应用不清空其他终端的登录', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: config.adminPassword })
+      .expect(200);
+    const cookie = String(login.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '';
+    const second = await createApplication(config);
+    try {
+      await request(second.getHttpServer())
+        .get('/api/auth/session')
+        .set('Cookie', cookie)
+        .expect(200);
+      const other = await request(second.getHttpServer())
+        .post('/api/auth/login')
+        .send({ password: config.adminPassword })
+        .expect(200);
+      const otherCookie = String(other.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '';
+      await request(second.getHttpServer())
+        .post('/api/auth/logout')
+        .set('Cookie', cookie)
+        .expect(200);
+      await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(401);
+      await second.close();
+      await request(app.getHttpServer())
+        .get('/api/auth/session')
+        .set('Cookie', otherCookie)
+        .expect(200);
+    } finally {
+      await second.close();
+    }
+  });
+
+  it.each(['password', 'secret'] as const)(
+    '轮换 %s 后原 Cookie 失效且新登录正常',
+    async (credential) => {
+      const login = await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ password: config.adminPassword })
+        .expect(200);
+      const cookie = String(login.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '';
+      await app.close();
+      config = {
+        ...config,
+        ...(credential === 'password'
+          ? { adminPassword: 'new-deployment-password' }
+          : { authSessionSecret: 'f'.repeat(64) }),
+      };
+      app = await createApplication(config);
+      await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(401);
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ password: config.adminPassword })
+        .expect(200);
+    },
+  );
+
+  it('隔离部署之间既不共享 Cookie 也不共用登录限流', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: config.adminPassword })
+      .expect(200);
+    const cookie = String(login.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '';
+    for (let attempt = 0; attempt < 4; attempt++)
+      await request(app.getHttpServer())
+        .post('/api/auth/login')
+        .send({ password: 'wrong-password' })
+        .expect(401);
+    const isolated = await createApplication({ ...config, ...createTestAuthConfig() });
+    try {
+      await request(isolated.getHttpServer())
+        .get('/api/auth/session')
+        .set('Cookie', cookie)
+        .expect(401);
+      await request(isolated.getHttpServer())
+        .post('/api/auth/login')
+        .send({ password: config.adminPassword })
+        .expect(200);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it('Redis 断线返回可识别的 503 且不清 Cookie，恢复后原会话仍有效', async () => {
+    await app.close();
+    redisProxy = await createRedisFaultProxy(config.redisUrl);
+    app = await createApplication({ ...config, redisUrl: redisProxy.url });
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: config.adminPassword })
+      .expect(200);
+    const cookie = String(login.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '';
+    redisProxy.disconnect();
+    for (const [method, path] of [
+      ['get', '/api/auth/session'],
+      ['post', '/api/auth/logout'],
+      ['post', '/api/auth/login'],
+    ] as const) {
+      const response = await request(app.getHttpServer())
+        [method](path)
+        .set('Cookie', cookie)
+        .send(
+          method === 'post' && path.endsWith('login')
+            ? { password: config.adminPassword }
+            : undefined,
+        )
+        .expect(503);
+      expect(response.body).toEqual({
+        code: 50303,
+        data: null,
+        message: '认证服务暂时不可用，请稍后重试。',
+      });
+      expect(response.headers['set-cookie']).toBeUndefined();
+    }
+    await request(app.getHttpServer()).get('/api/health/live').expect(200);
+    await request(app.getHttpServer()).get('/api/health/ready').expect(503);
+    redisProxy.reconnect();
+    await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(200);
+  });
+
+  it('Redis 接受连接却不响应握手时在有限时间内返回 503', async () => {
+    await app.close();
+    redisProxy = await createRedisFaultProxy(config.redisUrl);
+    redisProxy.stall();
+    app = await createApplication({ ...config, redisUrl: redisProxy.url });
+    const started = performance.now();
+    const response = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: config.adminPassword })
+      .expect(503);
+    expect(response.body.code).toBe(50303);
+    expect(response.headers['set-cookie']).toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(4000);
+    redisProxy.reconnect();
+    await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: config.adminPassword })
+      .expect(200);
+  });
+
+  it('保留后端重启前尚未到期的登录会话', async () => {
     const login = await request(app.getHttpServer())
       .post('/api/auth/login')
       .send({ password: config.adminPassword })
@@ -230,6 +420,39 @@ describe('single-owner HTTP access', () => {
     const cookie = String(login.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '';
     await app.close();
     app = await createApplication(config);
-    await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(401);
+    await request(app.getHttpServer()).get('/api/auth/session').set('Cookie', cookie).expect(200);
   });
 });
+
+/**
+ * 使用真实回环来源发起登录，独立验证会话上限而不绕过来源限流。
+ * @param port 测试应用监听端口。
+ * @param password 当前部署的测试登录密码。
+ * @param source 绑定到本次 TCP 请求的真实回环地址。
+ * @returns 登录响应中的会话 Cookie。
+ */
+async function loginFromSource(port: number, password: string, source: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ password });
+    const login = httpRequest(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/api/auth/login',
+        method: 'POST',
+        localAddress: source,
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+      },
+      (response) => {
+        response.resume();
+        response.on('end', () => {
+          if (response.statusCode !== 200)
+            return reject(new Error(`登录 HTTP ${response.statusCode}`));
+          resolve(String(response.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '');
+        });
+      },
+    );
+    login.on('error', reject);
+    login.end(body);
+  });
+}

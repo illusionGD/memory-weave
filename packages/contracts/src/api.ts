@@ -85,6 +85,8 @@ export const API_CODES = {
   DATA_UNAVAILABLE: 50301,
   /** 健康检查发现数据库、结构或文件存储不可用。 */
   DEPENDENCIES_UNAVAILABLE: 50302,
+  /** Redis 鉴权存储不可用；保留 Cookie，不将暂时故障当作登录失效。 */
+  AUTH_STORE_UNAVAILABLE: 50303,
   /** 等待上游服务响应超时。 */
   GATEWAY_TIMEOUT: 504,
 } as const;
@@ -196,6 +198,10 @@ export const API_RESPONSES = {
   [API_CODES.DEPENDENCIES_UNAVAILABLE]: {
     statusCode: 503,
     message: '依赖服务或数据库结构尚未就绪。',
+  },
+  [API_CODES.AUTH_STORE_UNAVAILABLE]: {
+    statusCode: 503,
+    message: '认证服务暂时不可用，请稍后重试。',
   },
   [API_CODES.GATEWAY_TIMEOUT]: { statusCode: 504, message: '上游服务响应超时，请稍后重试。' },
 } as const satisfies Record<ApiCode, { statusCode: number; message: string }>;

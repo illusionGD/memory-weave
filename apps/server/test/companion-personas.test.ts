@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:http';
@@ -9,11 +10,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+
+afterAll(disposeTestAuth);
 
 describe('伴侣初始人格的公开命令与查询', () => {
   let app: INestApplication;
@@ -31,6 +34,7 @@ describe('伴侣初始人格的公开命令与查询', () => {
       databaseUrl: database.databaseUrl,
       qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
       qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
+      ...createTestAuthConfig(),
       adminPassword: 'personas-test-password',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
@@ -77,6 +81,7 @@ describe('伴侣初始人格的公开命令与查询', () => {
     await app.close();
     config = loadServerConfig({
       DATABASE_URL: config.databaseUrl,
+      ...testAuthEnvironment(config),
       ADMIN_PASSWORD: config.adminPassword,
       QDRANT_URL: config.qdrantUrl,
       QDRANT_API_KEY: config.qdrantApiKey,

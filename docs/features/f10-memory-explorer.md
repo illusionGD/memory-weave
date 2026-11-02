@@ -35,12 +35,13 @@ docker compose --env-file .env -f deploy/compose.yaml up -d --build --wait
 
 `pnpm verify:f10` 在随机隔离数据库中，通过公开 HTTP 与本地模型协议 fixture 生成「杭州 → 苏州 → 纠正南京」、雨天推测和月之旅创作等记录，运行桌面/手机浏览器流程，最后删除自己创建的数据库。不连接付费供应商，不改真实伴侣数据，也不在日常数据库留下演示记录。
 
-先准备独立测试 MySQL 账号（具备临时库创建/删除权限）和测试 Qdrant；PowerShell 示例：
+先准备独立测试 MySQL 账号（具备临时库创建/删除权限）、测试 Qdrant 和测试 Redis；PowerShell 示例：
 
 ```powershell
 $env:TEST_DATABASE_URL = 'mysql://测试账号:测试密码@127.0.0.1:3306/mysql'
 $env:TEST_QDRANT_URL = 'http://127.0.0.1:6333'
 $env:TEST_QDRANT_API_KEY = '测试服务的密钥'
+$env:TEST_REDIS_URL = 'redis://:测试Redis的URL编码密码@127.0.0.1:6379/0'
 pnpm exec playwright install chromium
 pnpm verify:f10
 pnpm exec playwright show-report

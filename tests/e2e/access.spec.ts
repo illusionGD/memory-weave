@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, browserTest as test } from './fixtures';
 
 test('部署者登录后能查看运行状态，退出后需要重新登录', async ({ page }) => {
   await page.goto('/admin/');

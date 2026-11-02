@@ -1,19 +1,32 @@
 <template>
-  <span
+  <NAvatar
     class="avatar"
-    :style="{ '--avatar-size': `${size}px` }"
+    round
+    :size="size"
+    :src="source"
+    object-fit="cover"
+    :img-props="{ alt: '' }"
     role="img"
     :aria-label="`${name}的头像`"
+    :style="{ '--avatar-moon-size': `${size * 0.68}px` }"
   >
-    <img v-if="source && !failed" :src="source" alt="" @error="failed = true" />
-    <svg v-else viewBox="0 0 48 48" fill="none" aria-hidden="true">
-      <path d="M30 9a15 15 0 1 0 9 23A16 16 0 0 1 30 9Z" fill="currentColor" opacity=".9" />
-      <path d="m34 13 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" fill="currentColor" opacity=".6" />
-    </svg>
-  </span>
+    <template v-if="!source" #default>
+      <svg class="avatar__moon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M30 9a15 15 0 1 0 9 23A16 16 0 0 1 30 9Z" fill="currentColor" opacity=".9" />
+        <path d="m34 13 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" fill="currentColor" opacity=".6" />
+      </svg>
+    </template>
+    <template #fallback>
+      <svg class="avatar__moon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M30 9a15 15 0 1 0 9 23A16 16 0 0 1 30 9Z" fill="currentColor" opacity=".9" />
+        <path d="m34 13 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" fill="currentColor" opacity=".6" />
+      </svg>
+    </template>
+  </NAvatar>
 </template>
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed } from 'vue';
+import { NAvatar } from 'naive-ui';
 import type { CompanionAvatar } from '@memory-weave/contracts';
 const props = withDefaults(
   defineProps<{
@@ -25,32 +38,17 @@ const props = withDefaults(
   { avatar: null, size: 48, preview: null },
 );
 const source = computed(() => props.preview ?? props.avatar?.url);
-const failed = ref(false);
-watch(source, () => {
-  failed.value = false;
-});
 </script>
 <style scoped lang="scss">
 .avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   flex: none;
-  width: var(--avatar-size);
-  height: var(--avatar-size);
-  border-radius: 50%;
-  overflow: hidden;
   background: var(--color-accent-soft);
   color: var(--color-accent);
   vertical-align: middle;
 }
-.avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.avatar svg {
-  width: 68%;
-  height: 68%;
+.avatar__moon {
+  width: var(--avatar-moon-size);
+  height: var(--avatar-moon-size);
+  vertical-align: middle;
 }
 </style>

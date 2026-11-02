@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from './fixtures';
 
+test.use({ timezoneId: 'Asia/Shanghai' });
+
 test('后台按伴侣进入记忆浏览，空状态、筛选和刷新可用', async ({ page }, testInfo) => {
   const companion = (
     await (
@@ -19,6 +21,38 @@ test('后台按伴侣进入记忆浏览，空状态、筛选和刷新可用', as
   await page.getByLabel('关键词', { exact: true }).fill('杭州');
   await page.getByRole('button', { name: '应用筛选', exact: true }).click();
   await expect(page.getByText('当前范围还没有符合条件的记忆。')).toBeVisible();
+  await page.getByRole('button', { name: '更多筛选（类型、状态与时间）', exact: true }).click();
+  await page.getByLabel('现实与创作', { exact: true }).click();
+  await page.getByText('现实', { exact: true }).click();
+  const from = page.getByLabel(/^记下时间从/);
+  const until = page.getByLabel(/^记下时间至/);
+  await from.fill('2026-11-02 09:30');
+  await from.press('Tab');
+  await from.press('Escape');
+  await until.fill('2026-11-03 18:00');
+  await until.press('Tab');
+  await until.press('Escape');
+  const filtered = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith('/memory-explorer/entries') && url.searchParams.has('from');
+  });
+  await page.getByRole('button', { name: '应用筛选', exact: true }).click();
+  const query = new URL((await filtered).url()).searchParams;
+  expect(query.get('from')).toBe('2026-11-02T01:30:00.000Z');
+  expect(query.get('until')).toBe('2026-11-03T10:00:00.000Z');
+  expect(query.get('reality')).toBe('real');
+  expect(query.get('q')).toBe('杭州');
+  const reset = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith('/memory-explorer/entries') && !url.searchParams.has('from');
+  });
+  await page.getByRole('button', { name: '重置筛选', exact: true }).click();
+  const cleared = new URL((await reset).url()).searchParams;
+  expect(cleared.has('until')).toBe(false);
+  expect(cleared.has('reality')).toBe(false);
+  expect(cleared.has('q')).toBe(false);
+  await expect(from).toHaveValue('');
+  await expect(until).toHaveValue('');
   await page.getByRole('button', { name: '时间线', exact: true }).click();
   await expect(page.getByText('按记下时间排序；经历时间保留原有描述。')).toBeVisible();
   await page.reload();

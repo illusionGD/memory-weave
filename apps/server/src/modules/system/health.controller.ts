@@ -25,7 +25,7 @@ export class HealthController {
   /**
    * 返回后端及其依赖服务的就绪状态。
    *
-   * 仅当 MySQL、Qdrant、数据库结构和可写存储目录均可用时报告服务就绪。
+   * 仅当 MySQL、Qdrant、Redis、数据库结构和可写存储目录均可用时报告服务就绪。
    * @returns 仅包含就绪状态的响应。
    */
   @PublicRoute()
@@ -35,6 +35,7 @@ export class HealthController {
     if (
       status.database.status !== 'connected' ||
       status.vectorStore.status !== 'connected' ||
+      status.authenticationStore.status !== 'connected' ||
       status.storage.status !== 'ready' ||
       status.schema.status !== 'ready'
     ) {

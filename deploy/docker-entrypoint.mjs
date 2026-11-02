@@ -30,11 +30,25 @@ function configureDatabaseUrl() {
   process.env.DATABASE_URL = databaseUrl.toString();
 }
 
+/** 将容器 Redis 配置转换为连接串，只编码一次访问密码。 */
+function configureRedisUrl() {
+  if (process.env.REDIS_URL) return;
+  for (const key of ['REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD']) {
+    if (!process.env[key]) throw new Error(`Missing required Redis configuration: ${key}`);
+  }
+  const redisUrl = new URL('redis://localhost/0');
+  redisUrl.hostname = process.env.REDIS_HOST;
+  redisUrl.port = process.env.REDIS_PORT;
+  redisUrl.password = encodeURIComponent(process.env.REDIS_PASSWORD);
+  process.env.REDIS_URL = redisUrl.toString();
+}
+
 configureDatabaseUrl();
 const command = process.argv[2];
 if (command === 'migrate' || command === 'status') {
   await import('../dist/database/migrate-cli.js');
 } else if (command === undefined) {
+  configureRedisUrl();
   await import('../dist/main.js');
 } else {
   console.error('不支持的容器启动命令。');

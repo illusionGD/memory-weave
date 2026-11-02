@@ -1,9 +1,11 @@
 <template>
   <ChatLayout ref="layout">
     <div class="persona-page companion-profile">
-      <RouterLink class="companion-profile__back" to="/companions">← 所有伴侣</RouterLink>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <p v-if="loading && !state" role="status">正在读取伴侣…</p>
+      <UiLink class="companion-profile__back" text to="/companions">← 所有伴侣</UiLink>
+      <NAlert v-if="error" type="error" :show-icon="false">{{ error }}</NAlert>
+      <div v-if="loading && !state" class="companion-profile__loading" role="status">
+        <NSpin size="small" />正在读取伴侣…
+      </div>
       <template v-if="state">
         <header class="persona-page__intro companion-profile__intro">
           <CompanionAvatar
@@ -13,13 +15,14 @@
           />
           <p class="eyebrow">每段故事，都有一个起点</p>
           <h1 class="persona-page__title">{{ state.companion.name }}</h1>
-          <button
-            class="button button--primary"
+          <NButton
+            type="primary"
+            :loading="saving"
             :disabled="saving || !!state.companion.lifecycleOperationId"
             @click="startChat"
           >
             开始聊天
-          </button>
+          </NButton>
         </header>
         <AvatarEditor
           :key="state.companion.id"
@@ -27,12 +30,20 @@
           @changed="updateAvatar"
           @refresh="refresh"
         />
-        <p v-if="state.companion.currentPersonaVersion.mode === 'test'" class="persona-page__badge">
+        <NAlert
+          v-if="state.companion.currentPersonaVersion.mode === 'test'"
+          type="info"
+          :show-icon="false"
+        >
           测试模式：当前人设用于验证保存流程。
-        </p>
-        <p v-if="state.companion.lifecycleOperationId" class="notice" role="status">
-          正在整理这段人生，稍后再来看看。
-        </p>
+        </NAlert>
+        <div
+          v-if="state.companion.lifecycleOperationId"
+          class="companion-profile__loading"
+          role="status"
+        >
+          <NSpin size="small" />正在整理这段人生，稍后再来看看。
+        </div>
         <section
           v-if="state.companion.currentPersonaVersion.document"
           class="persona-page__panel"
@@ -48,9 +59,7 @@
           <p class="persona-page__text">{{ state.companion.initialSnapshot.profileText }}</p>
         </section>
       </template>
-      <button v-else-if="!loading" class="button button--secondary" @click="refresh">
-        重新读取伴侣
-      </button>
+      <NButton v-else-if="!loading" secondary @click="refresh"> 重新读取伴侣 </NButton>
     </div>
   </ChatLayout>
 </template>
@@ -59,7 +68,9 @@ import CompanionAvatar from '@/components/CompanionAvatar.vue';
 import AvatarEditor from '@/components/AvatarEditor.vue';
 import type { AvatarState } from '@memory-weave/contracts';
 import { computed, onScopeDispose, ref, watch } from 'vue';
-import { RouterLink, useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+import { NAlert, NButton, NSpin } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import type { CompanionPersonaState } from '@memory-weave/contracts';
 import { getPersona } from '@memory-weave/browser-client/personas';
 import { createChat } from '@memory-weave/browser-client/chats';
@@ -163,9 +174,13 @@ function updateAvatar(value: AvatarState): void {
   margin: 0 auto;
 }
 .companion-profile__back {
-  font-size: 13px;
+  justify-self: start;
+}
+.companion-profile__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   color: var(--color-ink-soft);
-  text-decoration: none;
 }
 .companion-profile__intro {
   text-align: center;

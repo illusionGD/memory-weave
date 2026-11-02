@@ -1,8 +1,8 @@
 <template>
   <AdminLayout>
     <div class="persona-page">
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <p v-if="loading && !state" role="status">正在读取伴侣…</p>
+      <NAlert v-if="error" type="error" role="alert">{{ error }}</NAlert>
+      <NSpin v-if="loading && !state" size="small" role="status" description="正在读取伴侣…" />
       <template v-if="state">
         <AvatarEditor
           :key="state.companion.id"
@@ -13,167 +13,186 @@
         <section class="persona-page__intro">
           <p class="eyebrow">A life, with its beginning kept</p>
           <h1 class="persona-page__title">{{ state.companion.name }}</h1>
-          <a
-            class="button button--secondary"
+          <NButton
+            tag="a"
+            secondary
             :href="chatUrl(`/companions/${state.companion.id}`)"
             target="_blank"
             rel="noopener"
-            >在聊天端查看 ↗</a
+            >在聊天端查看 ↗</NButton
           >
           <p class="persona-page__muted">初始人生作为长期起点保存，当前人格使用独立版本。</p>
         </section>
-        <p v-if="state.companion.currentPersonaVersion.mode === 'test'" class="persona-page__badge">
+        <NAlert v-if="state.companion.currentPersonaVersion.mode === 'test'" type="info">
           测试模式：已验证创建与保存流程；当前内容不代表真实模型的语义整理效果。
-        </p>
-        <section class="persona-page__panel" aria-label="初始整理状态">
+        </NAlert>
+        <NCard
+          role="region"
+          class="persona-page__panel"
+          content-class="persona-page__panel-content"
+          aria-label="初始整理状态"
+        >
           <h2>{{ statusLabel }}</h2>
           <p v-if="statusHint" class="persona-page__muted">{{ statusHint }}</p>
           <div class="persona-page__toolbar">
-            <button class="button button--secondary" :disabled="loading || saving" @click="refresh">
-              刷新
-            </button>
-            <button v-if="canPause" class="button button--quiet" :disabled="saving" @click="pause">
+            <NButton secondary :disabled="loading || saving" @click="refresh"> 刷新 </NButton>
+            <NButton v-if="canPause" quaternary :disabled="saving" @click="pause">
               暂停整理
-            </button>
-            <button
+            </NButton>
+            <NButton
               v-if="state.task?.status === 'paused'"
-              class="button button--secondary"
+              secondary
               :disabled="saving"
               @click="resume"
             >
               继续整理
-            </button>
-            <button
-              v-if="canCancel"
-              class="button button--quiet"
-              :disabled="saving"
-              @click="cancel"
-            >
+            </NButton>
+            <NButton v-if="canCancel" quaternary :disabled="saving" @click="cancel">
               取消整理
-            </button>
-            <button
-              v-if="canInitialize"
-              class="button button--primary"
-              :disabled="saving"
-              @click="initialize"
-            >
+            </NButton>
+            <NButton v-if="canInitialize" type="primary" :disabled="saving" @click="initialize">
               {{ state.task ? '重新尝试整理' : '开始整理初始人格' }}
-            </button>
+            </NButton>
           </div>
-        </section>
-        <section class="persona-page__panel" aria-label="人格版本">
+        </NCard>
+        <NCard
+          role="region"
+          class="persona-page__panel"
+          content-class="persona-page__panel-content"
+          aria-label="人格版本"
+        >
           <div class="persona-page__toolbar">
-            <button
-              class="button button--secondary"
-              :aria-pressed="selection === 'current'"
-              @click="showCurrent"
-            >
+            <NButton secondary :aria-pressed="selection === 'current'" @click="showCurrent">
               当前人格
-            </button>
-            <button
+            </NButton>
+            <NButton
               v-if="state.initialPersonaVersion"
-              class="button button--secondary"
+              secondary
               :aria-pressed="selection === 'initial'"
               @click="showInitial"
             >
               初始人格
-            </button>
+            </NButton>
             <label for="persona-history">历史版本</label>
-            <input
-              id="persona-history"
-              v-model.number="historyNumber"
-              class="persona-page__input companion-detail__version"
-              type="number"
-              min="1"
+            <NInputNumber
+              v-model:value="historyNumber"
+              :input-props="{ id: 'persona-history' }"
+              class="companion-detail__version"
+              :min="1"
+              :precision="0"
               :max="state.companion.currentPersonaVersion.version"
             />
-            <button class="button button--quiet" :disabled="loading || saving" @click="loadHistory">
+            <NButton quaternary :disabled="loading || saving" @click="loadHistory">
               查看版本
-            </button>
+            </NButton>
           </div>
           <h2>{{ versionLabel }}</h2>
           <PersonaDocumentView v-if="displayed?.document" :document="displayed.document" />
           <p v-else class="persona-page__muted">此版本保存的是原稿，初始整理尚未完成。</p>
-          <button
+          <NButton
             v-if="
               state.companion.currentPersonaVersion.document &&
               selection === 'current' &&
               !editingLocks
             "
-            class="button button--quiet"
+            quaternary
             @click="editLocks"
           >
             管理长期约束
-          </button>
-          <form v-if="editingLocks" class="companion-detail__locks" @submit.prevent="saveLocks">
-            <label for="edit-locks">长期保留的约束</label>
-            <textarea
-              id="edit-locks"
-              v-model="locksText"
-              class="persona-page__input"
-              rows="5"
-              :disabled="saving"
-              aria-describedby="locks-help"
-            />
+          </NButton>
+          <NForm
+            v-if="editingLocks"
+            class="companion-detail__locks"
+            label-placement="top"
+            @submit.prevent="saveLocks"
+          >
+            <NFormItem
+              label="长期保留的约束"
+              :label-props="{ for: 'edit-locks' }"
+              :show-feedback="false"
+            >
+              <NInput
+                v-model:value="locksText"
+                type="textarea"
+                :input-props="{ id: 'edit-locks', 'aria-describedby': 'locks-help' }"
+                :autosize="{ minRows: 5, maxRows: 12 }"
+                :disabled="saving"
+              />
+            </NFormItem>
             <p id="locks-help" class="persona-page__muted">
               每行一条，最多 40 条，每条 800 字。清空并保存表示解除这些明确约束。初始人格仍会保留。
             </p>
             <div class="persona-page__toolbar">
-              <button class="button button--primary" :disabled="saving" type="submit">
-                保存约束</button
-              ><button
-                class="button button--quiet"
-                :disabled="saving"
-                type="button"
-                @click="closeLocks"
-              >
+              <NButton type="primary" :disabled="saving" attr-type="submit"> 保存约束</NButton
+              ><NButton quaternary :disabled="saving" attr-type="button" @click="closeLocks">
                 取消编辑
-              </button>
+              </NButton>
             </div>
-          </form>
-        </section>
-        <section class="persona-page__panel">
+          </NForm>
+        </NCard>
+        <NCard class="persona-page__panel" content-class="persona-page__panel-content">
           <h2>最初的人设原稿</h2>
           <p class="persona-page__muted">这是创建时的设定，不是伴侣实际经历过的对话或事件。</p>
           <p class="persona-page__text">{{ state.companion.initialSnapshot.profileText }}</p>
           <p v-if="state.template" class="persona-page__muted">
             来自人设模板的第 {{ state.template.version }} 版，后续模板更新不会覆盖此处。
           </p>
-        </section>
-        <section class="persona-page__panel" aria-label="实例管理">
+        </NCard>
+        <NCard
+          role="region"
+          class="persona-page__panel"
+          content-class="persona-page__panel-content"
+          aria-label="实例管理"
+        >
           <h2>实例管理</h2>
           <p class="persona-page__muted">
             重置会保留初始人生并清除私有成长；删除会移除整个实例。已发布的共同原文仍保留，若需删除原文，请在聊天中单独选择。
           </p>
-          <RouterLink
+          <UiLink
             v-if="state.companion.lifecycleOperationId"
             :to="`/lifecycle/${state.companion.lifecycleOperationId}`"
-            >查看正在进行的清理</RouterLink
+            >查看正在进行的清理</UiLink
           >
           <div v-else class="persona-page__toolbar">
-            <button class="button button--secondary" :disabled="saving" @click="resetCompanion">
+            <NButton secondary :disabled="saving || confirming" @click="resetCompanion">
               重置伴侣
-            </button>
-            <button class="button button--quiet" :disabled="saving" @click="deleteCompanion">
+            </NButton>
+            <NButton
+              type="error"
+              secondary
+              :disabled="saving || confirming"
+              @click="deleteCompanion"
+            >
               删除伴侣
-            </button>
+            </NButton>
           </div>
-        </section>
+        </NCard>
       </template>
-      <button v-else-if="!loading" class="button button--secondary" @click="refresh">
-        重新读取伴侣
-      </button>
+      <NButton v-else-if="!loading" secondary @click="refresh"> 重新读取伴侣 </NButton>
     </div>
   </AdminLayout>
 </template>
 
 <script setup lang="ts">
+import {
+  NAlert,
+  NButton,
+  NCard,
+  NForm,
+  NFormItem,
+  NInput,
+  NInputNumber,
+  NSpin,
+  useDialog,
+} from 'naive-ui';
+import type { DialogReactive } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import AvatarEditor from '@/components/AvatarEditor.vue';
 import type { AvatarState } from '@memory-weave/contracts';
 import { createLifecycle } from '@memory-weave/browser-client/lifecycle';
 import { chatUrl } from '@/utils/chat-url';
 import { computed, onScopeDispose, ref, watch } from 'vue';
-import { RouterLink, useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { revisePersonaLocksSchema } from '@memory-weave/contracts';
 import type { CompanionPersonaState, PersonaVersion } from '@memory-weave/contracts';
 import AdminLayout from '@/components/AdminLayout.vue';
@@ -188,6 +207,7 @@ import {
   controlPersonaTask,
 } from '@memory-weave/browser-client/personas';
 const route = useRoute();
+const dialog = useDialog();
 const { loading, saving, error, run } = usePersonaPage();
 const identifyLocks = useCommandIdentity();
 const identifyInitialization = useCommandIdentity();
@@ -195,7 +215,8 @@ const identifyLifecycle = useCommandIdentity();
 const state = ref<CompanionPersonaState | null>(null);
 const selection = ref<'current' | 'initial' | 'history'>('current');
 const history = ref<PersonaVersion | null>(null);
-const historyNumber = ref(1);
+const historyNumber = ref<number | null>(1);
+const confirming = ref(false);
 const editingLocks = ref(false);
 const locksText = ref('');
 const editingVersion = ref(0);
@@ -252,10 +273,12 @@ const statusHint = computed(() => {
 });
 let timer: ReturnType<typeof setTimeout> | undefined;
 let disposed = false;
+let confirmation: DialogReactive | undefined;
 watch(() => route.params.id, changeCompanion, { immediate: true });
 onScopeDispose(() => {
   disposed = true;
   clearTimeout(timer);
+  confirmation?.destroy();
 });
 /**
  * 切换当前伴侣并重新加载详情。
@@ -264,6 +287,9 @@ onScopeDispose(() => {
  */
 async function changeCompanion(): Promise<void> {
   if (route.name !== 'companion-detail' || typeof route.params.id !== 'string') return;
+  confirmation?.destroy();
+  confirmation = undefined;
+  confirming.value = false;
   state.value = null;
   selection.value = 'current';
   editingLocks.value = false;
@@ -319,16 +345,13 @@ function showInitial(): void {
  * 明确输入版本后读取，不一次下载所有历史。
  */
 async function loadHistory(): Promise<void> {
-  if (!state.value || !Number.isInteger(historyNumber.value) || historyNumber.value < 1) {
+  const version = historyNumber.value;
+  if (!state.value || version === null || !Number.isInteger(version) || version < 1) {
     error.value = '请输入有效版本号。';
     return;
   }
   const result = await run(() =>
-    getPersonaVersion(
-      state.value!.companion.id,
-      state.value!.companion.runtimeEpoch,
-      historyNumber.value,
-    ),
+    getPersonaVersion(state.value!.companion.id, state.value!.companion.runtimeEpoch, version),
   );
   if (result) {
     history.value = result;
@@ -441,29 +464,74 @@ const chatRouter = useRouter();
  */
 async function manageCompanion(kind: 'reset_companion' | 'delete_companion'): Promise<void> {
   const companion = state.value?.companion;
-  if (!companion || saving.value || companion.lifecycleOperationId) return;
+  if (!companion || saving.value || confirming.value || companion.lifecycleOperationId) return;
   const action = kind === 'reset_companion' ? '重置' : '删除';
   const scope =
     kind === 'reset_companion'
       ? '清除私有成长，保留初始人生，并从新会话开始。'
       : '移除该实例及其私有人格。';
-  if (
-    !window.confirm(
-      `确定${action}“${companion.name}”吗？${scope}已发布的共同原文会保留。此操作不能撤销。`,
-    )
-  )
-    return;
   const value = {
     kind,
     companionId: companion.id,
     runtimeEpoch: companion.runtimeEpoch,
     expectedVersion: companion.version,
   };
-  const result = await run(
-    () => createLifecycle({ ...value, requestId: identifyLifecycle(value) }),
-    true,
-  );
-  if (result) await chatRouter.push({ name: 'lifecycle', params: { id: result.id } });
+  confirming.value = true;
+  let submitted = false;
+  const currentDialog = dialog.warning({
+    title: `${action}伴侣`,
+    content: `确定${action}“${companion.name}”吗？${scope}已发布的共同原文会保留。此操作不能撤销。`,
+    positiveText: `确认${action}`,
+    negativeText: '取消',
+    positiveButtonProps: { type: kind === 'delete_companion' ? 'error' : 'warning' },
+    onPositiveClick: submitLifecycle,
+    onAfterLeave: () => {
+      if (confirmation === currentDialog) {
+        confirmation = undefined;
+        confirming.value = false;
+      }
+    },
+  });
+  confirmation = currentDialog;
+  /** 校验确认时的实例版本并提交清理操作。 */
+  async function submitLifecycle(): Promise<boolean> {
+    if (submitted) return false;
+    const current = state.value?.companion;
+    if (
+      disposed ||
+      route.params.id !== value.companionId ||
+      current?.id !== value.companionId ||
+      current.runtimeEpoch !== value.runtimeEpoch ||
+      current.version !== value.expectedVersion ||
+      current.lifecycleOperationId
+    ) {
+      error.value = '伴侣状态已变化，请刷新后重新确认操作。';
+      return true;
+    }
+    submitted = true;
+    currentDialog.loading = true;
+    currentDialog.closable = false;
+    currentDialog.maskClosable = false;
+    currentDialog.closeOnEsc = false;
+    currentDialog.negativeButtonProps = { disabled: true };
+    const result = await run(
+      () => createLifecycle({ ...value, requestId: identifyLifecycle(value) }),
+      true,
+    );
+    if (result) {
+      if (!disposed && route.params.id === value.companionId)
+        await chatRouter.push({ name: 'lifecycle', params: { id: result.id } });
+      return true;
+    }
+    submitted = false;
+    currentDialog.loading = false;
+    currentDialog.closable = true;
+    currentDialog.maskClosable = true;
+    currentDialog.closeOnEsc = true;
+    currentDialog.negativeButtonProps = { disabled: false };
+    currentDialog.content = `${scope}提交未完成：${error.value ?? '请重试。'}`;
+    return false;
+  }
 }
 /**
  * 重置当前伴侣的人生。
@@ -495,7 +563,7 @@ function updateAvatar(value: AvatarState): void {
 <style scoped lang="scss">
 .companion-detail {
   &__version {
-    width: 90px;
+    width: 130px;
   }
   &__locks {
     display: grid;

@@ -2,51 +2,64 @@
   <section class="memory-graph" aria-label="局部记忆关系图">
     <div class="memory-graph__toolbar">
       <span>{{ nodes.length }} 个已展开节点 · {{ edges.length }} 条关系</span
-      ><button class="button button--secondary" type="button" @click="fit">适应画布</button>
+      ><NButton @click="fit">适应画布</NButton>
     </div>
     <p class="memory-graph__legend">
       蓝色：记忆与版本 · 灰色：原文 ·
       橙色虚线：推测内容或普通依赖。连线表示保存过的关联，不代表主张已获证实。
     </p>
-    <p v-if="loadError" class="notice notice--error" role="alert">
+    <NAlert v-if="loadError" type="error" role="alert">
       图形暂未加载，仍可使用下方节点和关系列表。
-    </p>
+    </NAlert>
     <div
       ref="container"
       class="memory-graph__canvas"
       role="img"
       aria-label="记忆、版本和原文的关系图"
     ></div>
-    <details class="memory-graph__text" open>
-      <summary>节点与关系（可键盘操作）</summary>
-      <div class="memory-graph__nodes">
-        <button
-          v-for="node in nodes"
-          :key="node.id"
-          class="button button--secondary"
-          :disabled="loading"
-          @click="emit('select', node)"
-        >
-          {{ node.label
-          }}<span v-if="node.record">
-            · {{ node.record.document?.text.slice(0, 26) ?? '正文已清除' }}</span
+    <NCollapse
+      class="memory-graph__text"
+      :default-expanded-names="['relations']"
+      display-directive="show"
+    >
+      <NCollapseItem name="relations">
+        <template #header="{ collapsed }">
+          <NButton text :aria-expanded="!collapsed"
+            ><span class="memory-graph__collapse-label">节点与关系（可键盘操作）</span></NButton
           >
-        </button>
-      </div>
-      <ul>
-        <li v-for="edge in edges" :key="edge.id">
-          <span
-            >{{ nodeLabel(edge.source) }} → {{ nodeLabel(edge.target) }} ·
-            <strong>{{ MEMORY_EDGE_LABELS[edge.kind] }}</strong></span
+        </template>
+        <div class="memory-graph__nodes">
+          <NButton
+            v-for="node in nodes"
+            :key="node.id"
+            class="memory-graph__node"
+            :disabled="loading"
+            @click="emit('select', node)"
           >
-          <blockquote v-if="edge.quote">{{ edge.quote }}</blockquote>
-        </li>
-      </ul>
-    </details>
+            <span class="memory-graph__node-label"
+              >{{ node.label
+              }}<template v-if="node.record">
+                · {{ node.record.document?.text.slice(0, 26) ?? '正文已清除' }}</template
+              ></span
+            >
+          </NButton>
+        </div>
+        <ul>
+          <li v-for="edge in edges" :key="edge.id">
+            <span
+              >{{ nodeLabel(edge.source) }} → {{ nodeLabel(edge.target) }} ·
+              <strong>{{ MEMORY_EDGE_LABELS[edge.kind] }}</strong></span
+            >
+            <blockquote v-if="edge.quote">{{ edge.quote }}</blockquote>
+          </li>
+        </ul>
+      </NCollapseItem>
+    </NCollapse>
   </section>
 </template>
 <script setup lang="ts">
 import { onMounted, onScopeDispose, ref, watch } from 'vue';
+import { NAlert, NButton, NCollapse, NCollapseItem } from 'naive-ui';
 import type { Core, ElementDefinition } from 'cytoscape';
 import type { MemoryGraphNode, MemoryGraphEdge } from '@memory-weave/contracts';
 import { MEMORY_EDGE_LABELS } from '@/utils/memory-labels';
@@ -203,6 +216,11 @@ onScopeDispose(() => {
 </script>
 <style scoped lang="scss">
 .memory-graph {
+  &__collapse-label {
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
   min-width: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -238,11 +256,18 @@ onScopeDispose(() => {
     flex-wrap: wrap;
     margin: var(--space-3) 0;
   }
-  &__nodes button {
+  &__node {
+    height: auto;
+    min-height: 34px;
+    max-width: 100%;
+  }
+  &__node-label {
+    display: block;
     text-align: left;
     white-space: normal;
     overflow-wrap: anywhere;
-    max-width: 100%;
+    min-width: 0;
+    padding: var(--space-2) 0;
   }
   ul {
     padding-left: var(--space-4);

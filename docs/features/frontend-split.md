@@ -31,7 +31,7 @@ pnpm dev
 
 `dev` 脚本在 `ADMIN_APP_ORIGIN` 未设置时使用 `APP_ORIGIN` 的主机和协议、端口改为 5174。浏览器地址应与对应 origin 一致。直接单独启动 server 时，需自行设置 `ADMIN_APP_ORIGIN` 才能接受另一来源的写请求。后端只允许明确配置的两个来源，不放开其他端口或站点。
 
-两个前端在 dev 使用 `memory-weave-source` 条件直接引用 contracts 和 browser-client 的 TS 源码，修改后由 Vite 热更新，无需先 build。后端只额外监听 contracts，修改纯浏览器客户端不重启后端或撤销会话。生产 `pnpm build` 则按依赖顺序生成共享包及两端的独立 dist。
+两个前端在 dev 使用 `memory-weave-source` 条件直接引用 contracts 和 browser-client 的 TS 源码，修改后由 Vite 热更新，无需先 build。后端只额外监听 contracts，修改纯浏览器客户端不重启后端；后端热重载使用 Redis 保留未到期登录。生产 `pnpm build` 则按依赖顺序生成共享包及两端的独立 dist。
 
 ## 部署与独立发布
 
@@ -65,7 +65,7 @@ pnpm --filter @memory-weave/admin... build
 
 1. 启动两端，聊天端首页为私聊；创建伴侣、开始聊天、刷新与断线重连可用。导航没有运行概览、模板、清理记录。
 2. 聊天详情查看记忆与来源，没有手动整理或批次重试控件；删除消息后仍停留在本次私聊，另一窗口的旧正文同步失效。
-3. 后台登录后查看真实 MySQL、Qdrant 与存储状态；伴侣列表为表格，可管理约束、历史版本、模板与实例生命周期。
+3. 后台登录后查看真实 MySQL、Qdrant、Redis 与存储状态；伴侣列表为表格，可管理约束、历史版本、模板与实例生命周期。
 4. 后台「记忆记录」选取私聊后查看整理批次、触发整理；侧栏、深层地址刷新和「打开聊天端」均落到正确项目。
 5. 手机视口导航可操作，页面不横向溢出；生产 `/admin/companions` 与 `/chats/:id` 刷新不互串。
 

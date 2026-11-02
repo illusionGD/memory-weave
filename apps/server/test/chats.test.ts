@@ -1,10 +1,11 @@
+import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createTestDatabase } from './support/database';
@@ -18,6 +19,8 @@ import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { setTimeout as delay } from 'node:timers/promises';
+
+afterAll(disposeTestAuth);
 
 describe('私聊的公开 HTTP 与事件边界', () => {
   let app: INestApplication;
@@ -37,6 +40,7 @@ describe('私聊的公开 HTTP 与事件边界', () => {
       databaseUrl: database.databaseUrl,
       qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
       qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
+      ...createTestAuthConfig(),
       adminPassword: 'chats-test-password',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
@@ -143,6 +147,7 @@ describe('私聊的公开 HTTP 与事件边界', () => {
     await app.close();
     config = loadServerConfig({
       DATABASE_URL: config.databaseUrl,
+      ...testAuthEnvironment(config),
       ADMIN_PASSWORD: config.adminPassword,
       QDRANT_URL: config.qdrantUrl,
       QDRANT_API_KEY: config.qdrantApiKey,
@@ -253,6 +258,7 @@ describe('私聊的公开 HTTP 与事件边界', () => {
     const environment = {
       ...process.env,
       DATABASE_URL: config.databaseUrl,
+      ...testAuthEnvironment(config),
       ADMIN_PASSWORD: config.adminPassword,
       QDRANT_URL: config.qdrantUrl,
       QDRANT_API_KEY: config.qdrantApiKey,
@@ -541,6 +547,7 @@ describe('私聊的公开 HTTP 与事件边界', () => {
     await app.close();
     config = loadServerConfig({
       DATABASE_URL: config.databaseUrl,
+      ...testAuthEnvironment(config),
       ADMIN_PASSWORD: config.adminPassword,
       QDRANT_URL: config.qdrantUrl,
       QDRANT_API_KEY: config.qdrantApiKey,

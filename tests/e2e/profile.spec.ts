@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, browserTest as test } from './fixtures';
 
 test('显示名称可修改并在刷新和重新登录后保留', async ({ page }, testInfo) => {
   await page.goto('/settings');

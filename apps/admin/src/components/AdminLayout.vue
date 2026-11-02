@@ -6,23 +6,15 @@
       >
       <p class="admin-shell__group">工作空间</p>
       <nav class="admin-shell__nav" aria-label="后台管理">
-        <RouterLink
-          v-for="item in navigation"
-          :key="item.to"
-          :to="item.to"
-          :class="{ 'is-active': isActive(item.to) }"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            aria-hidden="true"
-          >
-            <path :d="item.icon" />
-          </svg>
-          {{ item.label }}
-        </RouterLink>
+        <NMenu
+          :value="activeNavigation"
+          :options="menuOptions"
+          :mode="compact ? 'horizontal' : 'vertical'"
+          :responsive="false"
+          :indent="14"
+          inverted
+          :theme-overrides="menuTheme"
+        />
       </nav>
       <div class="admin-shell__bottom">
         <span class="admin-shell__indicator"></span>私人部署<span>CONTROL CENTER</span>
@@ -35,14 +27,21 @@
           ><strong>{{ route.meta.title ?? '管理' }}</strong>
         </div>
         <div class="admin-shell__actions">
-          <a :href="chatUrl()" target="_blank" rel="noopener">打开聊天端 ↗</a
-          ><button class="button button--quiet" :disabled="auth.loggingOut" @click="logout">
+          <NButton text tag="a" :href="chatUrl()" target="_blank" rel="noopener"
+            >打开聊天端 ↗</NButton
+          >
+          <NButton
+            quaternary
+            :loading="auth.loggingOut"
+            :disabled="auth.loggingOut"
+            @click="logout"
+          >
             退出登录
-          </button>
+          </NButton>
         </div>
       </header>
       <main class="admin-shell__content">
-        <p v-if="auth.error" class="notice notice--error" role="alert">{{ auth.error }}</p>
+        <NAlert v-if="auth.error" type="error" role="alert">{{ auth.error }}</NAlert>
         <slot />
       </main>
       <footer class="admin-shell__footer">Memory Weave <span>管理工作空间</span></footer>
@@ -50,6 +49,9 @@
   </div>
 </template>
 <script setup lang="ts">
+import { computed, h, onMounted, onScopeDispose, ref } from 'vue';
+import { NAlert, NButton, NMenu } from 'naive-ui';
+import type { MenuOption, MenuProps } from 'naive-ui';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BrandMark from './BrandMark.vue';
 import { useAuthStore } from '@/stores/auth';
@@ -57,6 +59,18 @@ import { chatUrl } from '@/utils/chat-url';
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+const compact = ref(false);
+let media: MediaQueryList | undefined;
+const menuTheme: NonNullable<MenuProps['themeOverrides']> = {
+  itemColorActiveInverted: '#2b4677',
+  itemColorHoverInverted: '#24324c',
+  itemColorActiveHoverInverted: '#2b4677',
+  itemTextColorInverted: '#b0bfd4',
+  itemTextColorActiveInverted: '#ffffff',
+  itemTextColorActiveHoverInverted: '#ffffff',
+  itemIconColorInverted: '#b0bfd4',
+  itemIconColorActiveInverted: '#ffffff',
+};
 const navigation = [
   { to: '/', label: '运行概览', icon: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z' },
   {
@@ -76,6 +90,35 @@ const navigation = [
     icon: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6',
   },
 ];
+const activeNavigation = computed(() => navigation.find((item) => isActive(item.to))?.to ?? null);
+const menuOptions: MenuOption[] = navigation.map((item) => ({
+  key: item.to,
+  label: () => h(RouterLink, { to: item.to }, { default: () => item.label }),
+  icon: () =>
+    h(
+      'svg',
+      {
+        viewBox: '0 0 24 24',
+        width: 18,
+        height: 18,
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': 1.6,
+        'aria-hidden': 'true',
+      },
+      [h('path', { d: item.icon })],
+    ),
+}));
+onMounted(() => {
+  media = window.matchMedia('(max-width: 850px)');
+  updateCompact();
+  media.addEventListener('change', updateCompact);
+});
+onScopeDispose(() => media?.removeEventListener('change', updateCompact));
+/** 根据可用宽度调整后台导航方向。 */
+function updateCompact(): void {
+  compact.value = media?.matches ?? false;
+}
 /**
  * 判断导航项是否属于当前管理页面。
  *
@@ -108,6 +151,7 @@ async function logout(): Promise<void> {
   grid-template-columns: 228px minmax(0, 1fr);
 }
 .admin-shell__sidebar {
+  min-width: 0;
   position: sticky;
   top: 0;
   height: 100svh;
@@ -149,31 +193,7 @@ async function logout(): Promise<void> {
   color: #7e92b0;
 }
 .admin-shell__nav {
-  display: grid;
-  gap: 6px;
-}
-.admin-shell__nav a {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 6px;
-  text-decoration: none;
-  color: inherit;
-  font-size: 13px;
-  transition: background 0.18s;
-}
-.admin-shell__nav a:hover {
-  background: #24324c;
-}
-.admin-shell__nav a.is-active {
-  background: #2b4677;
-  color: #fff;
-}
-.admin-shell__nav a svg {
-  width: 18px;
-  height: 18px;
-  flex: none;
+  min-width: 0;
 }
 .admin-shell__bottom {
   margin-top: auto;
@@ -241,7 +261,7 @@ async function logout(): Promise<void> {
 
 @media (max-width: 850px) {
   .admin-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .admin-shell__sidebar {
     position: static;
@@ -259,17 +279,10 @@ async function logout(): Promise<void> {
     display: none;
   }
   .admin-shell__nav {
-    display: flex;
     overflow: auto;
-    gap: 4px;
   }
-  .admin-shell__nav a {
-    white-space: nowrap;
-    padding: 10px;
-    font-size: 12px;
-  }
-  .admin-shell__nav a svg {
-    display: none;
+  .admin-shell__nav :deep(.n-menu) {
+    min-width: max-content;
   }
   .admin-shell__header {
     height: 58px;

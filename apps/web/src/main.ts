@@ -1,3 +1,4 @@
+import './utils/validation-config';
 import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 import App from './App.vue';

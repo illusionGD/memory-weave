@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
@@ -14,7 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   companionDetailSchema,
   conversationDetailSchema,
@@ -25,6 +26,8 @@ import { createApplication } from '../src/app';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
+
+afterAll(disposeTestAuth);
 
 describe('批量记忆整理的公开协议', () => {
   let worker: ChildProcess | undefined;
@@ -47,6 +50,7 @@ describe('批量记忆整理的公开协议', () => {
       databaseUrl: database.databaseUrl,
       qdrantUrl: 'http://127.0.0.1:1',
       qdrantApiKey: 'test-vector-key',
+      ...createTestAuthConfig(),
       adminPassword: 'memory-test-password',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
@@ -198,6 +202,7 @@ describe('批量记忆整理的公开协议', () => {
     await app.close();
     config = loadServerConfig({
       DATABASE_URL: database.databaseUrl,
+      ...testAuthEnvironment(config),
       ADMIN_PASSWORD: 'memory-test-password',
       QDRANT_API_KEY: 'test-vector-key',
       DATA_DIR: dataDir,
@@ -639,6 +644,7 @@ describe('批量记忆整理的公开协议', () => {
         env: {
           ...process.env,
           DATABASE_URL: database.databaseUrl,
+          ...testAuthEnvironment(config),
           ADMIN_PASSWORD: config.adminPassword,
           QDRANT_API_KEY: config.qdrantApiKey,
           DATA_DIR: dataDir,

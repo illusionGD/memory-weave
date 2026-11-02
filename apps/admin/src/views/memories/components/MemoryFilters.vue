@@ -1,106 +1,143 @@
 <template>
-  <form class="memory-filters" @submit.prevent="apply">
-    <label
-      >会话范围<select v-model="draft.conversationId" :disabled="loading">
-        <option value="">与这位伴侣的全部私聊</option>
-        <option
-          v-if="
-            draft.conversationId && !conversations.some((item) => item.id === draft.conversationId)
-          "
-          :value="draft.conversationId"
-        >
-          已选择的会话
-        </option>
-        <option v-for="item in conversations" :key="item.id" :value="item.id">
-          {{ item.title }} · {{ item.kind === 'group' ? '群聊' : '私聊' }} ·
-          {{ item.id.slice(0, 6) }}
-        </option>
-      </select></label
-    >
-    <label
-      >关键词<input
-        v-model="draft.q"
-        type="search"
-        maxlength="120"
+  <NForm class="memory-filters" :show-feedback="false" @submit.prevent="apply">
+    <NFormItem label="会话范围" :label-props="{ for: 'memory-conversation' }">
+      <NSelect
+        v-model:value="draft.conversationId"
+        :options="conversationOptions"
+        :input-props="{ id: 'memory-conversation' }"
+        filterable
+        :disabled="loading"
+      />
+    </NFormItem>
+    <NFormItem label="关键词" :label-props="{ for: 'memory-keyword' }">
+      <NInput
+        v-model:value="draft.q"
+        :input-props="{ id: 'memory-keyword', type: 'search' }"
+        :maxlength="120"
         placeholder="按记忆正文查找"
         :disabled="loading"
-    /></label>
-    <details class="memory-filters__advanced">
-      <summary>更多筛选（类型、状态与时间）</summary>
-      <div class="memory-filters__grid">
-        <label
-          >记忆类型<select v-model="draft.kind" :disabled="loading">
-            <option value="">全部类型</option>
-            <option v-for="(label, value) in MEMORY_KIND_LABELS" :key="value" :value="value">
-              {{ label }}
-            </option>
-          </select></label
-        >
-        <label
-          >内容类别<select v-model="draft.claim" :disabled="loading">
-            <option value="">全部类别</option>
-            <option v-for="(label, value) in MEMORY_CLAIM_LABELS" :key="value" :value="value">
-              {{ label }}
-            </option>
-          </select></label
-        >
-        <label
-          >有效状态<select v-model="draft.status" :disabled="loading">
-            <option value="">全部状态</option>
-            <option v-for="(label, value) in MEMORY_STATUS_LABELS" :key="value" :value="value">
-              {{ label }}
-            </option>
-          </select></label
-        >
-        <label
-          >现实与创作<select v-model="draft.reality" :disabled="loading">
-            <option value="">全部范围</option>
-            <option value="real">现实</option>
-            <option value="fictional">创作设定</option>
-            <option value="unspecified">尚未明确</option>
-          </select></label
-        >
-        <label
-          >故事标识<input
-            v-model="draft.storyKey"
-            maxlength="120"
-            placeholder="可选，精确匹配"
-            :disabled="loading"
-        /></label>
-        <label
-          >记下时间从<input v-model="draft.from" type="datetime-local" :disabled="loading"
-        /></label>
-        <label
-          >记下时间至<input v-model="draft.until" type="datetime-local" :disabled="loading"
-        /></label>
-      </div>
-    </details>
+        clearable
+      />
+    </NFormItem>
+    <NCollapse class="memory-filters__advanced" display-directive="show">
+      <NCollapseItem name="advanced">
+        <template #header="{ collapsed }">
+          <NButton text :aria-expanded="!collapsed"
+            ><span class="memory-filters__collapse-label"
+              >更多筛选（类型、状态与时间）</span
+            ></NButton
+          >
+        </template>
+        <div class="memory-filters__grid">
+          <NFormItem label="记忆类型" :label-props="{ for: 'memory-kind' }">
+            <NSelect
+              v-model:value="draft.kind"
+              :options="kindOptions"
+              :input-props="{ id: 'memory-kind' }"
+              filterable
+              :disabled="loading"
+            />
+          </NFormItem>
+          <NFormItem label="内容类别" :label-props="{ for: 'memory-claim' }">
+            <NSelect
+              v-model:value="draft.claim"
+              :options="claimOptions"
+              :input-props="{ id: 'memory-claim' }"
+              filterable
+              :disabled="loading"
+            />
+          </NFormItem>
+          <NFormItem label="有效状态" :label-props="{ for: 'memory-status' }">
+            <NSelect
+              v-model:value="draft.status"
+              :options="statusOptions"
+              :input-props="{ id: 'memory-status' }"
+              filterable
+              :disabled="loading"
+            />
+          </NFormItem>
+          <NFormItem label="现实与创作" :label-props="{ for: 'memory-reality' }">
+            <NSelect
+              v-model:value="draft.reality"
+              :options="realityOptions"
+              :input-props="{ id: 'memory-reality' }"
+              filterable
+              :disabled="loading"
+            />
+          </NFormItem>
+          <NFormItem label="故事标识" :label-props="{ for: 'memory-story-key' }">
+            <NInput
+              v-model:value="draft.storyKey"
+              :input-props="{ id: 'memory-story-key' }"
+              :maxlength="120"
+              placeholder="可选，精确匹配"
+              :disabled="loading"
+              clearable
+            />
+          </NFormItem>
+          <NFormItem :show-label="false">
+            <label class="memory-filters__date-label">
+              <span>记下时间从</span>
+              <NDatePicker
+                v-model:value="from"
+                type="datetime"
+                format="yyyy-MM-dd HH:mm"
+                placeholder="选择开始时间"
+                :disabled="loading"
+                clearable
+              />
+            </label>
+          </NFormItem>
+          <NFormItem :show-label="false">
+            <label class="memory-filters__date-label">
+              <span>记下时间至</span>
+              <NDatePicker
+                v-model:value="until"
+                type="datetime"
+                format="yyyy-MM-dd HH:mm"
+                placeholder="选择结束时间"
+                :disabled="loading"
+                clearable
+              />
+            </label>
+          </NFormItem>
+        </div>
+      </NCollapseItem>
+    </NCollapse>
     <div class="memory-filters__actions">
-      <button class="button button--primary" :disabled="loading" type="submit">应用筛选</button
-      ><button class="button button--secondary" :disabled="loading" type="button" @click="reset">
-        重置筛选</button
-      ><button
+      <NButton type="primary" :disabled="loading" attr-type="submit">应用筛选</NButton>
+      <NButton :disabled="loading" @click="reset">重置筛选</NButton>
+      <NButton
         v-if="hasMoreConversations"
-        class="button button--quiet"
+        quaternary
         :disabled="loading"
-        type="button"
         @click="emit('moreConversations')"
       >
-        下一页会话选项</button
-      ><button
-        class="button button--quiet"
-        :disabled="loading"
-        type="button"
-        @click="emit('firstConversations')"
-      >
+        下一页会话选项
+      </NButton>
+      <NButton quaternary :disabled="loading" @click="emit('firstConversations')">
         会话选项首页
-      </button>
+      </NButton>
     </div>
-    <p v-if="validationError" class="notice notice--error" role="alert">{{ validationError }}</p>
-  </form>
+    <NAlert v-if="validationError" class="memory-filters__error" type="error" role="alert">
+      {{ validationError }}
+    </NAlert>
+  </NForm>
 </template>
+
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
+import {
+  NAlert,
+  NButton,
+  NCollapse,
+  NCollapseItem,
+  NDatePicker,
+  NForm,
+  NFormItem,
+  NInput,
+  NSelect,
+} from 'naive-ui';
 import { memoryExplorerQuerySchema } from '@memory-weave/contracts';
 import type { MemoryExplorerConversation, MemoryExplorerQuery } from '@memory-weave/contracts';
 import {
@@ -108,6 +145,7 @@ import {
   MEMORY_CLAIM_LABELS,
   MEMORY_STATUS_LABELS,
 } from '@/utils/memory-labels';
+
 const props = defineProps<{
   conversations: MemoryExplorerConversation[];
   initialConversation?: string;
@@ -127,10 +165,39 @@ const draft = reactive({
   status: '',
   reality: '',
   storyKey: '',
-  from: '',
-  until: '',
 });
+const from = ref<number | null>(null);
+const until = ref<number | null>(null);
 const validationError = ref<string | null>(null);
+const conversationOptions = computed(() => [
+  { value: '', label: '与这位伴侣的全部私聊' },
+  ...(draft.conversationId && !props.conversations.some((item) => item.id === draft.conversationId)
+    ? [{ value: draft.conversationId, label: '已选择的会话' }]
+    : []),
+  ...props.conversations.map((item) => ({
+    value: item.id,
+    label: `${item.title} · ${item.kind === 'group' ? '群聊' : '私聊'} · ${item.id.slice(0, 6)}`,
+  })),
+]);
+const kindOptions = [
+  { value: '', label: '全部类型' },
+  ...Object.entries(MEMORY_KIND_LABELS).map(([value, label]) => ({ value, label })),
+];
+const claimOptions = [
+  { value: '', label: '全部类别' },
+  ...Object.entries(MEMORY_CLAIM_LABELS).map(([value, label]) => ({ value, label })),
+];
+const statusOptions = [
+  { value: '', label: '全部状态' },
+  ...Object.entries(MEMORY_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+];
+const realityOptions = [
+  { value: '', label: '全部范围' },
+  { value: 'real', label: '现实' },
+  { value: 'fictional', label: '创作设定' },
+  { value: 'unspecified', label: '尚未明确' },
+];
+
 watch(
   () => props.initialConversation,
   (value) => {
@@ -138,20 +205,23 @@ watch(
   },
   { immediate: true },
 );
+
 /**
  * 校验并提交记忆筛选条件。
  *
- * 使用公共查询契约校验，日期输入采用浏览器本地时区转换成 UTC。
+ * 日期组件按浏览器本地时区生成时间戳，提交时转换成 UTC；清空日期后移除对应条件。
  */
 function apply(): void {
-  const values = Object.fromEntries(
-    Object.entries(draft)
-      .filter(([, value]) => value.trim())
-      .map(([key, value]) => [
-        key,
-        key === 'from' || key === 'until' ? new Date(value).toISOString() : value,
-      ]),
-  );
+  const values = Object.fromEntries(Object.entries(draft).filter(([, value]) => value.trim()));
+  const dates = { from: from.value, until: until.value };
+  for (const [key, timestamp] of Object.entries(dates)) {
+    if (timestamp === null) continue;
+    if (!Number.isFinite(timestamp) || Number.isNaN(new Date(timestamp).getTime())) {
+      validationError.value = '筛选条件无效，请检查时间先后和输入内容。';
+      return;
+    }
+    values[key] = new Date(timestamp).toISOString();
+  }
   const result = memoryExplorerQuerySchema.safeParse({ ...values, runtimeEpoch: 1 });
   if (!result.success) {
     validationError.value = '筛选条件无效，请检查时间先后和输入内容。';
@@ -163,6 +233,7 @@ function apply(): void {
   delete filters.limit;
   emit('apply', filters);
 }
+
 /**
  * 重置记忆筛选条件并重新查询。
  *
@@ -170,12 +241,20 @@ function apply(): void {
  */
 function reset(): void {
   for (const key of Object.keys(draft) as (keyof typeof draft)[]) draft[key] = '';
+  from.value = null;
+  until.value = null;
   validationError.value = null;
   emit('apply', {});
 }
 </script>
+
 <style scoped lang="scss">
 .memory-filters {
+  &__collapse-label {
+    white-space: normal;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
@@ -183,39 +262,26 @@ function reset(): void {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  label {
-    display: grid;
-    gap: var(--space-2);
-    color: var(--color-ink-soft);
-    font-size: 13px;
-    min-width: 0;
-  }
-  input,
-  select {
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    background: var(--color-surface);
-    color: var(--color-ink);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    padding: 9px 10px;
-    font: inherit;
-  }
-  &__advanced {
+
+  &__advanced,
+  &__error {
     grid-column: 1 / -1;
+    min-width: 0;
   }
-  &__advanced summary {
-    cursor: pointer;
-    color: var(--color-ink-soft);
-    font-size: 13px;
-  }
+
   &__grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-4);
-    padding-top: var(--space-4);
   }
+
+  &__date-label {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+    width: 100%;
+  }
+
   &__actions {
     grid-column: 1 / -1;
     display: flex;
@@ -223,6 +289,7 @@ function reset(): void {
     gap: var(--space-2);
   }
 }
+
 @media (max-width: 700px) {
   .memory-filters,
   .memory-filters__grid {

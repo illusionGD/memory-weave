@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,6 +16,8 @@ import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
 import { expectApiError } from './support/http';
 
+afterAll(disposeTestAuth);
+
 describe('会话与原文 HTTP 契约', () => {
   let app: INestApplication;
   let database: TestDatabase;
@@ -30,6 +33,7 @@ describe('会话与原文 HTTP 契约', () => {
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,
+      ...createTestAuthConfig(),
       adminPassword: 'test-password-for-conversations',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,

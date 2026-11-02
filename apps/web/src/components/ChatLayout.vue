@@ -4,18 +4,29 @@
       <RouterLink class="chat-shell__brand" to="/chats"><BrandMark /></RouterLink>
       <p class="chat-shell__caption">把相遇，织成星河</p>
       <nav class="chat-shell__nav" aria-label="个人空间">
-        <RouterLink to="/chats" :class="{ 'is-active': route.path.startsWith('/chats') }"
-          ><span aria-hidden="true">◌</span>私聊</RouterLink
+        <UiLink
+          to="/chats"
+          :secondary="route.path.startsWith('/chats')"
+          :quaternary="!route.path.startsWith('/chats')"
+          ><span class="chat-shell__nav-icon" aria-hidden="true">◌</span>私聊</UiLink
         >
-        <RouterLink to="/companions" :class="{ 'is-active': route.path.startsWith('/companions') }"
-          ><span aria-hidden="true">✧</span>伴侣</RouterLink
+        <UiLink
+          to="/companions"
+          :secondary="route.path.startsWith('/companions')"
+          :quaternary="!route.path.startsWith('/companions')"
+          ><span class="chat-shell__nav-icon" aria-hidden="true">✧</span>伴侣</UiLink
         >
-        <RouterLink to="/settings"><span aria-hidden="true">☷</span>个人设置</RouterLink>
+        <UiLink
+          to="/settings"
+          :secondary="route.path === '/settings'"
+          :quaternary="route.path !== '/settings'"
+          ><span class="chat-shell__nav-icon" aria-hidden="true">☷</span>个人设置</UiLink
+        >
       </nav>
       <section class="chat-shell__threads" aria-label="你的对话">
         <h2>你的对话</h2>
         <p v-if="threadError" class="chat-shell__hint">
-          暂时无法读取。<button @click="refreshChats">重试</button>
+          暂时无法读取。<NButton text type="primary" @click="refreshChats">重试</NButton>
         </p>
         <p v-else-if="!threads.length" class="chat-shell__hint">故事，从一句问候开始。</p>
         <RouterLink
@@ -55,25 +66,29 @@
         </svg>
         <p>星光很慢，故事很长。</p>
       </div>
-      <button
-        class="button button--quiet chat-shell__logout"
+      <NButton
+        quaternary
+        size="small"
+        class="chat-shell__logout"
         :disabled="auth.loggingOut"
         @click="logout"
       >
         {{ auth.loggingOut ? '正在退出…' : '退出登录' }}
-      </button>
+      </NButton>
     </aside>
     <main class="chat-shell__main">
       <StarryBackground />
       <div class="chat-shell__topline"><span>MEMORY WEAVE</span><span>属于你们的片刻</span></div>
       <div class="chat-shell__content">
-        <p v-if="auth.error" class="notice notice--error" role="alert">{{ auth.error }}</p>
+        <NAlert v-if="auth.error" type="error" :show-icon="false">{{ auth.error }}</NAlert>
         <slot />
       </div>
     </main>
   </div>
 </template>
 <script setup lang="ts">
+import { NAlert, NButton } from 'naive-ui';
+import UiLink from './UiLink.vue';
 import { onMounted, onScopeDispose, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import type { Chat } from '@memory-weave/contracts';
@@ -168,26 +183,12 @@ async function logout(): Promise<void> {
   gap: 8px;
 }
 .chat-shell__nav a {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 11px 16px;
-  border-radius: 10px;
-  color: var(--color-ink-soft);
-  text-decoration: none;
-  font-size: 14px;
+  justify-content: flex-start;
 }
-.chat-shell__nav a:hover {
-  background: var(--color-surface-muted);
-}
-.chat-shell__nav .is-active,
-.chat-shell__nav .router-link-exact-active {
-  background: var(--color-accent-soft);
-  color: var(--color-ink);
-}
-.chat-shell__nav span {
+.chat-shell__nav-icon {
   font-size: 22px;
   width: 22px;
+  margin-right: 14px;
   line-height: 1;
 }
 .chat-shell__threads {
@@ -237,11 +238,6 @@ async function logout(): Promise<void> {
   color: var(--color-ink-soft);
   font-size: 11px;
   padding: 12px;
-}
-.chat-shell__hint button {
-  color: var(--color-accent);
-  background: none;
-  border: 0;
 }
 .chat-shell__all {
   display: inline-block;
@@ -335,7 +331,7 @@ async function logout(): Promise<void> {
     padding: 7px 12px;
     font-size: 13px;
   }
-  .chat-shell__nav span {
+  .chat-shell__nav-icon {
     font-size: 18px;
     width: 16px;
   }

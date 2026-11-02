@@ -25,39 +25,60 @@
           <p class="login-card__description">使用部署时设置的密码进入。</p>
         </div>
 
-        <form class="login-card__form" @submit.prevent="handleSubmit">
-          <div class="login-card__field">
-            <label for="deployment-password" class="login-card__label">部署密码</label>
-            <input
-              id="deployment-password"
-              v-model="password"
-              class="login-card__input"
-              name="password"
-              type="password"
-              autocomplete="current-password"
-              placeholder="请输入你的密码"
-              maxlength="256"
-              required
-              :disabled="auth.loggingIn"
-              :aria-invalid="Boolean(auth.error)"
-              :aria-describedby="auth.error ? 'login-error' : undefined"
-              @input="handlePasswordInput"
-            />
-          </div>
-
-          <p v-if="auth.error" id="login-error" class="notice notice--error" role="alert">
+        <div v-if="auth.sessionUnavailable" class="login-card__form">
+          <NAlert type="warning" :show-icon="false">
             {{ auth.error }}
-          </p>
-
-          <button
-            class="button button--primary login-card__submit"
-            type="submit"
+          </NAlert>
+          <NButton
+            type="primary"
+            size="large"
+            block
+            :loading="auth.checkingSession"
+            :disabled="auth.checkingSession"
+            @click="handleSessionRetry"
+          >
+            {{ auth.checkingSession ? '正在检查…' : '重新检查登录状态' }}
+          </NButton>
+        </div>
+        <NForm v-else class="login-card__form" @submit.prevent="handleSubmit">
+          <NFormItem
+            label="部署密码"
+            :label-props="{ for: 'deployment-password' }"
+            :show-feedback="false"
+          >
+            <NInput
+              v-model:value="password"
+              type="password"
+              size="large"
+              placeholder="请输入你的密码"
+              :maxlength="256"
+              :disabled="auth.loggingIn"
+              :status="auth.error ? 'error' : undefined"
+              :input-props="{
+                id: 'deployment-password',
+                name: 'password',
+                autocomplete: 'current-password',
+                required: true,
+                'aria-invalid': Boolean(auth.error),
+                'aria-describedby': auth.error ? 'login-error' : undefined,
+              }"
+              @update:value="handlePasswordInput"
+            />
+          </NFormItem>
+          <NAlert v-if="auth.error" id="login-error" type="error" :show-icon="false">{{
+            auth.error
+          }}</NAlert>
+          <NButton
+            type="primary"
+            attr-type="submit"
+            size="large"
+            block
+            :loading="auth.loggingIn"
             :disabled="auth.loggingIn || !password"
-            :aria-busy="auth.loggingIn"
           >
             {{ auth.loggingIn ? '正在登录…' : '登录' }}
-          </button>
-        </form>
+          </NButton>
+        </NForm>
 
         <p class="login-card__hint">此入口仅供当前部署的使用者访问。</p>
       </section>
@@ -72,6 +93,7 @@
 <script setup lang="ts">
 import StarryBackground from '@/components/StarryBackground.vue';
 import { ref } from 'vue';
+import { NAlert, NButton, NForm, NFormItem, NInput } from 'naive-ui';
 import { useRouter } from 'vue-router';
 import BrandMark from '@/components/BrandMark.vue';
 import { useAuthStore } from '@/stores/auth';
@@ -87,6 +109,16 @@ const password = ref('');
  */
 function handlePasswordInput(): void {
   auth.clearError();
+}
+
+/**
+ * 重新检查保留的登录会话并在恢复后进入应用。
+ *
+ * 服务暂时不可用时不要求重新输入密码，只有会话明确失效才显示登录表单。
+ */
+async function handleSessionRetry(): Promise<void> {
+  if (auth.checkingSession) return;
+  if (await auth.restoreSession()) await router.replace({ name: 'chats' });
 }
 
 /**
@@ -238,36 +270,6 @@ async function handleSubmit(): Promise<void> {
   &__form {
     display: grid;
     gap: var(--space-5);
-  }
-
-  &__field {
-    display: grid;
-    gap: var(--space-2);
-  }
-
-  &__label {
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-
-  &__input {
-    width: 100%;
-    min-width: 0;
-    height: 50px;
-    padding: 0 var(--space-4);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    color: var(--color-ink);
-
-    &::placeholder {
-      color: var(--color-ink-soft);
-      opacity: 0.75;
-    }
-  }
-
-  &__submit {
-    width: 100%;
   }
 
   &__hint {

@@ -9,16 +9,16 @@
         </p>
       </section>
       <div class="persona-page__toolbar">
-        <button class="button button--primary" :disabled="saving" @click="newTemplate">
-          新建模板
-        </button>
-        <button class="button button--quiet" :disabled="saving || loading" @click="loadPage">
-          刷新模板
-        </button>
+        <NButton type="primary" :disabled="saving" @click="newTemplate"> 新建模板 </NButton>
+        <NButton quaternary :disabled="saving || loading" @click="loadPage"> 刷新模板 </NButton>
       </div>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <p v-if="loading" role="status">正在读取模板…</p>
-      <section v-if="formMode" class="persona-page__panel">
+      <NAlert v-if="error" type="error" role="alert">{{ error }}</NAlert>
+      <NSpin v-if="loading" size="small" role="status" description="正在读取模板…" />
+      <NCard
+        v-if="formMode"
+        class="persona-page__panel"
+        content-class="persona-page__panel-content"
+      >
         <h2>{{ formMode === 'new' ? '新的人设模板' : '编辑模板，保留旧版' }}</h2>
         <PersonaInput
           :key="formKey"
@@ -28,82 +28,86 @@
           :submit-label="formMode === 'new' ? '保存模板' : '保存新版本'"
           @submit="save"
         />
-        <button class="button button--quiet" :disabled="saving" @click="closeForm">取消编辑</button>
-      </section>
-      <section v-else-if="selected" class="persona-page__panel">
+        <NButton quaternary :disabled="saving" @click="closeForm">取消编辑</NButton>
+      </NCard>
+      <NCard
+        v-else-if="selected"
+        class="persona-page__panel"
+        content-class="persona-page__panel-content"
+      >
         <h2>{{ selected.name }} · 第 {{ selected.version }} 版</h2>
         <p class="persona-page__text">{{ selected.initialProfile }}</p>
         <ul v-if="selected.lockedFeatures.length" class="template-page__locks">
           <li v-for="lock in selected.lockedFeatures" :key="lock">{{ lock }}</li>
         </ul>
         <div class="persona-page__toolbar">
-          <RouterLink
-            class="button button--primary"
+          <UiLink
+            type="primary"
             :to="{
               name: 'companion-create',
               query: { template: selected.id, version: selected.version },
             }"
-            >用此版本创建伴侣</RouterLink
+            >用此版本创建伴侣</UiLink
           >
-          <button
+          <NButton
             v-if="selected.version === latestVersion"
-            class="button button--secondary"
+            secondary
             :disabled="saving"
             @click="editTemplate"
           >
             编辑模板
-          </button>
-          <button v-else class="button button--secondary" :disabled="loading" @click="latest">
-            返回最新版本
-          </button>
+          </NButton>
+          <NButton v-else secondary :disabled="loading" @click="latest"> 返回最新版本 </NButton>
         </div>
-        <form class="persona-page__toolbar" @submit.prevent="loadVersion">
-          <label for="template-version">模板历史版本</label>
-          <input
-            id="template-version"
-            v-model.number="versionNumber"
-            class="persona-page__input template-page__version"
-            type="number"
-            min="1"
-            :max="latestVersion"
-            required
-          />
-          <button class="button button--quiet" type="submit" :disabled="loading">
-            读取模板版本
-          </button>
-        </form>
-      </section>
-      <p v-if="!items.length && !loading && !error" class="persona-page__muted">
-        还没有模板。保存一段设定，以后可以从它创建不同伴侣。
-      </p>
+        <NForm
+          class="persona-page__toolbar"
+          inline
+          :show-feedback="false"
+          @submit.prevent="loadVersion"
+        >
+          <NFormItem label="模板历史版本" :label-props="{ for: 'template-version' }">
+            <NInputNumber
+              v-model:value="versionNumber"
+              class="template-page__version"
+              :input-props="{ id: 'template-version', required: true }"
+              :min="1"
+              :max="latestVersion"
+              :precision="0"
+            />
+          </NFormItem>
+          <NButton quaternary attr-type="submit" :disabled="loading"> 读取模板版本 </NButton>
+        </NForm>
+      </NCard>
+      <NEmpty
+        v-if="!items.length && !loading && !error"
+        description="还没有模板。保存一段设定，以后可以从它创建不同伴侣。"
+      />
       <div class="persona-page__grid">
-        <article v-for="template in items" :key="template.id" class="persona-page__card">
+        <NCard
+          v-for="template in items"
+          :key="template.id"
+          class="persona-page__card"
+          content-class="persona-page__card-content"
+        >
           <h2 class="persona-page__card-title">{{ template.name }}</h2>
           <p class="persona-page__muted">最新为第 {{ template.version }} 版</p>
-          <button
-            class="button button--secondary"
-            :disabled="saving"
-            @click="openTemplate(template.id)"
-          >
+          <NButton secondary :disabled="saving" @click="openTemplate(template.id)">
             查看 {{ template.name }}
-          </button>
-        </article>
+          </NButton>
+        </NCard>
       </div>
-      <button
-        v-if="nextAfterId"
-        class="button button--secondary"
-        :disabled="loading || saving"
-        @click="more"
-      >
+      <NButton v-if="nextAfterId" secondary :disabled="loading || saving" @click="more">
         加载更多模板
-      </button>
+      </NButton>
     </div>
   </AdminLayout>
 </template>
 
 <script setup lang="ts">
+import { NAlert, NButton, NCard, NEmpty, NForm, NFormItem, NInputNumber, NSpin } from 'naive-ui';
+import UiLink from '@/components/UiLink.vue';
 import { computed, ref, watch } from 'vue';
-import { RouterLink, useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { createPersonaTemplateSchema, updatePersonaTemplateSchema } from '@memory-weave/contracts';
 import type { PersonaTemplate } from '@memory-weave/contracts';
 import AdminLayout from '@/components/AdminLayout.vue';
@@ -124,7 +128,7 @@ const items = ref<PersonaTemplate[]>([]);
 const nextAfterId = ref<string | null>(null);
 const selected = ref<PersonaTemplate | null>(null);
 const latestVersion = ref(1);
-const versionNumber = ref(1);
+const versionNumber = ref<number | null>(1);
 const formMode = ref<'new' | 'edit' | null>(null);
 const formKey = computed(
   () => `${formMode.value}:${selected.value?.id}:${selected.value?.version}`,
@@ -238,11 +242,12 @@ async function save(value: {
  * 历史内容只读；编辑必须重新选择最新版本。
  */
 async function loadVersion(): Promise<void> {
-  if (!selected.value || !Number.isInteger(versionNumber.value) || versionNumber.value < 1) {
+  const version = versionNumber.value;
+  if (!selected.value || version === null || !Number.isInteger(version) || version < 1) {
     error.value = '请输入有效版本号。';
     return;
   }
-  const result = await run(() => getTemplate(selected.value!.id, versionNumber.value));
+  const result = await run(() => getTemplate(selected.value!.id, version));
   if (result) selected.value = result;
 }
 /**
@@ -276,7 +281,7 @@ async function more(): Promise<void> {
     overflow-wrap: anywhere;
   }
   &__version {
-    width: 90px;
+    width: 130px;
   }
 }
 </style>

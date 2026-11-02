@@ -1,11 +1,14 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import { expectApiError } from './support/http';
+
+afterAll(disposeTestAuth);
 
 describe('production web delivery', () => {
   let app: INestApplication;
@@ -29,6 +32,7 @@ describe('production web delivery', () => {
       host: '127.0.0.1',
       port: 0,
       databaseUrl: 'mysql://unused:unused@127.0.0.1:1/unused',
+      ...createTestAuthConfig(),
       adminPassword: 'test-password-for-foundation',
       appOrigin: 'http://localhost:3000',
       cookieSecure: false,

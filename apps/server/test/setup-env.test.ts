@@ -39,7 +39,28 @@ afterEach(async () => {
 });
 
 describe('部署配置生成命令', () => {
-  it('creates usable MySQL/Qdrant settings without printing credentials', async () => {
+  it('adds stable Redis credentials and namespace without rotating existing deployments', async () => {
+    const project = await workspace(
+      'ADMIN_PASSWORD=keep-existing-login-password\nREDIS_PORT=6381\n',
+    );
+    const result = await project.run();
+    const first = await project.read();
+    const environment = parseEnv(first);
+    expect(environment.AUTH_SESSION_SECRET).toMatch(/^[a-f0-9]{64}$/);
+    expect(environment.REDIS_NAMESPACE).toMatch(/^memory-weave:[a-f0-9]{16}$/);
+    const redisUrl = new URL(environment.REDIS_URL!);
+    expect(redisUrl.protocol).toBe('redis:');
+    expect(redisUrl.port).toBe('6381');
+    expect(decodeURIComponent(redisUrl.password)).toBe(environment.REDIS_PASSWORD);
+    expect(environment.ADMIN_PASSWORD).toBe('keep-existing-login-password');
+    for (const key of ['REDIS_PASSWORD', 'AUTH_SESSION_SECRET', 'REDIS_URL']) {
+      expect(result.stdout + result.stderr).not.toContain(environment[key]);
+    }
+    await project.run();
+    expect(await project.read()).toBe(first);
+  });
+
+  it('creates usable MySQL/Qdrant/Redis settings without printing credentials', async () => {
     const project = await workspace();
     const result = await project.run();
     const environment = parseEnv(await project.read());
@@ -47,11 +68,14 @@ describe('部署配置生成命令', () => {
     expect(new URL(config.databaseUrl).protocol).toBe('mysql:');
     expect(new URL(config.databaseUrl).password).toBe(environment.MYSQL_PASSWORD);
     expect(config.qdrantUrl).toBe('http://127.0.0.1:6333');
+    expect(new URL(config.redisUrl).hostname).toBe('127.0.0.1');
     for (const key of [
       'MYSQL_PASSWORD',
       'MYSQL_ROOT_PASSWORD',
       'QDRANT_API_KEY',
       'ADMIN_PASSWORD',
+      'REDIS_PASSWORD',
+      'AUTH_SESSION_SECRET',
     ]) {
       expect(environment[key]?.length).toBeGreaterThanOrEqual(12);
       expect(result.stdout + result.stderr).not.toContain(environment[key]);
@@ -77,7 +101,7 @@ describe('部署配置生成命令', () => {
 
   it('preserves an existing custom MySQL URL and all configured credentials', async () => {
     const original =
-      'DATABASE_URL=mysql://custom:private-db@localhost:3307/custom_db\nMYSQL_PORT=3307\nMYSQL_PASSWORD=keep-database-password\nMYSQL_ROOT_PASSWORD=keep-root-password\nQDRANT_API_KEY=keep-vector-api-key\nADMIN_PASSWORD=keep-admin-password\n';
+      'DATABASE_URL=mysql://custom:private-db@localhost:3307/custom_db\nMYSQL_PORT=3307\nMYSQL_PASSWORD=keep-database-password\nMYSQL_ROOT_PASSWORD=keep-root-password\nQDRANT_API_KEY=keep-vector-api-key\nADMIN_PASSWORD=keep-admin-password\nREDIS_URL=rediss://custom:keep-redis-password@cache.example.com:6380/2\nREDIS_PASSWORD=keep-redis-password\nREDIS_NAMESPACE=private-space:existing\nAUTH_SESSION_SECRET=607346cae457823da89f74be1f260593cc9b6c95b5063f77b14adfe0d0491c5a8\n';
     const project = await workspace(original);
     await project.run();
     const updated = parseEnv(await project.read());

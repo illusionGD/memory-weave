@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,6 +11,8 @@ import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
 import { expectApiError, expectApiSuccess } from './support/http';
 import { runMigrations } from '../src/database/migrations';
+
+afterAll(disposeTestAuth);
 
 describe('observable service health', () => {
   let app: INestApplication;
@@ -34,6 +37,7 @@ describe('observable service health', () => {
       host: '127.0.0.1',
       port: 0,
       databaseUrl: database.databaseUrl,
+      ...createTestAuthConfig(),
       adminPassword: 'test-password-for-foundation',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
@@ -72,6 +76,7 @@ describe('observable service health', () => {
         version: expect.stringMatching(/^1\.18\./),
       },
       storage: { status: 'ready' },
+      authenticationStore: { engine: 'redis', status: 'connected' },
       schema: { status: 'ready', version: expect.any(String) },
     });
     expect(JSON.stringify(status.body).includes(config.databaseUrl)).toBe(false);

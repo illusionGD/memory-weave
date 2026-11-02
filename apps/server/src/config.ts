@@ -18,6 +18,14 @@ export interface ServerConfig {
   port: number;
   /** MySQL 连接串，包含私有凭据，不通过状态接口返回。 */
   databaseUrl: string;
+  /** Redis 认证存储连接串，仅在服务端使用，不通过日志或接口返回。 */
+  redisUrl: string;
+  /** 同一部署所有进程共享的 Redis key 前缀，不同部署必须独立设置。 */
+  redisNamespace: string;
+  /** 持久保存的会话派生密钥，轮换后旧会话失效。 */
+  authSessionSecret: string;
+  /** 程序化验收使用的会话有效期；部署入口始终采用固定 12 小时。 */
+  authSessionLifetimeMs?: number;
   /** Qdrant HTTP 入口，仅在后端使用。 */
   qdrantUrl: string;
   /** Qdrant 访问密钥，不向浏览器或日志输出。 */
@@ -46,10 +54,10 @@ export interface ServerConfig {
   memoryConfiguration?: MemoryConfiguration;
 }
 
-/** 运行时各模块使用的配置，排除无需继续持有的明文登录密码。 */
-export type RuntimeConfig = Omit<ServerConfig, 'adminPassword'>;
+/** 运行时各模块使用的配置，排除认证专用的明文密码和会话派生密钥。 */
+export type RuntimeConfig = Omit<ServerConfig, 'adminPassword' | 'authSessionSecret'>;
 
-/** 已校验且不含登录密码的运行时配置所使用的依赖注入标识。 */
+/** 已校验且不含认证密码与派生密钥的运行时配置所使用的注入标识。 */
 export const SERVER_CONFIG = Symbol('SERVER_CONFIG');
 
 /** 配置错误仅指出有问题的字段，不暴露其中的敏感值。 */
@@ -67,6 +75,29 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   if (adminPassword.length < 12 || adminPassword.length > 256) {
     throw new ConfigurationError('ADMIN_PASSWORD must contain 12 to 256 characters.');
   }
+
+  const redisUrl = environment.REDIS_URL ?? '';
+  try {
+    const parsed = new URL(redisUrl);
+    if (
+      !['redis:', 'rediss:'].includes(parsed.protocol) ||
+      !parsed.hostname ||
+      (parsed.pathname !== '' && !/^\/\d*$/.test(parsed.pathname)) ||
+      parsed.search ||
+      parsed.hash
+    )
+      throw new Error();
+  } catch {
+    throw new ConfigurationError('REDIS_URL 必须为有效的 redis:// 或 rediss:// 连接地址。');
+  }
+  const redisNamespace = environment.REDIS_NAMESPACE ?? '';
+  if (!/^[A-Za-z0-9][A-Za-z0-9:_-]{0,95}$/.test(redisNamespace))
+    throw new ConfigurationError(
+      'REDIS_NAMESPACE 必须为 1 到 96 位字母、数字、冒号、下划线或连字符，并以字母或数字开头。',
+    );
+  const authSessionSecret = environment.AUTH_SESSION_SECRET ?? '';
+  if (!/^[a-f0-9]{64}$/.test(authSessionSecret))
+    throw new ConfigurationError('AUTH_SESSION_SECRET 必须为 64 位小写十六进制随机密钥。');
 
   const databaseUrl = environment.DATABASE_URL ?? '';
   try {
@@ -206,6 +237,9 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
     host,
     port,
     databaseUrl,
+    redisUrl,
+    redisNamespace,
+    authSessionSecret,
     qdrantUrl,
     qdrantApiKey,
     adminPassword,

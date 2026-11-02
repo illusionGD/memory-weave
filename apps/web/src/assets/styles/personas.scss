@@ -50,22 +50,4 @@
     overflow-wrap: anywhere;
     line-height: 1.8;
   }
-  &__input {
-    padding: var(--space-3);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    color: var(--color-ink);
-    max-width: 100%;
-    min-width: 0;
-    resize: vertical;
-  }
-  &__badge {
-    display: inline-block;
-    padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-sm);
-    background: var(--color-accent-soft);
-    color: var(--color-accent);
-    line-height: 1.7;
-  }
 }

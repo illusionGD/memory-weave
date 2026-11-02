@@ -29,6 +29,10 @@ jobs:
       TEST_QDRANT_URL: http://127.0.0.1:6333
       QDRANT_API_KEY: ci-qdrant-key-for-tests-only
       TEST_QDRANT_API_KEY: ci-qdrant-key-for-tests-only
+      REDIS_URL: redis://:ci-redis-password-for-tests-only@127.0.0.1:6379/0
+      TEST_REDIS_URL: redis://:ci-redis-password-for-tests-only@127.0.0.1:6379/0
+      REDIS_NAMESPACE: memory-weave:ci
+      AUTH_SESSION_SECRET: '607346cae457823da89f74be1f260593cc9b6c95b5063f77b14adfe0d0491c5a8'
       ADMIN_PASSWORD: ci-admin-password-for-tests-only
       APP_ORIGIN: http://127.0.0.1:4173
       COOKIE_SECURE: 'false'
@@ -61,6 +65,19 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Start authenticated Redis for isolated tests
+        run: |
+          docker run -d --name memory-weave-redis-ci \
+            -p 127.0.0.1:6379:6379 \
+            --health-cmd 'REDISCLI_AUTH=ci-redis-password-for-tests-only redis-cli ping | grep -qx PONG' \
+            --health-interval 1s --health-timeout 3s --health-retries 30 \
+            redis:8.4.8-alpine redis-server --requirepass ci-redis-password-for-tests-only
+          for attempt in $(seq 1 30); do
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' memory-weave-redis-ci)" = healthy ]; then exit 0; fi
+            sleep 1
+          done
+          exit 1
 
       - name: Install Node.js
         uses: actions/setup-node@v4

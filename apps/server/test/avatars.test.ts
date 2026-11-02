@@ -1,3 +1,4 @@
+import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
@@ -17,6 +18,8 @@ const png = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4XkAAAAASUVORK5CYII=',
   'base64',
 );
+afterAll(disposeTestAuth);
+
 describe('伴侣头像公共 HTTP 接口', () => {
   let app: INestApplication;
   let database: TestDatabase;
@@ -34,6 +37,7 @@ describe('伴侣头像公共 HTTP 接口', () => {
       databaseUrl: database.databaseUrl,
       qdrantUrl: process.env.TEST_QDRANT_URL ?? 'http://127.0.0.1:1',
       qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
+      ...createTestAuthConfig(),
       adminPassword: 'avatar-test-password',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
