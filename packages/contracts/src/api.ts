@@ -238,6 +238,8 @@ export const apiErrorResponseSchema: z.ZodObject<typeof apiErrorResponseShape> =
 export type ApiErrorResponse = z.infer<typeof apiErrorResponseSchema>;
 
 /**
+ * 查询数字响应码对应的公共定义。
+ *
  * 查询当前版本认识的数字响应码，未知码不读取对象原型。
  * @param code 服务端返回的数字响应码。
  * @returns 已登记的安全提示与状态；未知时为 undefined。
@@ -247,6 +249,8 @@ export function getApiResponseDefinition(code: number): ApiResponseDefinition | 
 }
 
 /**
+ * 根据 HTTP 状态选择默认 API 错误码。
+ *
  * 将框架异常或旧服务响应降级为已知的通用错误，不猜测具体业务原因。
  * @param statusCode 实际 HTTP 状态码。
  * @returns 当前终端可识别的通用错误码；其他状态统一使用内部错误提示。

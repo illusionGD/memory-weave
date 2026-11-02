@@ -51,7 +51,11 @@ const { loading, error, run } = usePersonaPage();
 const items = ref<CompanionDetail[]>([]);
 const nextAfterId = ref<string | null>(null);
 onMounted(refresh);
-/** 刷新从第一页开始，保留服务端稳定游标。 */
+/**
+ * 刷新伴侣列表的第一页。
+ *
+ * 刷新从第一页开始，保留服务端稳定游标。
+ */
 async function refresh(): Promise<void> {
   const result = await run(() => listCompanions());
   if (result) {
@@ -59,7 +63,11 @@ async function refresh(): Promise<void> {
     nextAfterId.value = result.nextAfterId;
   }
 }
-/** 仅在用户请求时读取下一页。 */
+/**
+ * 加载下一页伴侣。
+ *
+ * 仅在用户请求时读取下一页。
+ */
 async function more(): Promise<void> {
   if (!nextAfterId.value) return;
   const result = await run(() => listCompanions(nextAfterId.value!));

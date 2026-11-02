@@ -46,6 +46,7 @@ import { TasksService } from '../tasks/tasks.service';
 /** 私聊命令串行化原文、回复任务和当前轮次，网络调用始终在事务外。 */
 @Injectable()
 export class ChatsService {
+  /** 初始化聊天会话与回复管理服务。 */
   constructor(
     @Inject(SERVER_CONFIG) private readonly configuration: RuntimeConfig,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
@@ -54,7 +55,7 @@ export class ChatsService {
     @Inject(ConversationsService) private readonly originals: ConversationsService,
   ) {}
 
-  /** 原子创建用户与单个伴侣的私聊，重复命令继续使用原会话。 */
+  /** 创建用户与指定伴侣的聊天会话。 */
   create(input: CreateChat): Promise<Chat> {
     return this.store.locked(async (ownerId, tx) => {
       const { conversation } = await this.originals.createInTransaction(ownerId, tx, {
@@ -77,12 +78,20 @@ export class ChatsService {
     });
   }
 
-  /** 查询不会触发模型调用，也不代表用户已收到消息。 */
+  /**
+   * 查询聊天详情及当前回复状态。
+   *
+   * 查询不会触发模型调用，也不代表用户已收到消息。
+   */
   get(id: string): Promise<Chat> {
     return this.store.locked((ownerId, tx) => this.read(ownerId, id, tx));
   }
 
-  /** 有界 UUID 分页，只包含已经启用聊天的用户私聊。 */
+  /**
+   * 分页查询用户已创建的私聊。
+   *
+   * 有界 UUID 分页，只包含已经启用聊天的用户私聊。
+   */
   list(input: IdPaginationQuery): Promise<ChatList> {
     return this.store.locked(async (ownerId, tx) => {
       const rows = await tx
@@ -105,7 +114,11 @@ export class ChatsService {
     });
   }
 
-  /** 用户输入先保存并发布；同一事务建立回复任务，HTTP 不等待生成。 */
+  /**
+   * 保存并发布用户输入，安排新的回复轮次。
+   *
+   * 用户输入先保存并发布；同一事务建立回复任务，HTTP 不等待生成。
+   */
   async send(id: string, input: SendChatMessage): Promise<SentChatMessage> {
     let cancelledCallId: string | null = null;
     const result = await this.store.locked(async (ownerId, tx, now) => {
@@ -215,7 +228,11 @@ export class ChatsService {
     return result;
   }
 
-  /** 最近一页原文按时间正序展示，向前分页不一次加载全部聊天。 */
+  /**
+   * 分页查询聊天的原文历史。
+   *
+   * 最近一页原文按时间正序展示，向前分页不一次加载全部聊天。
+   */
   history(id: string, input: ChatMessageQuery): Promise<ChatMessageList> {
     return this.store.locked(async (ownerId, tx) => {
       await this.thread(ownerId, id, tx, false);
@@ -240,12 +257,20 @@ export class ChatsService {
     });
   }
 
-  /** 普通配置可公开查看，不包含模型凭据；部署修改后新轮次才采用。 */
+  /**
+   * 返回当前生效的聊天资源配置。
+   *
+   * 普通配置可公开查看，不包含模型凭据；部署修改后新轮次才采用。
+   */
   settings(): ChatConfiguration {
     return this.configuration.chatConfiguration ?? chatConfigurationSchema.parse({});
   }
 
-  /** 从确切发布序号之后读取事件，每次最多 50 条；不会推进送达状态。 */
+  /**
+   * 查询指定发布序号之后的聊天事件。
+   *
+   * 从确切发布序号之后读取事件，每次最多 50 条；不会推进送达状态。
+   */
   after(id: string, afterSequence: number): Promise<ChatMessage[]> {
     return this.store.locked(async (ownerId, tx) => {
       await this.thread(ownerId, id, tx, false);
@@ -267,7 +292,11 @@ export class ChatsService {
     });
   }
 
-  /** 逐条核对本会话原文版本，所有回执同事务提交，重复确认不更新时间。 */
+  /**
+   * 保存终端对聊天原文的送达回执。
+   *
+   * 逐条核对本会话原文版本，所有回执同事务提交，重复确认不更新时间。
+   */
   acknowledge(id: string, input: ChatDelivery): Promise<null> {
     return this.store.locked(async (ownerId, tx) => {
       await this.thread(ownerId, id, tx, false);
@@ -311,7 +340,11 @@ export class ChatsService {
     });
   }
 
-  /** 停止目标轮次并立即撤销租约；网络中止在事务提交之后尝试。 */
+  /**
+   * 停止指定回复轮次并撤销执行租约。
+   *
+   * 停止目标轮次并立即撤销租约；网络中止在事务提交之后尝试。
+   */
   async stop(id: string, input: StopChat): Promise<Chat> {
     const callId = await this.store.locked(async (ownerId, tx, now) => {
       const thread = await this.thread(ownerId, id, tx);
@@ -340,6 +373,7 @@ export class ChatsService {
     return this.get(id);
   }
 
+  /** 将聊天原文记录转换为消息响应。 */
   private async messageItems(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -371,6 +405,7 @@ export class ChatsService {
     );
   }
 
+  /** 读取并校验指定聊天会话。 */
   private async thread(
     ownerId: string,
     id: string,
@@ -389,6 +424,7 @@ export class ChatsService {
     return thread;
   }
 
+  /** 组装聊天详情和当前轮次状态。 */
   private async read(ownerId: string, id: string, tx: DatabaseTransaction): Promise<Chat> {
     const thread = await this.thread(ownerId, id, tx, false);
     const [companion] = await tx
@@ -427,6 +463,7 @@ export class ChatsService {
     };
   }
 
+  /** 将聊天轮次及任务记录转换为响应数据。 */
   private async run(ownerId: string, id: string, tx: DatabaseTransaction): Promise<ChatRun> {
     const [row] = await tx
       .select()

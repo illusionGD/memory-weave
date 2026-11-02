@@ -18,17 +18,22 @@ import { ModelProvidersService } from './model-providers.service';
 /** 集中配置按部署发布完整版本，行锁与后续预算预留共用。 */
 @Injectable()
 export class ModelConfigurationService {
+  /** 初始化模型配置管理服务。 */
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(ModelProvidersService) private readonly providers: ModelProvidersService,
   ) {}
 
-  /** 当前有效配置；首次访问持久登记默认版本。 */
+  /** 读取当前生效的模型配置版本。 */
   get(): Promise<ModelConfigurationVersion> {
     return this.locked(async (_ownerId, _tx, current) => current);
   }
 
-  /** 读取不可变历史，用于比较或作为新版本回滚的输入。 */
+  /**
+   * 读取指定的模型配置历史版本。
+   *
+   * 读取不可变历史，用于比较或作为新版本回滚的输入。
+   */
   getVersion(version: number): Promise<ModelConfigurationVersion> {
     return this.database.withOwner(async (ownerId, db) => {
       const [row] = await db
@@ -45,7 +50,11 @@ export class ModelConfigurationService {
     });
   }
 
-  /** 发布配置前检查版本与各字段关系；计量记录不在配置表中。 */
+  /**
+   * 校验并发布新的模型配置版本。
+   *
+   * 发布配置前检查版本与各字段关系；计量记录不在配置表中。
+   */
   update(input: UpdateModelConfiguration): Promise<ModelConfigurationVersion> {
     const hash = fingerprint({ ...input, requestId: input.requestId.toLowerCase() });
     return this.locked(async (ownerId, tx, current) => {
@@ -88,7 +97,7 @@ export class ModelConfigurationService {
   }
 
   /**
-   * 在短事务中串行执行与配置和额度相关的操作；禁止在回调内调用外部模型。
+   * 在配置锁内执行模型配置和预算操作。
    * @param operation 只读写本部署数据的事务操作。
    * @returns 当前配置版本下完成的操作结果。
    */
@@ -149,7 +158,11 @@ export class ModelConfigurationService {
   }
 }
 
-/** 当前支持的用途和参数关系，不把可解析的 JSON 当成有效配置。 */
+/**
+ * 校验模型配置的任务用途与参数关系。
+ *
+ * 当前支持的用途和参数关系，不把可解析的 JSON 当成有效配置。
+ */
 function validateConfiguration(config: ModelConfiguration): void {
   if (config.backgroundConcurrent >= config.maxConcurrent)
     throw new ApiException(API_CODES.INVALID_REQUEST, '后台并发必须小于总并发，为交互保留容量。');
@@ -165,7 +178,11 @@ function validateConfiguration(config: ModelConfiguration): void {
   }
 }
 
-/** 不向终端暴露内部幂等指纹、owner 或数据库行格式。 */
+/**
+ * 将模型配置记录转换为公共版本信息。
+ *
+ * 不向终端暴露内部幂等指纹、owner 或数据库行格式。
+ */
 function toVersion(row: typeof modelConfigurationVersions.$inferSelect): ModelConfigurationVersion {
   return {
     id: row.id,

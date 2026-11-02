@@ -9,6 +9,7 @@ import { loadServerConfig } from '../src/config';
 const execute = promisify(execFile);
 const directories: string[] = [];
 
+/** 创建环境配置脚本的临时验收工作区。 */
 async function workspace(initial?: string) {
   const directory = await mkdtemp(join(tmpdir(), 'memory-weave-setup-'));
   directories.push(directory);
@@ -24,7 +25,9 @@ async function workspace(initial?: string) {
   if (initial !== undefined) await writeFile(join(directory, '.env'), initial);
   return {
     directory,
+    /** 在临时工作区运行环境配置脚本。 */
     run: () => execute(process.execPath, ['scripts/setup-env.mjs'], { cwd: directory }),
+    /** 读取临时工作区生成的配置文件。 */
     read: () => readFile(join(directory, '.env'), 'utf8'),
   };
 }

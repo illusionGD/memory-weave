@@ -67,6 +67,7 @@ import { TasksController } from './modules/tasks/tasks.controller';
 
 @Module({})
 class ApplicationModule {
+  /** 注册应用配置、控制器和服务依赖。 */
   static register(config: ServerConfig): DynamicModule {
     const { adminPassword, ...runtimeConfig } = config;
     return {
@@ -96,7 +97,10 @@ class ApplicationModule {
         RetrievalVector,
         RetrievalService,
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
-        { provide: AuthService, useFactory: () => AuthService.create(adminPassword) },
+        {
+          provide: AuthService /** 创建应用认证服务。 */,
+          useFactory: () => AuthService.create(adminPassword),
+        },
         { provide: APP_GUARD, useClass: AuthGuard },
         MemoriesService,
         MemoryExecutionService,
@@ -131,6 +135,8 @@ class ApplicationModule {
 }
 
 /**
+ * 创建并初始化后端应用。
+ *
  * 创建并初始化应用，由调用方控制端口监听，便于通过 HTTP 接口进行验收测试。
  * @param config 部署环境配置。
  * @returns 已初始化的 Nest HTTP 应用。
@@ -161,7 +167,12 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
     '/api/companions/:id/avatar',
     (req: express.Request, res: express.Response, next: express.NextFunction) => {
       if (req.method === 'PUT')
-        express.raw({ type: () => true, limit: AVATAR_MAX_BYTES, inflate: false })(req, res, next);
+        express.raw({
+          /** 启用头像上传请求的原始正文解析。 */
+          type: () => true,
+          limit: AVATAR_MAX_BYTES,
+          inflate: false,
+        })(req, res, next);
       else next();
     },
   );

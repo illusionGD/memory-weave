@@ -12,6 +12,8 @@ export interface TestDatabase {
 }
 
 /**
+ * 创建并初始化隔离的测试数据库。
+ *
  * 使用显式测试连接创建隔离数据库，业务场景仍通过公开接口构造。
  * @param options 是否在创建后应用项目迁移；迁移验收可设为 false。
  * @returns 隔离数据库及清理方法。
@@ -35,6 +37,7 @@ export async function createTestDatabase(
   let disposed = false;
   const result: TestDatabase = {
     databaseUrl: databaseUrl.toString(),
+    /** 删除本测试创建的隔离数据库。 */
     async dispose() {
       if (disposed) return;
       const cleanup = await createConnection(mysqlConnectionOptions(maintenanceUrl.toString()));

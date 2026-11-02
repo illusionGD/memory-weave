@@ -10,42 +10,49 @@ export const router = createRouter({
     {
       path: '/chats',
       name: 'chats',
+      /** 按需加载私聊列表页面。 */
       component: () => import('@/views/chats/ChatsView.vue'),
       meta: { requiresAuth: true },
     },
     {
       path: '/chats/:id',
       name: 'chat',
+      /** 按需加载私聊页面。 */
       component: () => import('@/views/chats/ChatView.vue'),
       meta: { requiresAuth: true },
     },
     {
       path: '/companions',
       name: 'companions',
+      /** 按需加载伴侣列表页面。 */
       component: () => import('@/views/companions/CompanionsView.vue'),
       meta: { requiresAuth: true },
     },
     {
       path: '/companions/new',
       name: 'companion-create',
+      /** 按需加载伴侣创建页面。 */
       component: () => import('@/views/companions/CompanionCreateView.vue'),
       meta: { requiresAuth: true },
     },
     {
       path: '/companions/:id',
       name: 'companion-detail',
+      /** 按需加载伴侣详情页面。 */
       component: () => import('@/views/companions/CompanionDetailView.vue'),
       meta: { requiresAuth: true },
     },
     {
       path: '/companions/:id/memories/:conversationId',
       name: 'memories',
+      /** 按需加载会话记忆页面。 */
       component: () => import('@/views/memories/MemoriesView.vue'),
       meta: { requiresAuth: true },
     },
     {
       path: '/settings',
       name: 'settings',
+      /** 按需加载用户设置页面。 */
       component: () => import('@/views/settings/SettingsView.vue'),
       meta: { requiresAuth: true },
     },

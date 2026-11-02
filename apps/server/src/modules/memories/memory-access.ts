@@ -6,7 +6,11 @@ import { memoryBatches, messages, memoryVersions } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
 
-/** 读取、派发和提交均核对同一批次及确切原文，防止迟到结果复活删除内容。 */
+/**
+ * 校验记忆批次、实例范围及原文有效性。
+ *
+ * 读取、派发和提交均核对同一批次及确切原文，防止迟到结果复活删除内容。
+ */
 export async function requireMemoryBatch(ownerId: string, id: string, tx: DatabaseTransaction) {
   const [batch] = await tx
     .select()

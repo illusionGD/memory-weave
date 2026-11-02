@@ -38,6 +38,7 @@ import { ChatContextService } from './chat-context.service';
 /** 持久任务执行聊天；每次发布均重查当前轮次和租约，迟到输出无法写入。 */
 @Injectable()
 export class ChatExecutionService {
+  /** 初始化聊天回复执行服务。 */
   constructor(
     @Inject(RetrievalService) private readonly retrieval: RetrievalService,
     @Inject(TaskStore) private readonly store: TaskStore,
@@ -49,7 +50,11 @@ export class ChatExecutionService {
     @Inject(ChatContextService) private readonly contexts: ChatContextService,
   ) {}
 
-  /** 同一持久轮次始终使用同一模型请求身份；恢复只接续已确认结果的未发布部分。 */
+  /**
+   * 执行聊天回复任务并发布生成内容。
+   *
+   * 同一持久轮次始终使用同一模型请求身份；恢复只接续已确认结果的未发布部分。
+   */
   async execute(lease: TaskLease): Promise<void> {
     const saved = await this.store.locked((ownerId, tx) => this.guard(ownerId, tx, lease));
     const config =
@@ -116,6 +121,7 @@ export class ChatExecutionService {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let pending: Promise<void> = Promise.resolve();
     let failure: unknown;
+    /** 发布当前缓冲区中的回复片段。 */
     const flush = (): Promise<void> => {
       if (timer) {
         clearTimeout(timer);
@@ -208,7 +214,11 @@ export class ChatExecutionService {
     }
   }
 
-  /** 只用已授权的少量前文理解指代，片段身份随回复来源图保存。 */
+  /**
+   * 检索当前聊天输入相关的记忆与新原文。
+   *
+   * 只用已授权的少量前文理解指代，片段身份随回复来源图保存。
+   */
   private async recall(lease: TaskLease, run: typeof chatRuns.$inferSelect): Promise<RecallResult> {
     const prepared = await this.store.locked(async (ownerId, tx) => {
       await this.guard(ownerId, tx, lease);
@@ -278,7 +288,11 @@ export class ChatExecutionService {
     return result;
   }
 
-  /** 派发、片段发布及完成共用同一轮次和人格版本检查。 */
+  /**
+   * 校验聊天轮次、人格版本和任务执行资格。
+   *
+   * 派发、片段发布及完成共用同一轮次和人格版本检查。
+   */
   private async guard(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -313,7 +327,11 @@ export class ChatExecutionService {
     return run;
   }
 
-  /** 片段、原文发布与待整理 outbox 在同一事务提交，不将候选草稿当作已经说出。 */
+  /**
+   * 保存并发布一段模型回复原文。
+   *
+   * 片段、原文发布与待整理 outbox 在同一事务提交，不将候选草稿当作已经说出。
+   */
   private publish(lease: TaskLease, text: string, expectedOffset: number): Promise<void> {
     // 模型取消与片段发布共用配置锁，顺序固定为模型锁 → 调度锁 → 会话锁。
     return this.configuration.locked(async (ownerId, tx) => {
@@ -367,6 +385,7 @@ export class ChatExecutionService {
     });
   }
 
+  /** 读取当前轮次已发布的回复内容。 */
   private async published(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -385,7 +404,11 @@ export class ChatExecutionService {
     return rows.map((row) => row.text).join('');
   }
 
-  /** 只把旧诊断占位定义绑定到聊天版本，保留供应商、价格、限额与历史。 */
+  /**
+   * 为聊天用途启用对应的模型任务定义。
+   *
+   * 只把旧诊断占位定义绑定到聊天版本，保留供应商、价格、限额与历史。
+   */
   private async activateDefinition(): Promise<ModelConfigurationVersion> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const current = await this.configuration.get();
@@ -428,7 +451,11 @@ export class ChatExecutionService {
   }
 }
 
-/** 按 UTF-16 上限切分但不拆开代理对，避免片段独立传输破坏表情字符。 */
+/**
+ * 将文本切分为适合发布的片段。
+ *
+ * 按 UTF-16 上限切分但不拆开代理对，避免片段独立传输破坏表情字符。
+ */
 function splitText(text: string, limit: number): string[] {
   const parts: string[] = [];
   let start = 0;
@@ -441,7 +468,11 @@ function splitText(text: string, limit: number): string[] {
   return parts;
 }
 
-/** 检索和聊天各自保留稳定模型调用身份，恢复不会换键重发。 */
+/**
+ * 生成本轮记忆检索的模型请求标识。
+ *
+ * 检索和聊天各自保留稳定模型调用身份，恢复不会换键重发。
+ */
 function recallRequestId(runId: string): string {
   const hex = createHash('sha256').update(`recall:${runId}`).digest('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;

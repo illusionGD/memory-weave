@@ -8,7 +8,11 @@ import { assertVisible, requireCompanionMember } from '../conversations/conversa
 import { assertVersionSources } from '../memories/memory-records';
 import { recallConversationScope } from './retrieval-access';
 
-/** 来源受限或当前版本变化时旧上下文停止派发和发布，不能仅依赖向量过滤。 */
+/**
+ * 校验聊天记忆快照的版本及来源。
+ *
+ * 来源受限或当前版本变化时旧上下文停止派发和发布，不能仅依赖向量过滤。
+ */
 export async function validateRecallSnapshot(
   ownerId: string,
   scope: TaskScope,

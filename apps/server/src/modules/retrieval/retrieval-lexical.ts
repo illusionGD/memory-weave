@@ -30,7 +30,11 @@ const STOP_WORDS = new Set([
   '什么',
   '怎么',
 ]);
-/** 中文词语与双字片段并行，数字和英文专名保留完整路径，词项有界。 */
+/**
+ * 将文本转换为词法检索词项。
+ *
+ * 中文词语与双字片段并行，数字和英文专名保留完整路径，词项有界。
+ */
 export function lexicalTerms(text: string): string[] {
   const normalized = text.normalize('NFKC').toLowerCase();
   const terms = new Set<string>();
@@ -43,7 +47,11 @@ export function lexicalTerms(text: string): string[] {
   }
   return [...terms].slice(0, 512);
 }
-/** 原文提交记忆版本的同一事务登记词法和待索引身份。 */
+/**
+ * 保存记忆版本的检索文档和词项。
+ *
+ * 原文提交记忆版本的同一事务登记词法和待索引身份。
+ */
 export async function registerSearchDocument(
   ownerId: string,
   versionId: string,

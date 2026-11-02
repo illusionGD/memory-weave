@@ -18,6 +18,7 @@ import { OpenAiCompatibleAdapter } from './openai-compatible.adapter';
 @Injectable()
 export class ModelProvidersService {
   private readonly deployment: ModelDeployment;
+  /** 初始化模型供应商登记和部署限额。 */
   constructor(@Inject(SERVER_CONFIG) config: RuntimeConfig) {
     this.deployment = config.modelDeployment ?? {
       providers: [],
@@ -25,7 +26,11 @@ export class ModelProvidersService {
     };
   }
 
-  /** 只展示能力和凭据是否就绪，不提供密钥或环境变量值。 */
+  /**
+   * 返回模型供应商的能力和配置状态。
+   *
+   * 只展示能力和凭据是否就绪，不提供密钥或环境变量值。
+   */
   catalog(): ModelProviderCatalog {
     return {
       providers: [
@@ -52,7 +57,11 @@ export class ModelProvidersService {
     };
   }
 
-  /** 发布配置时拒绝未登记的供应商和超部署上限配置；不主动访问供应商。 */
+  /**
+   * 校验模型配置是否符合供应商登记和部署限额。
+   *
+   * 发布配置时拒绝未登记的供应商和超部署上限配置；不主动访问供应商。
+   */
   validate(config: ModelConfiguration): void {
     const effective = this.effective(config);
     if (
@@ -72,7 +81,11 @@ export class ModelProvidersService {
     }
   }
 
-  /** 部署限额降低后，已有配置也只使用较小上限，不放宽旧配置。 */
+  /**
+   * 计算应用部署资源上限后的有效模型配置。
+   *
+   * 部署限额降低后，已有配置也只使用较小上限，不放宽旧配置。
+   */
   effective(config: ModelConfiguration): ModelConfiguration {
     const limits = this.deployment.hardLimits;
     return {
@@ -91,7 +104,11 @@ export class ModelProvidersService {
     };
   }
 
-  /** 检查所需能力和凭据，再取得一次请求 adapter；不静默换模型。 */
+  /**
+   * 创建指定供应商及操作类型的模型适配器。
+   *
+   * 检查所需能力和凭据，再取得一次请求 adapter；不静默换模型。
+   */
   adapter(id: string, operation: ModelOperation): ModelAdapter {
     if (id === 'test') return new DeterministicModelAdapter();
     const provider = this.deployment.providers.find((item) => item.id === id);
@@ -104,7 +121,11 @@ export class ModelProvidersService {
     return new OpenAiCompatibleAdapter(provider);
   }
 
-  /** 只按部署声明使用流式协议，不通过额外探测请求消耗预算。 */
+  /**
+   * 查询供应商是否支持流式响应。
+   *
+   * 只按部署声明使用流式协议，不通过额外探测请求消耗预算。
+   */
   supportsStreaming(id: string): boolean {
     return (
       id === 'test' || this.deployment.providers.some((item) => item.id === id && item.streaming)

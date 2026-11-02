@@ -32,13 +32,18 @@ import { LIFECYCLE_STAGES, lifecycleStages } from './lifecycle-cleanup';
 /** 先持久记录限制与任务，清理成功之前不能继续使用被停止的状态。 */
 @Injectable()
 export class LifecycleService {
+  /** 初始化生命周期操作管理服务。 */
   constructor(
     @Inject(ModelConfigurationService) private readonly models: ModelConfigurationService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
   ) {}
 
-  /** 三种命令共享幂等日志；记录只包含目标身份，不复制业务正文。 */
+  /**
+   * 创建消息删除、伴侣重置或伴侣删除操作。
+   *
+   * 三种命令共享幂等日志；记录只包含目标身份，不复制业务正文。
+   */
   create(input: LifecycleCommand): Promise<LifecycleOperation> {
     return this.models.locked(async (ownerId, tx) => {
       await lockTaskScheduler(ownerId, tx);
@@ -253,7 +258,7 @@ export class LifecycleService {
     });
   }
 
-  /** 清理沿用数据库与外部存储检查点，显式恢复创建新尝试身份并沿用已提交进度。 */
+  /** 为未完成的生命周期清理创建恢复任务。 */
   retry(id: string, input: RetryLifecycle): Promise<LifecycleOperation> {
     return this.models.locked(async (ownerId, tx) => {
       await lockTaskScheduler(ownerId, tx);
@@ -291,12 +296,20 @@ export class LifecycleService {
     });
   }
 
-  /** 查询不会解除限制或冒充清理已完成。 */
+  /**
+   * 查询生命周期操作的当前状态。
+   *
+   * 查询不会解除限制或冒充清理已完成。
+   */
   get(id: string): Promise<LifecycleOperation> {
     return this.store.locked((ownerId, tx) => this.read(ownerId, tx, id));
   }
 
-  /** 有界日志不包含已删除正文或人格。 */
+  /**
+   * 分页查询生命周期操作记录。
+   *
+   * 有界日志不包含已删除正文或人格。
+   */
   list(query: IdPaginationQuery): Promise<LifecycleList> {
     return this.store.locked(async (ownerId, tx) => {
       const rows = await tx
@@ -319,7 +332,7 @@ export class LifecycleService {
     });
   }
 
-  /** 在调用方事务中取得日志和对应持久任务。 */
+  /** 读取生命周期操作及其执行任务。 */
   private async read(
     ownerId: string,
     tx: DatabaseTransaction,

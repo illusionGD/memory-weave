@@ -1,7 +1,11 @@
 import type { PersonaVersion } from '@memory-weave/contracts';
 import type { personaVersions } from '../../database/schema';
 
-/** 将持久版本转换成公共记录，不暴露内部命令指纹。 */
+/**
+ * 将人格存储记录转换为公共版本信息。
+ *
+ * 将持久版本转换成公共记录，不暴露内部命令指纹。
+ */
 export function toPersonaVersion(row: typeof personaVersions.$inferSelect): PersonaVersion {
   return {
     id: row.id,

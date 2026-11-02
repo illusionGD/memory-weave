@@ -36,8 +36,13 @@ import { readExplorerCursor, writeExplorerCursor } from './explorer-cursor';
 /** 后台只读浏览；有界事务与生命周期共用提交顺序，不产生模型调用。 */
 @Injectable()
 export class MemoryExplorerService {
+  /** 初始化记忆浏览查询服务。 */
   constructor(@Inject(TaskStore) private readonly store: TaskStore) {}
-  /** 只提供该实例当前代次的会话选择，群聊仍需用户明确选择。 */
+  /**
+   * 分页查询伴侣当前代次的会话选项。
+   *
+   * 只提供该实例当前代次的会话选择，群聊仍需用户明确选择。
+   */
   conversations(
     companionId: string,
     query: MemoryExplorerConversationsQuery,
@@ -68,7 +73,11 @@ export class MemoryExplorerService {
       };
     });
   }
-  /** 批量核对当前画面的版本、来源内容版本及权限；不读取全部历史。 */
+  /**
+   * 批量核对记忆版本的读取指纹。
+   *
+   * 批量核对当前画面的版本、来源内容版本及权限；不读取全部历史。
+   */
   validate(
     companionId: string,
     input: MemoryExplorerValidation,
@@ -99,20 +108,33 @@ export class MemoryExplorerService {
       };
     });
   }
-  /** 按中心返回一批真实邻接关系，绝不递归加载全部历史。 */
+  /**
+   * 查询指定图谱中心的一页邻接关系。
+   *
+   * 按中心返回一批真实邻接关系，绝不递归加载全部历史。
+   */
   graph(companionId: string, query: MemoryGraphQuery): Promise<MemoryGraphPage> {
     return this.store.locked((ownerId, tx, now) =>
       readMemoryGraph(ownerId, companionId, query, tx, now),
     );
   }
-  /** 仅返回当前版本，私聊汇总与单会话范围分别校验。 */
+  /**
+   * 按筛选条件分页查询当前记忆。
+   *
+   * 仅返回当前版本，私聊汇总与单会话范围分别校验。
+   */
   entries(companionId: string, query: MemoryExplorerQuery): Promise<MemoryExplorerPage> {
     return this.records(companionId, query, 'entries');
   }
-  /** 按记录时间浏览各语义版本，不把发生时间的文字描述强制转为日期。 */
+  /**
+   * 按记录时间分页查询记忆版本历史。
+   *
+   * 按记录时间浏览各语义版本，不把发生时间的文字描述强制转为日期。
+   */
   timeline(companionId: string, query: MemoryExplorerQuery): Promise<MemoryExplorerPage> {
     return this.records(companionId, query, 'timeline');
   }
+  /** 执行记忆列表或时间线的组合筛选与分页查询。 */
   private records(
     companionId: string,
     query: MemoryExplorerQuery,

@@ -86,6 +86,7 @@ describe('记忆浏览的公开查询协议', () => {
     await database?.dispose();
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
+  /** 创建记忆浏览验收使用的伴侣实例。 */
   async function companion(name: string) {
     const r = await agent
       .post('/api/companions')
@@ -93,6 +94,7 @@ describe('记忆浏览的公开查询协议', () => {
       .expect(201);
     return companionDetailSchema.parse(r.body.data);
   }
+  /** 创建记忆浏览验收使用的会话。 */
   async function conversation(ids: string[]) {
     const r = await agent
       .post('/api/conversations')
@@ -106,6 +108,7 @@ describe('记忆浏览的公开查询协议', () => {
       .expect(201);
     return conversationDetailSchema.parse(r.body.data).conversation;
   }
+  /** 保存并发布记忆浏览验收使用的原文。 */
   async function publish(id: string, text: string) {
     let r = await agent.get(`/api/conversations/${id}`).expect(200);
     const saved = await agent
@@ -141,6 +144,7 @@ describe('记忆浏览的公开查询协议', () => {
     validFrom: null,
     validUntil: null,
   };
+  /** 执行固定候选的记忆整理并取得结果。 */
   async function remember(
     companionId: string,
     conversationId: string,

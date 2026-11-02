@@ -113,14 +113,22 @@ onScopeDispose(() => {
   disposed = true;
   clearTimeout(timer);
 });
-/** 切换记录时立即移除上个操作，避免误恢复其他范围。 */
+/**
+ * 切换选中的清理记录。
+ *
+ * 切换记录时立即移除上个操作，避免误恢复其他范围。
+ */
 async function change(): Promise<void> {
   operation.value = null;
   items.value = [];
   cursor = undefined;
   await refresh();
 }
-/** 轮询只读取进度，不重新发起删除命令。 */
+/**
+ * 刷新清理记录列表及当前操作进度。
+ *
+ * 轮询只读取进度，不重新发起删除命令。
+ */
 async function refresh(): Promise<void> {
   clearTimeout(timer);
   const id = typeof route.params.id === 'string' ? route.params.id : null;
@@ -142,7 +150,7 @@ async function refresh(): Promise<void> {
     }
   }
 }
-/** 在当前记录范围内恢复，网络重试沿用命令身份。 */
+/** 恢复选中的清理操作。 */
 async function retry(): Promise<void> {
   if (!operation.value || !canRetry.value) return;
   const current = operation.value;
@@ -158,13 +166,17 @@ async function retry(): Promise<void> {
     await refresh();
   }
 }
-/** 保持有界列表，不把所有历史日志累积在浏览器。 */
+/**
+ * 加载下一页清理记录。
+ *
+ * 保持有界列表，不把所有历史日志累积在浏览器。
+ */
 async function next(): Promise<void> {
   if (!nextAfterId.value) return;
   cursor = nextAfterId.value;
   await refresh();
 }
-/** 将共同契约的操作种类转换为明确范围。 */
+/** 将清理操作类型转换为显示名称。 */
 function kindLabel(kind: LifecycleOperation['kind']): string {
   return {
     reset_companion: '重置伴侣',

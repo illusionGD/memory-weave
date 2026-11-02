@@ -18,7 +18,11 @@ import {
 import type { CleanupPage, LifecycleRecord } from '../lifecycle/lifecycle-cleanup';
 import { lifecycleConversationScope } from '../lifecycle/lifecycle-scope';
 
-/** 消息→记忆版本→旧版本依赖→回复，循环至固定点；不通过正文猜测关系。 */
+/**
+ * 沿消息、记忆版本及回复依赖传播删除标记。
+ *
+ * 消息→记忆版本→旧版本依赖→回复，循环至固定点；不通过正文猜测关系。
+ */
 export async function propagateRecallDeletion(
   ownerId: string,
   tx: DatabaseTransaction,
@@ -148,7 +152,11 @@ export async function propagateRecallDeletion(
   return { done: changed === 0, changed };
 }
 
-/** 清除派生词项后删除索引待办文档，身份来源图保留而不保存正文。 */
+/**
+ * 清理失效记忆的词法检索数据。
+ *
+ * 清除派生词项后删除索引待办文档，身份来源图保留而不保存正文。
+ */
 export async function cleanupSearchPage(
   ownerId: string,
   tx: DatabaseTransaction,
@@ -183,7 +191,11 @@ export async function cleanupSearchPage(
   return { done: rows.length === 0, changed: rows.length };
 }
 
-/** 只准备外部删除身份；请求在事务外执行，确认后再提交检查点。 */
+/**
+ * 查询需要删除的向量索引记录。
+ *
+ * 只准备外部删除身份；请求在事务外执行，确认后再提交检查点。
+ */
 export async function vectorCleanupRows(
   ownerId: string,
   tx: DatabaseTransaction,

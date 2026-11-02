@@ -70,7 +70,7 @@ const name = ref('');
 const prepared = ref(false);
 const testMode = ref(false);
 watch(() => route.fullPath, prepare, { immediate: true });
-/** 读取当前模式，并精确读取链接指定的模板版本。 */
+/** 加载模型模式和创建所需的模板版本。 */
 async function prepare(): Promise<void> {
   if (route.name !== 'companion-create') return;
   prepared.value = false;
@@ -94,7 +94,11 @@ async function prepare(): Promise<void> {
     prepared.value = true;
   }
 }
-/** 服务端接受原稿后转入详情，后台继续整理。 */
+/**
+ * 提交伴侣创建请求并打开详情页。
+ *
+ * 服务端接受原稿后转入详情，后台继续整理。
+ */
 async function create(input: Omit<CompanionCreation, 'requestId'>): Promise<void> {
   const parsed = companionCreationSchema.safeParse({ ...input, requestId: identify(input) });
   if (!parsed.success) {
@@ -104,7 +108,11 @@ async function create(input: Omit<CompanionCreation, 'requestId'>): Promise<void
   const result = await run(() => createCompanion(parsed.data), true);
   if (result) await router.push(`/companions/${result.companion.id}`);
 }
-/** 普通创建只要求原稿，名字和约束可省略。 */
+/**
+ * 根据输入的原稿创建伴侣。
+ *
+ * 普通创建只要求原稿，名字和约束可省略。
+ */
 async function createFromText(value: {
   name: string;
   profileText: string;
@@ -115,7 +123,7 @@ async function createFromText(value: {
     source: { kind: 'text', profileText: value.profileText, lockedFeatures: value.lockedFeatures },
   });
 }
-/** 模板创建固定当前展示版本。 */
+/** 根据选中的模板版本创建伴侣。 */
 async function createFromTemplate(): Promise<void> {
   if (template.value)
     await create({

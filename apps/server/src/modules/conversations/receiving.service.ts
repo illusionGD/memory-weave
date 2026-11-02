@@ -36,9 +36,10 @@ import { ApiException } from '../../http/api-exception';
 /** 按伴侣当前代次和成员范围提供原文查询，普通查询不登记实际取得。 */
 @Injectable()
 export class ReceivingService {
+  /** 初始化原文接收与读取进度服务。 */
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
-  /** 分页查看当前伴侣有权读取的正式发言，排除草稿和其他会话。 */
+  /** 分页查询伴侣有权读取的正式消息。 */
   listMessages(
     companionId: string,
     conversationId: string,
@@ -63,7 +64,11 @@ export class ReceivingService {
     });
   }
 
-  /** 按确切版本回查有权查看的正式原文，引用本身不授予额外访问权。 */
+  /**
+   * 查询伴侣可见的指定原文版本。
+   *
+   * 按确切版本回查有权查看的正式原文，引用本身不授予额外访问权。
+   */
   source(
     companionId: string,
     messageId: string,
@@ -99,7 +104,11 @@ export class ReceivingService {
     });
   }
 
-  /** 从各实例持久记录展示读取与待整理状态，查询本身不推进任何进度。 */
+  /**
+   * 查询伴侣的消息接收与记忆整理进度。
+   *
+   * 从各实例持久记录展示读取与待整理状态，查询本身不推进任何进度。
+   */
   progress(
     companionId: string,
     conversationId: string,
@@ -190,7 +199,11 @@ export class ReceivingService {
     });
   }
 
-  /** 原子保存确切接收批次及逐条首次取得记录，重试先复核当前权限。 */
+  /**
+   * 保存原文接收批次及逐条读取记录。
+   *
+   * 原子保存确切接收批次及逐条首次取得记录，重试先复核当前权限。
+   */
   receive(
     companionId: string,
     conversationId: string,
@@ -307,7 +320,11 @@ export class ReceivingService {
     );
   }
 
-  /** 接收响应使用持久批次时间，消息内容沿确切版本映射而不重新选择范围。 */
+  /**
+   * 将接收批次及其消息转换为响应数据。
+   *
+   * 接收响应使用持久批次时间，消息内容沿确切版本映射而不重新选择范围。
+   */
   private async batchResponse(
     batch: typeof receiveBatches.$inferSelect,
     rows: (typeof messages.$inferSelect)[],
@@ -325,7 +342,11 @@ export class ReceivingService {
     };
   }
 
-  /** 先按当前授权筛选再分页，不能以不可见消息占满页面或泄露草稿。 */
+  /**
+   * 按成员授权范围分页读取消息记录。
+   *
+   * 先按当前授权筛选再分页，不能以不可见消息占满页面或泄露草稿。
+   */
   private async visibleRows(
     member: typeof conversationMembers.$inferSelect,
     afterSequence: number,
@@ -374,7 +395,11 @@ export class ReceivingService {
       .limit(limit);
   }
 
-  /** 在映射前确认已发布状态，使伴侣查询不可能返回草稿。 */
+  /**
+   * 将已发布消息转换为伴侣可读取的响应。
+   *
+   * 在映射前确认已发布状态，使伴侣查询不可能返回草稿。
+   */
   private async publishedMessage(
     row: typeof messages.$inferSelect,
     db: QueryDatabase,

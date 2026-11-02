@@ -24,6 +24,8 @@ const frameSchema = z.object({
 });
 
 /**
+ * 读取并解析模型服务的 SSE 文本流。
+ *
  * 逐帧消费兼容协议，中文跨字节边界仍保持完整；完成标志和用量分开校验。
  * @param response 供应商的成功 HTTP 响应。
  * @param onText 具有背压的候选文本接收器，不代表文本已被业务采用。

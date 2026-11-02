@@ -28,6 +28,7 @@ import type { ModelDispatchGuard } from '../models/model-task';
 /** 查询与回复共用入口；未整理补读独立于向量索引和其他实例进度。 */
 @Injectable()
 export class RetrievalService {
+  /** 初始化记忆检索和新原文补读服务。 */
   constructor(
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
@@ -35,7 +36,11 @@ export class RetrievalService {
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
   ) {}
-  /** 取得授权范围内的新原文，超过预算时明确标记覆盖不足。 */
+  /**
+   * 检索相关记忆并补读尚未整理的原文。
+   *
+   * 取得授权范围内的新原文，超过预算时明确标记覆盖不足。
+   */
   async recall(
     companionId: string,
     query: RecallQuery,

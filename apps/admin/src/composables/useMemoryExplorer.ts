@@ -27,7 +27,7 @@ import { getMemory, getMemoryEvidence, memorySource } from '@memory-weave/browse
 import { ApiError } from '@memory-weave/browser-client/http';
 import { useAuthStore } from '@/stores/auth';
 
-/** 管理端记忆浏览；所有视图共用范围与失效处理，拒绝旧请求重新填回已清除正文。 */
+/** 管理记忆列表、时间线、图谱和来源详情的页面状态。 */
 export function useMemoryExplorer(
   companionId: Ref<string>,
   epoch: Ref<number>,
@@ -66,7 +66,11 @@ export function useMemoryExplorer(
   let stale = false;
   let needsRefresh = true;
 
-  /** 当前画面的依赖以版本去重，来源节点受引用它的版本状态约束。 */
+  /**
+   * 收集当前画面需要核对的记忆版本引用。
+   *
+   * 当前画面的依赖以版本去重，来源节点受引用它的版本状态约束。
+   */
   function references(extra: MemoryReadReference[] = []): MemoryReadReference[] {
     const records = [
       ...items.value,
@@ -85,7 +89,11 @@ export function useMemoryExplorer(
     }
     return [...map.values()];
   }
-  /** 清除列表、正文、精确引文和画布，保留筛选条件方便重新读取。 */
+  /**
+   * 清空记忆列表、详情和图谱数据。
+   *
+   * 清除列表、正文、精确引文和画布，保留筛选条件方便重新读取。
+   */
   function clearContent(): void {
     items.value = [];
     next.value = null;
@@ -99,7 +107,11 @@ export function useMemoryExplorer(
     graphCenter.value = '';
     graphLimit.value = false;
   }
-  /** 失效同时递增世代，任何仍在途的请求都不能恢复旧画面。 */
+  /**
+   * 清除失效的浏览内容并显示刷新提示。
+   *
+   * 失效同时递增世代，任何仍在途的请求都不能恢复旧画面。
+   */
   function invalidate(message: string): void {
     generation++;
     action++;
@@ -108,7 +120,11 @@ export function useMemoryExplorer(
     clearContent();
     notice.value = message;
   }
-  /** 网络失败时也停止展示旧正文；认证失败返回当前端的登录页。 */
+  /**
+   * 处理记忆读取失败和登录失效。
+   *
+   * 网络失败时也停止展示旧正文；认证失败返回当前端的登录页。
+   */
   async function fail(cause: unknown): Promise<void> {
     invalidate('内容暂不可核对，已清除旧画面。可稍后刷新。');
     error.value = cause instanceof ApiError ? cause.message : '读取未完成，请稍后重试。';
@@ -117,7 +133,11 @@ export function useMemoryExplorer(
       await router.replace({ name: 'login' });
     }
   }
-  /** 每次采用新数据前再次核对全部画面引用，覆盖响应返回途中的删除和范围切换。 */
+  /**
+   * 执行页面读取请求并校验、应用返回结果。
+   *
+   * 每次采用新数据前再次核对全部画面引用，覆盖响应返回途中的删除和范围切换。
+   */
   async function run<T>(
     operation: () => Promise<T>,
     refs: (result: T) => MemoryReadReference[],
@@ -150,7 +170,11 @@ export function useMemoryExplorer(
       if (token === generation && request === action) loading.value = false;
     }
   }
-  /** 重读第一页，新增记录只在刷新后加入，图谱重新选择中心。 */
+  /**
+   * 加载当前筛选条件下的一页记忆。
+   *
+   * 重读第一页，新增记录只在刷新后加入，图谱重新选择中心。
+   */
   async function refresh(cursor?: string): Promise<void> {
     if (disposed) return;
     if (!companion.value) {
@@ -186,12 +210,20 @@ export function useMemoryExplorer(
       },
     );
   }
-  /** 筛选改变使旧游标失效，后端不会将旧游标解释为新查询的继续位置。 */
+  /**
+   * 应用筛选条件并刷新记忆列表。
+   *
+   * 筛选改变使旧游标失效，后端不会将旧游标解释为新查询的继续位置。
+   */
   async function applyFilters(value: Partial<MemoryExplorerQuery>): Promise<void> {
     filters.value = value;
     await refresh();
   }
-  /** 视图切换复用筛选；图谱需要先选择一个有实际记录的中心。 */
+  /**
+   * 切换记忆列表、时间线或图谱视图。
+   *
+   * 视图切换复用筛选；图谱需要先选择一个有实际记录的中心。
+   */
   async function changeView(value: 'entries' | 'timeline' | 'graph'): Promise<void> {
     if (value === 'graph') {
       if (selected.value) await showGraph(selected.value);
@@ -204,7 +236,11 @@ export function useMemoryExplorer(
     view.value = value;
     await refresh();
   }
-  /** 详情同时读取确切版本证据；即使历史很多，也无需先翻完全部版本。 */
+  /**
+   * 加载指定记忆的历史和选中版本的来源证据。
+   *
+   * 详情同时读取确切版本证据；即使历史很多，也无需先翻完全部版本。
+   */
   async function inspect(record: MemoryExplorerItem): Promise<void> {
     selected.value = null;
     detail.value = null;
@@ -225,7 +261,11 @@ export function useMemoryExplorer(
       },
     );
   }
-  /** 历史每次替换一页，页面不会积累全部版本。 */
+  /**
+   * 加载选中记忆的下一页版本历史。
+   *
+   * 历史每次替换一页，页面不会积累全部版本。
+   */
   async function moreVersions(): Promise<void> {
     const record = selected.value;
     if (!record || !detail.value?.nextAfterId) return;
@@ -243,7 +283,11 @@ export function useMemoryExplorer(
       },
     );
   }
-  /** 精确引文也独立分页，原文不复制进浏览器持久存储。 */
+  /**
+   * 加载选中版本的下一页精确引文。
+   *
+   * 精确引文也独立分页，原文不复制进浏览器持久存储。
+   */
   async function moreEvidence(): Promise<void> {
     const record = selected.value;
     if (!record || !evidence.value?.nextAfterId) return;
@@ -262,7 +306,11 @@ export function useMemoryExplorer(
       },
     );
   }
-  /** 原文回查经过现有权限接口，失败时不保留之前展开的原文。 */
+  /**
+   * 加载并展示指定消息版本的原文。
+   *
+   * 原文回查经过现有权限接口，失败时不保留之前展开的原文。
+   */
   async function showSource(messageId: string, contentVersion: number): Promise<void> {
     source.value = null;
     await run(
@@ -273,7 +321,11 @@ export function useMemoryExplorer(
       },
     );
   }
-  /** 从列表或历史记录建立新的局部图，不把旧图与新中心的快照混为一轮。 */
+  /**
+   * 以选中的记忆或版本建立关系图谱。
+   *
+   * 从列表或历史记录建立新的局部图，不把旧图与新中心的快照混为一轮。
+   */
   async function showGraph(
     record: MemoryExplorerItem,
     kind: 'memory' | 'version' = 'memory',
@@ -297,7 +349,11 @@ export function useMemoryExplorer(
       limit: MEMORY_EXPLORER_LIMITS.graphPageSize,
     });
   }
-  /** 合并一批真实关系，达到画布上限后保留已验证部分并提示重新选择中心。 */
+  /**
+   * 加载一页邻接关系并合并到当前图谱。
+   *
+   * 合并一批真实关系，达到画布上限后保留已验证部分并提示重新选择中心。
+   */
   async function expandGraph(query: MemoryGraphQuery): Promise<void> {
     await run(
       () => getMemoryGraph(companionId.value, query),
@@ -333,7 +389,11 @@ export function useMemoryExplorer(
       },
     );
   }
-  /** 直接定位某个历史版本，不需要先遍历全部版本页。 */
+  /**
+   * 在图谱中定位指定的历史版本。
+   *
+   * 直接定位某个历史版本，不需要先遍历全部版本页。
+   */
   async function showVersion(versionId: string): Promise<void> {
     const token = generation;
     view.value = 'graph';
@@ -355,7 +415,11 @@ export function useMemoryExplorer(
       selected.value =
         graphNodes.value.find((node) => node.id === `version:${versionId}`)?.record ?? null;
   }
-  /** 原文节点打开来源；记忆和版本节点只展开一层。 */
+  /**
+   * 展开选中图谱节点的关系或原文。
+   *
+   * 原文节点打开来源；记忆和版本节点只展开一层。
+   */
   async function selectNode(node: MemoryGraphNode): Promise<void> {
     if (node.kind === 'message' && node.messageId && node.contentVersion) {
       await showSource(node.messageId, node.contentVersion);
@@ -373,7 +437,11 @@ export function useMemoryExplorer(
       limit: MEMORY_EXPLORER_LIMITS.graphPageSize,
     });
   }
-  /** 会话选择器替换当前页，避免长时间使用后累积全部会话。 */
+  /**
+   * 加载一页可供筛选的会话。
+   *
+   * 会话选择器替换当前页，避免长时间使用后累积全部会话。
+   */
   async function loadConversations(afterId?: string): Promise<void> {
     await run(
       () =>
@@ -389,7 +457,11 @@ export function useMemoryExplorer(
       },
     );
   }
-  /** 轮询仅核对已加载的引用，不重读全部正文、模型或图谱。 */
+  /**
+   * 核对当前画面中的记忆版本是否仍然有效。
+   *
+   * 轮询仅核对已加载的引用，不重读全部正文、模型或图谱。
+   */
   async function validateVisible(): Promise<void> {
     if (disposed || polling || document.hidden || stale) return;
     const token = generation;
@@ -408,7 +480,11 @@ export function useMemoryExplorer(
       polling = false;
     }
   }
-  /** 后台标签页重新可见前先核对，隐藏期间的迟到读取全部丢弃。 */
+  /**
+   * 处理标签页可见性变化并恢复内容核对。
+   *
+   * 后台标签页重新可见前先核对，隐藏期间的迟到读取全部丢弃。
+   */
   function visibility(): void {
     if (document.hidden) {
       suspended.value = true;
@@ -421,11 +497,19 @@ export function useMemoryExplorer(
       else void validateVisible();
     }
   }
-  /** 离线后不能继续展示无法核对的来源。 */
+  /**
+   * 处理离线事件并清除无法核对的内容。
+   *
+   * 离线后不能继续展示无法核对的来源。
+   */
   function offline(): void {
     invalidate('连接已断开，已清除旧画面。恢复连接后请刷新。');
   }
-  /** 首次读取在后台被丢弃时，重新可见后从元信息开始恢复。 */
+  /**
+   * 加载伴侣资料、会话选项和首屏记忆。
+   *
+   * 首次读取在后台被丢弃时，重新可见后从元信息开始恢复。
+   */
   async function initialize(): Promise<void> {
     const token = generation;
     await run(

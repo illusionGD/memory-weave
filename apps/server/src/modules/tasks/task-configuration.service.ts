@@ -29,14 +29,23 @@ export const defaultTaskConfiguration: Readonly<TaskConfiguration> = {
 /** 调度与模型配置分组管理；发布配置不修改现有任务或额度。 */
 @Injectable()
 export class TaskConfigurationService {
+  /** 初始化任务配置管理服务。 */
   constructor(@Inject(TaskStore) private readonly store: TaskStore) {}
 
-  /** 读取生效配置，首次使用时持久登记默认版本。 */
+  /**
+   * 读取当前生效的任务调度配置。
+   *
+   * 读取生效配置，首次使用时持久登记默认版本。
+   */
   get(): Promise<TaskConfigurationVersion> {
     return this.store.locked((ownerId, tx) => this.current(ownerId, tx));
   }
 
-  /** 历史只读，回滚应将旧配置发布为新版本。 */
+  /**
+   * 读取指定的任务配置历史版本。
+   *
+   * 历史只读，回滚应将旧配置发布为新版本。
+   */
   getVersion(version: number): Promise<TaskConfigurationVersion> {
     return this.store.locked(async (ownerId, tx) => {
       await this.current(ownerId, tx);
@@ -54,7 +63,11 @@ export class TaskConfigurationService {
     });
   }
 
-  /** 同一短事务核对版本与幂等键，非法修改保留原配置。 */
+  /**
+   * 校验并发布新的任务配置版本。
+   *
+   * 同一短事务核对版本与幂等键，非法修改保留原配置。
+   */
   update(input: UpdateTaskConfiguration): Promise<TaskConfigurationVersion> {
     return this.store.locked(async (ownerId, tx, now) => {
       const current = await this.current(ownerId, tx);
@@ -98,7 +111,11 @@ export class TaskConfigurationService {
     });
   }
 
-  /** 必须在 TaskStore 事务中调用，确保本次决策只读取一个完整版本。 */
+  /**
+   * 在当前事务中读取生效的任务配置。
+   *
+   * 必须在 TaskStore 事务中调用，确保本次决策只读取一个完整版本。
+   */
   async current(ownerId: string, tx: DatabaseTransaction): Promise<TaskConfigurationVersion> {
     const [row] = await tx
       .select()
@@ -122,7 +139,11 @@ export class TaskConfigurationService {
   }
 }
 
-/** 不导出内部幂等摘要与部署身份。 */
+/**
+ * 将任务配置记录转换为公共版本信息。
+ *
+ * 不导出内部幂等摘要与部署身份。
+ */
 function view(row: typeof taskConfigurationVersions.$inferSelect): TaskConfigurationVersion {
   return {
     version: row.version,

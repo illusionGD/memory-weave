@@ -84,6 +84,7 @@ describe('检索与未整理补读的公开协议', () => {
     await database?.dispose();
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
+  /** 配置记忆检索验收使用的模型供应商。 */
   async function useProvider() {
     provider = createServer(async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
@@ -187,6 +188,7 @@ describe('检索与未整理补读的公开协议', () => {
       })
       .expect(200);
   }
+  /** 生成并整理记忆检索验收数据。 */
   async function remember(
     companionId: string,
     conversationId: string,
@@ -289,6 +291,7 @@ describe('检索与未整理补读的公开协议', () => {
     const source = await conversation([a]);
     const target = await conversation([a]);
     await remember(a, source, '猫咪豆包不能吃虾。');
+    /** 提交测试记忆检索请求。 */
     const recall = async () =>
       (
         await agent
@@ -325,6 +328,7 @@ describe('检索与未整理补读的公开协议', () => {
     const source = await conversation([a]);
     const target = await conversation([a]);
     const memory = await remember(a, source, '猫咪豆包不能吃虾。');
+    /** 更新记忆检索验收使用的模型配置。 */
     const configure = async (dimensions: number) => {
       const current = (await agent.get('/api/models/config')).body.data;
       Object.assign(current.config.tasks.embedding, {
@@ -627,6 +631,7 @@ describe('检索与未整理补读的公开协议', () => {
         evaluationNote: '索引恢复验收。',
       })
       .expect(200);
+    /** 重建检索验收使用的后端应用。 */
     const restart = async (qdrantUrl: string) => {
       await app.close();
       app = await createApplication({ ...config, qdrantUrl });
@@ -824,6 +829,7 @@ describe('检索与未整理补读的公开协议', () => {
       );
     }
   }, 20000);
+  /** 创建检索隔离验收使用的伴侣实例。 */
   async function companion(name: string) {
     const response = await agent
       .post('/api/companions')
@@ -832,6 +838,7 @@ describe('检索与未整理补读的公开协议', () => {
     ownerId = response.body.data.ownerId as string;
     return response.body.data.id as string;
   }
+  /** 创建检索隔离验收使用的会话。 */
   async function conversation(companionIds: string[]) {
     const response = await agent
       .post('/api/conversations')
@@ -845,6 +852,7 @@ describe('检索与未整理补读的公开协议', () => {
       .expect(201);
     return response.body.data.conversation.id as string;
   }
+  /** 保存并发布检索隔离验收使用的原文。 */
   async function publish(conversationId: string, text: string) {
     const response = await agent.get(`/api/conversations/${conversationId}`).expect(200);
     const expectedConversationVersion = response.body.data.conversation.version as number;

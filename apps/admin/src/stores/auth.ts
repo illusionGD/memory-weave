@@ -13,6 +13,8 @@ export const useAuthStore = defineStore('auth', () => {
   let sessionRequest: Promise<boolean> | null = null;
 
   /**
+   * 恢复浏览器当前登录会话。
+   *
    * 路由首次进入时恢复会话；并发导航共用一次检查。
    * @returns 服务端是否确认当前会话有效。
    */
@@ -35,7 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * 检查会话并将服务失联与正常未登录区分显示。
+   * 查询服务端会话并更新认证状态。
    * @returns 当前会话是否有效。
    */
   async function checkSession(): Promise<boolean> {
@@ -57,6 +59,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
+   * 提交密码并建立登录会话。
+   *
    * 登录成功后仅记录认证状态，密码不会存入 store。
    * @param password 本次表单输入的部署密码。
    * @returns 是否成功登录。
@@ -80,6 +84,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
+   * 撤销服务端会话并清理本地登录状态。
+   *
    * 等待服务端撤销会话；失败时保留重试入口，不伪称已经退出。
    * @returns 服务端是否已确认退出。
    */
@@ -105,6 +111,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
+   * 清除本地已失效的会话状态。
+   *
    * 私有接口返回未认证时清除本地会话，交由页面重新登录。
    * @param message 登录页面应显示的原因；主动退出时为 null。
    */
@@ -114,7 +122,11 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = message;
   }
 
-  /** 用户重新输入时清除上一条登录反馈。 */
+  /**
+   * 清除登录错误提示。
+   *
+   * 用户重新输入时清除上一条登录反馈。
+   */
   function clearError(): void {
     error.value = null;
   }

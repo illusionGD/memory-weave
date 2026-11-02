@@ -243,7 +243,11 @@ const tabs = [
   { value: 'timeline', label: '时间线' },
   { value: 'graph', label: '关系图谱' },
 ] as const;
-/** 继续展开入口采用可理解的节点名称，稳定身份仍由查询保存。 */
+/**
+ * 获取图谱继续展开入口的节点名称。
+ *
+ * 继续展开入口采用可理解的节点名称，稳定身份仍由查询保存。
+ */
 function centerLabel(id: string): string {
   return graphNodes.value.find((node) => node.id === id)?.label ?? '选中节点';
 }

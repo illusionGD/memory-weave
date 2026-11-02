@@ -15,12 +15,17 @@ import { memoryDefinition, memoryOutputSchema } from './memory-definition';
 /** 模型只提出候选，领域提交与独立进度保持同一事务。 */
 @Injectable()
 export class MemoryExecutionService {
+  /** 初始化记忆整理执行服务。 */
   constructor(
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
   ) {}
-  /** 恢复时沿用 task ID，不为未知外部结果自动换键重发。 */
+  /**
+   * 执行记忆整理任务并采用模型候选。
+   *
+   * 恢复时沿用 task ID，不为未知外部结果自动换键重发。
+   */
   async execute(lease: TaskLease): Promise<void> {
     if (lease.input.kind !== 'memory_batch') throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     const id = lease.input.batchId;

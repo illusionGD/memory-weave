@@ -7,15 +7,24 @@ import { WorkspaceService } from './workspace.service';
 /** 管理当前部署的个人资料，身份由已认证部署确定。 */
 @Controller('workspace')
 export class WorkspaceController {
+  /** 初始化用户资料接口所需的服务。 */
   constructor(@Inject(WorkspaceService) private readonly workspace: WorkspaceService) {}
 
-  /** 读取稳定身份和当前显示名称，不把显示名称用于身份认证。 */
+  /**
+   * 查询当前部署管理者的资料。
+   *
+   * 读取稳定身份和当前显示名称，不把显示名称用于身份认证。
+   */
   @Get()
   get(): Promise<WorkspaceResponse> {
     return this.workspace.get();
   }
 
-  /** 修改显示名称，不允许调用方选择用户身份或改写其他资料。 */
+  /**
+   * 更新当前管理者的显示名称。
+   *
+   * 修改显示名称，不允许调用方选择用户身份或改写其他资料。
+   */
   @Patch()
   update(@Body() body: unknown): Promise<WorkspaceResponse> {
     return this.workspace.update(parseInput(updateWorkspaceRequestSchema, body));

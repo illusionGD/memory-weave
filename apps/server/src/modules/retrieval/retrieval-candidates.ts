@@ -12,7 +12,11 @@ import { assertVersionSources, memoryRecordEvidence } from '../memories/memory-r
 import { ApiException } from '../../http/api-exception';
 import { lexicalTerms } from './retrieval-lexical';
 
-/** 按渠道融合排名，只在主库确认版本和全部来源后返回正文。 */
+/**
+ * 融合各路检索候选并验证记忆来源。
+ *
+ * 按渠道融合排名，只在主库确认版本和全部来源后返回正文。
+ */
 export async function recallCandidates(
   ownerId: string,
   companionId: string,
@@ -46,6 +50,7 @@ export async function recallCandidates(
       ? sql`JSON_UNQUOTE(JSON_EXTRACT(${memoryVersions.document}, '$.storyKey')) = ${query.storyKey}`
       : undefined,
   );
+  /** 构建当前检索范围的记忆版本查询。 */
   const base = () =>
     tx
       .select({ entry: memoryEntries, version: memoryVersions })

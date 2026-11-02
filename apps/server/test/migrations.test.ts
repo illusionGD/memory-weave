@@ -12,6 +12,7 @@ const cliPath = fileURLToPath(new URL('../src/database/migrate-cli.ts', import.m
 const temporaryDirectories: string[] = [];
 const databases: Awaited<ReturnType<typeof createTestDatabase>>[] = [];
 
+/** 创建迁移验收使用的临时 SQL 文件和清单。 */
 async function createMigrations(sources: string[]) {
   const migrationDir = await mkdtemp(join(tmpdir(), 'memory-weave-migrations-'));
   temporaryDirectories.push(migrationDir);
@@ -35,12 +36,14 @@ async function createMigrations(sources: string[]) {
   return migrationDir;
 }
 
+/** 创建迁移验收使用的隔离数据库。 */
 async function isolatedDatabase() {
   const database = await createTestDatabase({ migrate: false });
   databases.push(database);
   return database.databaseUrl;
 }
 
+/** 运行数据库维护命令并读取执行结果。 */
 async function invokeCli(databaseUrl: string, migrationDir: string, command = 'migrate') {
   try {
     const result = await execute(

@@ -7,9 +7,12 @@ import { ApiException } from '../../http/api-exception';
 /** 公开健康检查仅返回可用状态，不泄露具体配置。 */
 @Controller('health')
 export class HealthController {
+  /** 初始化服务健康检查接口。 */
   constructor(@Inject(SystemService) private readonly system: SystemService) {}
 
   /**
+   * 返回后端 HTTP 服务的存活状态。
+   *
    * 报告 HTTP 服务进程是否存活，不依赖数据库等外部服务的状态。
    * @returns 仅包含存活状态的响应。
    */
@@ -20,6 +23,8 @@ export class HealthController {
   }
 
   /**
+   * 返回后端及其依赖服务的就绪状态。
+   *
    * 仅当 MySQL、Qdrant、数据库结构和可写存储目录均可用时报告服务就绪。
    * @returns 仅包含就绪状态的响应。
    */

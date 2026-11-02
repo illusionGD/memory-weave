@@ -18,6 +18,8 @@ export class ApiError extends Error {
   readonly requestId: string | null;
 
   /**
+   * 创建页面请求失败的结构化错误。
+   *
    * 创建可供页面区分认证失败和服务不可用的错误。
    * @param message 适合展示给使用者的错误说明。
    * @param status HTTP 响应状态，连接失败时为 null。
@@ -46,6 +48,8 @@ interface ResponseSchema<T> {
 const REQUEST_TIMEOUT_MS = 15_000;
 
 /**
+ * 解析 HTTP 错误响应并生成页面错误。
+ *
  * 校验统一错误并保留业务提示；旧格式或代理 HTML 按实际 HTTP 状态提供默认提示。
  * @param response 已收到的失败响应，正文读取仍受整次请求的超时限制。
  * @returns 含安全提示、原始状态、可用业务码和追踪编号的错误。
@@ -69,7 +73,7 @@ export async function readApiError(response: Response): Promise<ApiError> {
 }
 
 /**
- * 校验成功响应的公共外层，允许业务自定义数字码和提示。
+ * 解析并校验 API 成功响应的公共外层。
  * @param response 已收到的成功响应，正文读取仍受整次请求超时控制。
  * @returns 经过公共协议校验、尚未校验领域数据的响应。
  */
@@ -93,6 +97,8 @@ async function readApiResponse(response: Response): Promise<ApiResponse> {
 }
 
 /**
+ * 发送 HTTP 请求并读取响应结果。
+ *
  * 请求与响应读取共用时限，避免服务仅发出响应头后页面永久等待。
  * @param path 同源 API 路径。
  * @param options HTTP 请求参数。
@@ -137,6 +143,8 @@ async function executeRequest<T>(
 }
 
 /**
+ * 发送无需返回业务数据的 HTTP 请求。
+ *
  * 发送不需要业务数据的操作，例如退出登录；仍须校验统一响应体。
  * @param path 同源 API 路径。
  * @param options HTTP 请求参数。
@@ -149,6 +157,8 @@ export function request(path: string, options: RequestInit = {}): Promise<void> 
 }
 
 /**
+ * 发送 HTTP 请求并校验返回的 JSON 业务数据。
+ *
  * 读取 JSON 并使用共享契约检查，防止失配响应被当作正常业务数据。
  * @param path 同源 API 路径。
  * @param schema 对应 API 的 data 字段契约。

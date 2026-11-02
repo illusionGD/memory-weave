@@ -5,6 +5,8 @@ import type { CustomDecorator } from '@nestjs/common';
 export const PUBLIC_ROUTE = 'memory-weave:public-route';
 
 /**
+ * 标记无需登录即可访问的路由。
+ *
  * 将路由标记为无需登录即可访问。
  * @returns 设置公开路由元数据的 Nest 装饰器。
  */

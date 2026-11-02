@@ -64,6 +64,7 @@ test('查看跨私聊记忆、时间线和图谱，删除来源后拒绝迟到�
         })
       ).json()
     ).data;
+    /** 创建浏览器记忆验收使用的会话。 */
     async function conversation(title: string) {
       const response = await api.post('/api/conversations', {
         data: {
@@ -77,6 +78,7 @@ test('查看跨私聊记忆、时间线和图谱，删除来源后拒绝迟到�
       expect(response.status()).toBe(201);
       return (await response.json()).data.conversation;
     }
+    /** 经 HTTP 创建浏览器验收使用的记忆。 */
     async function remember(conversationId: string, text: string) {
       const state = (await (await api.get(`/api/conversations/${conversationId}`)).json()).data
         .conversation;

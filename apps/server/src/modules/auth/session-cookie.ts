@@ -4,7 +4,7 @@ import type { Request, CookieOptions } from 'express';
 export const SESSION_COOKIE_NAME = 'memory_weave_session';
 
 /**
- * 从请求中读取会话 Cookie，并检查 Express 解析结果的类型。
+ * 读取并校验请求中的会话 Cookie。
  * @param request 收到的 HTTP 请求。
  * @returns 字符串形式的令牌；值缺失或类型不正确时返回 null。
  */
@@ -16,6 +16,8 @@ export function readSessionCookie(request: Request): string | null {
 }
 
 /**
+ * 生成会话 Cookie 的作用范围和安全选项。
+ *
  * 创建与清除 Cookie 时使用相同的作用范围和安全选项。
  * @param secure 当前部署是否使用 HTTPS。
  * @returns Cookie 的安全属性与路径配置。

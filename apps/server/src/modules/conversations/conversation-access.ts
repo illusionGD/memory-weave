@@ -15,7 +15,11 @@ import { ApiException } from '../../http/api-exception';
 /** 查询与事务共用的数据库接口，调用方负责事务边界。 */
 export type QueryDatabase = Database | DatabaseTransaction;
 
-/** 按部署归属取得会话，写入时可锁定共享顺序。 */
+/**
+ * 查询并校验当前管理者拥有的会话。
+ *
+ * 按部署归属取得会话，写入时可锁定共享顺序。
+ */
 export async function requireConversation(
   ownerId: string,
   conversationId: string,
@@ -33,7 +37,11 @@ export async function requireConversation(
   return row;
 }
 
-/** 校验实例归属及预期代次，不将过时代次替换为当前值。 */
+/**
+ * 校验伴侣实例的归属及运行代次。
+ *
+ * 校验实例归属及预期代次，不将过时代次替换为当前值。
+ */
 export async function requireCompanion(
   ownerId: string,
   companionId: string,
@@ -52,7 +60,11 @@ export async function requireCompanion(
   return row;
 }
 
-/** 校验当前实例及其绑定相同代次的会话成员身份。 */
+/**
+ * 查询并校验伴侣在会话中的成员身份。
+ *
+ * 校验当前实例及其绑定相同代次的会话成员身份。
+ */
 export async function requireCompanionMember(
   ownerId: string,
   companionId: string,
@@ -79,7 +91,7 @@ export async function requireCompanionMember(
   return member;
 }
 
-/** 校验确切发布序号的有效授权，历史授权与成员期间分别判断。 */
+/** 校验会话成员对指定消息序号的读取权限。 */
 export async function assertVisible(
   member: typeof conversationMembers.$inferSelect,
   sequence: number,
@@ -106,7 +118,11 @@ export async function assertVisible(
   if (!visible) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
 }
 
-/** 映射会话公共信息，内部幂等字段不进入响应。 */
+/**
+ * 将会话记录转换为公共响应。
+ *
+ * 映射会话公共信息，内部幂等字段不进入响应。
+ */
 export function toConversation(row: typeof conversations.$inferSelect): Conversation {
   return {
     id: row.id,
@@ -119,7 +135,11 @@ export function toConversation(row: typeof conversations.$inferSelect): Conversa
   };
 }
 
-/** 映射互斥的用户或伴侣身份，拒绝不完整的持久成员记录。 */
+/**
+ * 将成员记录转换为用户或伴侣身份信息。
+ *
+ * 映射互斥的用户或伴侣身份，拒绝不完整的持久成员记录。
+ */
 export function toMember(row: typeof conversationMembers.$inferSelect): ConversationMember {
   const common = {
     id: row.id,
@@ -145,7 +165,11 @@ export function toMember(row: typeof conversationMembers.$inferSelect): Conversa
   throw new ApiException(API_CODES.DATA_UNAVAILABLE);
 }
 
-/** 映射单份原文及来源，读取此方法不登记实际取得或整理状态。 */
+/**
+ * 将消息记录及来源转换为原文响应。
+ *
+ * 映射单份原文及来源，读取此方法不登记实际取得或整理状态。
+ */
 export async function toMessage(
   row: typeof messages.$inferSelect,
   db: QueryDatabase,

@@ -51,7 +51,11 @@ export interface ModelDeployment {
   hardLimits: ModelHardLimits;
 }
 
-/** 默认部署上限不会因 HTTP 配置发布而提高。 */
+/**
+ * 创建模型调用的默认部署资源上限。
+ *
+ * 默认部署上限不会因 HTTP 配置发布而提高。
+ */
 export function defaultModelHardLimits(): ModelHardLimits {
   return {
     dailyBudget: { requests: 10_000, tokens: 10_000_000, costMicros: 10_000_000 },
@@ -61,6 +65,8 @@ export function defaultModelHardLimits(): ModelHardLimits {
 }
 
 /**
+ * 解析模型供应商登记和部署资源上限。
+ *
  * 读取供应商及凭据引用；返回值只能留在服务端，错误由启动配置层统一脱敏。
  * @param environment 部署环境变量，不记录原值。
  * @returns 校验过的供应商与不可被普通配置覆盖的资源上限。

@@ -4,6 +4,8 @@ import type { RequestHandler } from 'express';
 import { ApiException, sendApiError } from './http/api-exception';
 
 /**
+ * 创建写请求的浏览器来源校验中间件。
+ *
  * 校验写请求的浏览器来源，防止其他站点借用会话发起操作。
  * @param allowedOrigins 配置中显式信任的聊天与管理来源，包含端口。
  * @returns 处理 API 请求的 Express 中间件。
@@ -26,6 +28,8 @@ export function createOriginCheck(allowedOrigins: readonly string[]): RequestHan
 }
 
 /**
+ * 将请求体解析异常转换为安全的错误响应。
+ *
  * 对请求体解析错误进行脱敏，避免将格式错误的凭据原文返回客户端。
  * @param error 请求体解析器或前置中间件产生的错误。
  * @param _request 请求上下文，不写入日志。

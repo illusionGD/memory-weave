@@ -22,6 +22,7 @@ import { RetrievalVector } from '../retrieval/retrieval-vector';
 /** 分批清理与进度同事务提交，重启后从已提交阶段继续。 */
 @Injectable()
 export class LifecycleExecutionService {
+  /** 初始化生命周期清理执行服务。 */
   constructor(
     @Inject(AvatarFiles) private readonly avatarFiles: AvatarFiles,
     @Inject(RetrievalVector) private readonly vectors: RetrievalVector,
@@ -29,7 +30,11 @@ export class LifecycleExecutionService {
     @Inject(TasksService) private readonly jobs: TasksService,
     @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
   ) {}
-  /** 仅清理当前部署拥有的数据；全局用量与必要核对身份不删除。 */
+  /**
+   * 执行生命周期清理任务并推进检查点。
+   *
+   * 仅清理当前部署拥有的数据；全局用量与必要核对身份不删除。
+   */
   async execute(lease: TaskLease): Promise<void> {
     if (lease.input.kind !== 'lifecycle_cleanup')
       throw new ApiException(API_CODES.TASK_STATE_CONFLICT);

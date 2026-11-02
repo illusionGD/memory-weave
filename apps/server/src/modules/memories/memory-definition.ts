@@ -50,5 +50,6 @@ add/defer 的 targetId、targetVersion、revisionKind 必须为 null。merge/rev
 提取对象、事实/偏好、经历、互动线索、约定或未完事项；普通聊天可以只保留感受或什么都不保存。subject 不明用 unknown；user/self 的 name 为 null，other 给原文中的名称。用户的要求只是用户意愿，不能自动变成双方约定或伴侣人格命令。短暂情绪用 state，不得概括永久性格；不能修改人格层。
 区分现实与虚构：fictional 必须有 storyKey（故事及版本）和 epistemic=setting，不同故事不能合并；不能把 fictional 来源写成 real。转述用 report，推断用 inference，事实陈述用 statement。
 eventTime、validFrom、validUntil 保留原文精度或相对描述，未知用 null，不以发布时间当作经历时间，不编造具体日期。text 简洁，reason 说明本次操作依据。related 中没有的旧记忆不能猜测其存在。`,
+  /** 生成测试模式的记忆整理结果。 */
   testOutput: () => ({ actions: [] }),
 };

@@ -5,7 +5,11 @@ import type { DatabaseTransaction } from '../../database/database.service';
 import { conversationMembers, conversations } from '../../database/schema';
 import { requireCompanionMember } from '../conversations/conversation-access';
 
-/** 首版跨会话只开放同一用户与本实例的私聊，群聊只使用本会话。 */
+/**
+ * 构建记忆检索可访问的会话范围。
+ *
+ * 首版跨会话只开放同一用户与本实例的私聊，群聊只使用本会话。
+ */
 export async function recallConversationScope(
   ownerId: string,
   companionId: string,

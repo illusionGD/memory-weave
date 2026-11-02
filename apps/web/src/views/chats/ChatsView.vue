@@ -51,7 +51,11 @@ import '@/assets/styles/personas.scss';
 const { loading, error, run } = usePersonaPage();
 const chats = ref<Chat[]>([]);
 const nextAfterId = ref<string | null>(null);
-/** 按页追加会话列表，离开页面后拒绝迟到响应。 */
+/**
+ * 加载下一页聊天会话。
+ *
+ * 按页追加会话列表，离开页面后拒绝迟到响应。
+ */
 async function more(): Promise<void> {
   const result = await run(() => listChats(nextAfterId.value ?? undefined));
   if (result) {

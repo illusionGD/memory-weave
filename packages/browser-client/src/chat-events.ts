@@ -7,6 +7,8 @@ export type ChatEvent =
   { kind: 'message'; sequence: number; message: ChatMessage } | { kind: 'state'; chat: Chat };
 
 /**
+ * 读取聊天消息和状态的 SSE 事件流。
+ *
  * 读取一条有界 SSE 连接；断线由页面携带最后已处理序号重连。
  * @param id 私聊身份。
  * @param cursor 最后成功处理的消息序号。

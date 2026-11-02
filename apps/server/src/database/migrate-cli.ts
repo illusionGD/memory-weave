@@ -1,6 +1,10 @@
 import { getSchemaStatus, MigrationError, runMigrations } from './migrations';
 
-/** 维护命令只读取数据库连接配置，不要求 HTTP 登录或静态资源配置。 */
+/**
+ * 执行数据库迁移或状态查询命令。
+ *
+ * 维护命令只读取数据库连接配置，不要求 HTTP 登录或静态资源配置。
+ */
 async function main(): Promise<void> {
   const argumentsList = process.argv.slice(2);
   const command = argumentsList[0] ?? 'migrate';

@@ -18,7 +18,11 @@ import type {
 } from '@memory-weave/contracts';
 import { requestJson } from './http';
 
-/** 将实例与会话范围固定到每次请求，不自动改用新代次。 */
+/**
+ * 生成会话记忆接口的查询参数。
+ *
+ * 将实例与会话范围固定到每次请求，不自动改用新代次。
+ */
 function queryString(query: MemoryQuery): string {
   const params = new URLSearchParams({
     runtimeEpoch: String(query.runtimeEpoch),
@@ -28,25 +32,37 @@ function queryString(query: MemoryQuery): string {
   if (query.afterId) params.set('afterId', query.afterId);
   return params.toString();
 }
-/** 查询当前记忆分页。 */
+/** 分页查询当前会话的记忆。 */
 export function listMemories(id: string, query: MemoryQuery): Promise<MemoryList> {
   return requestJson(`/api/companions/${id}/memories?${queryString(query)}`, memoryListSchema);
 }
-/** 查询独立整理批次。 */
+/**
+ * 分页查询会话记忆整理批次。
+ *
+ * 查询独立整理批次。
+ */
 export function listMemoryBatches(id: string, query: MemoryQuery): Promise<MemoryBatchList> {
   return requestJson(
     `/api/companions/${id}/memories/batches?${queryString(query)}`,
     memoryBatchListSchema,
   );
 }
-/** 查看不可变语义版本和精确证据。 */
+/**
+ * 查询记忆详情、历史版本和精确证据。
+ *
+ * 查看不可变语义版本和精确证据。
+ */
 export function getMemory(id: string, memoryId: string, query: MemoryQuery): Promise<MemoryDetail> {
   return requestJson(
     `/api/companions/${id}/memories/${memoryId}?${queryString(query)}`,
     memoryDetailSchema,
   );
 }
-/** 提前唤醒或明确重试已知失败的批次，网络重试沿用 requestId。 */
+/**
+ * 提交会话记忆整理或批次重试请求。
+ *
+ * 提前唤醒或明确重试已知失败的批次，网络重试沿用 requestId。
+ */
 export function organizeMemory(
   id: string,
   input: OrganizeMemory,
@@ -62,7 +78,11 @@ export function organizeMemory(
     },
   );
 }
-/** 回查完整原文；来源已删除或代次变化时服务端拒绝读取。 */
+/**
+ * 查询记忆引用的完整原文。
+ *
+ * 回查完整原文；来源已删除或代次变化时服务端拒绝读取。
+ */
 export function memorySource(
   id: string,
   epoch: number,
@@ -75,7 +95,11 @@ export function memorySource(
   );
 }
 
-/** 单个版本的后续证据，避免一次拉取全部重复来源。 */
+/**
+ * 分页查询指定记忆版本的来源证据。
+ *
+ * 单个版本的后续证据，避免一次拉取全部重复来源。
+ */
 export function getMemoryEvidence(
   id: string,
   memoryId: string,

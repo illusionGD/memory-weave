@@ -3,7 +3,11 @@ import type { ApiErrorCode } from '@memory-weave/contracts';
 import type { Response } from 'supertest';
 import { expect } from 'vitest';
 
-/** 从公开 HTTP 响应验证数字业务码、公共结构与独立追踪响应头。 */
+/**
+ * 断言 HTTP 响应符合统一错误协议。
+ *
+ * 从公开 HTTP 响应验证数字业务码、公共结构与独立追踪响应头。
+ */
 export function expectApiError(response: Response, status: number, code: ApiErrorCode): void {
   expect(response.status).toBe(status);
   const body = apiErrorResponseSchema.parse(response.body);
@@ -13,7 +17,11 @@ export function expectApiError(response: Response, status: number, code: ApiErro
   expect(response.body).toEqual(body);
 }
 
-/** 验证调用方预期的业务数据和完整成功外层；实际 HTTP 状态由请求断言单独检查。 */
+/**
+ * 断言 HTTP 响应符合统一成功协议。
+ *
+ * 验证调用方预期的业务数据和完整成功外层；实际 HTTP 状态由请求断言单独检查。
+ */
 export function expectApiSuccess(response: Response, data: unknown): void {
   expect([200, 201]).toContain(response.status);
   expect(response.body).toEqual({

@@ -23,6 +23,7 @@ export class TaskWorkerService implements OnModuleDestroy {
   private loop: Promise<void> | null = null;
   private indexing: Promise<void> | null = null;
 
+  /** 初始化后台任务执行器。 */
   constructor(
     @Inject(RetrievalIndexService) private readonly indexes: RetrievalIndexService,
     @Inject(MemoryExecutionService) private readonly memoryExecution: MemoryExecutionService,
@@ -36,14 +37,18 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(CompanionPersonasService) private readonly personas: CompanionPersonasService,
   ) {}
 
-  /** 主进程监听后启动；测试或维护程序可以只创建 HTTP 应用而不自动消费。 */
+  /**
+   * 启动后台任务消费循环。
+   *
+   * 主进程监听后启动；测试或维护程序可以只创建 HTTP 应用而不自动消费。
+   */
   async start(): Promise<void> {
     if (this.loop) return;
     this.stopping = new AbortController();
     this.loop = this.schedule(this.stopping.signal);
   }
 
-  /** 停止新领取，等待当前有界步骤完成；硬中断由租约和检查点恢复。 */
+  /** 停止领取任务并等待当前执行结束。 */
   async stop(): Promise<void> {
     this.stopping?.abort();
     await this.loop;
@@ -53,11 +58,16 @@ export class TaskWorkerService implements OnModuleDestroy {
     this.stopping = null;
   }
 
-  /** 先停 worker 再关闭数据库连接池。 */
+  /**
+   * 在应用关闭时停止任务执行器。
+   *
+   * 先停 worker 再关闭数据库连接池。
+   */
   async onModuleDestroy(): Promise<void> {
     await this.stop();
   }
 
+  /** 安排下一轮待办转交和任务领取。 */
   private async schedule(signal: AbortSignal): Promise<void> {
     let pollMs = defaultTaskConfiguration.pollMs;
     while (!signal.aborted) {
@@ -99,6 +109,7 @@ export class TaskWorkerService implements OnModuleDestroy {
     }
   }
 
+  /** 分派并执行已领取的后台任务。 */
   private async execute(lease: TaskLease): Promise<void> {
     let heartbeatPending: Promise<void> | null = null;
     let leaseLost = false;

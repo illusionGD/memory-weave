@@ -8,7 +8,11 @@ import { SERVER_CONFIG } from '../../config';
 import { fingerprint } from '../shared/http';
 import type { ModelTaskDefinition } from '../models/model-task';
 
-/** 仅把编码相关配置纳入空间，价格及预算调整不要求重建。 */
+/**
+ * 根据模型编码配置生成向量空间标识。
+ *
+ * 仅把编码相关配置纳入空间，价格及预算调整不要求重建。
+ */
 export function embeddingSpace(task: ModelTaskConfig, config: RuntimeConfig): string {
   return fingerprint({
     provider: task.providerId,
@@ -22,11 +26,19 @@ export function embeddingSpace(task: ModelTaskConfig, config: RuntimeConfig): st
     encoding: 'memory-context-v1',
   });
 }
-/** collection 按部署与编码隔离；正文从不写入 payload。 */
+/**
+ * 生成当前部署与编码空间对应的集合名称。
+ *
+ * collection 按部署与编码隔离；正文从不写入 payload。
+ */
 export function vectorCollection(ownerId: string, space: string): string {
   return `mw_${ownerId.replaceAll('-', '')}_${space.slice(0, 48)}`;
 }
-/** embedding 无生成提示词，定义版本仍由统一模型入口校验。 */
+/**
+ * 创建向量编码的模型任务定义。
+ *
+ * embedding 无生成提示词，定义版本仍由统一模型入口校验。
+ */
 export function embeddingDefinition(task: ModelTaskConfig): ModelTaskDefinition {
   return {
     promptVersion: task.promptVersion,
@@ -40,8 +52,13 @@ export function embeddingDefinition(task: ModelTaskConfig): ModelTaskDefinition 
 @Injectable()
 export class RetrievalVector {
   private readonly ready = new Set<string>();
+  /** 初始化 Qdrant 向量访问客户端。 */
   constructor(@Inject(SERVER_CONFIG) private readonly config: RuntimeConfig) {}
-  /** 建立指定维度的独立空间及过滤字段索引；失败不会改变主库记忆。 */
+  /**
+   * 创建向量集合及其过滤字段索引。
+   *
+   * 建立指定维度的独立空间及过滤字段索引；失败不会改变主库记忆。
+   */
   async ensure(collection: string, dimensions: number): Promise<void> {
     if (this.ready.has(collection)) return;
     const existing = await this.request(`/collections/${collection}`, 'GET', undefined, true);
@@ -68,7 +85,11 @@ export class RetrievalVector {
       });
     this.ready.add(collection);
   }
-  /** wait=true 确认 Qdrant 已应用；重复提交同一点只替换同一派生版本。 */
+  /**
+   * 将记忆向量写入指定集合。
+   *
+   * wait=true 确认 Qdrant 已应用；重复提交同一点只替换同一派生版本。
+   */
   async upsert(
     collection: string,
     id: string,
@@ -93,7 +114,11 @@ export class RetrievalVector {
       );
     }
   }
-  /** ANN 带范围过滤；命中后仍须到主库复核。 */
+  /**
+   * 按会话范围查询相似记忆向量。
+   *
+   * ANN 带范围过滤；命中后仍须到主库复核。
+   */
   async query(
     collection: string,
     vector: number[],
@@ -136,7 +161,11 @@ export class RetrievalVector {
       .parse(result)
       .result.points.map((point) => point.id);
   }
-  /** 明确删除点；不存在的 collection 等价于没有相应派生数据。 */
+  /**
+   * 删除指定集合中的向量点。
+   *
+   * 明确删除点；不存在的 collection 等价于没有相应派生数据。
+   */
   async remove(collection: string, ids: string[]): Promise<void> {
     if (ids.length)
       await this.request(
@@ -146,6 +175,7 @@ export class RetrievalVector {
         true,
       );
   }
+  /** 向 Qdrant 发送请求并解析响应。 */
   private async request(
     path: string,
     method: string,

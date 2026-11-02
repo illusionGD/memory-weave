@@ -139,7 +139,11 @@ const initialInput = computed(() =>
     : undefined,
 );
 watch(() => route.fullPath, loadPage, { immediate: true });
-/** URL 记录所选模板，刷新后仍可读取，不在浏览器持久缓存私人原稿。 */
+/**
+ * 加载模板列表及当前选中的模板。
+ *
+ * URL 记录所选模板，刷新后仍可读取，不在浏览器持久缓存私人原稿。
+ */
 async function loadPage(): Promise<void> {
   if (route.name !== 'persona-templates') return;
   const id = typeof route.query.id === 'string' ? route.query.id : null;
@@ -156,25 +160,37 @@ async function loadPage(): Promise<void> {
     formMode.value = route.query.new === '1' ? 'new' : null;
   }
 }
-/** 进入新建表单。 */
+/** 打开人设模板新建表单。 */
 async function newTemplate(): Promise<void> {
   if (route.query.new === '1') formMode.value = 'new';
   else await router.push({ name: 'persona-templates', query: { new: '1' } });
 }
-/** 查询指定模板最新版本。 */
+/** 加载指定模板的最新版本。 */
 async function openTemplate(id: string): Promise<void> {
   if (route.query.id === id) await loadPage();
   else await router.push({ name: 'persona-templates', query: { id } });
 }
-/** 在当前最新版本上编辑，保存时仍由后端检查乐观版本。 */
+/**
+ * 打开当前模板的编辑表单。
+ *
+ * 在当前最新版本上编辑，保存时仍由后端检查乐观版本。
+ */
 function editTemplate(): void {
   formMode.value = 'edit';
 }
-/** 仅关闭本地表单。 */
+/**
+ * 关闭模板编辑表单。
+ *
+ * 仅关闭本地表单。
+ */
 function closeForm(): void {
   formMode.value = null;
 }
-/** 模板保存不调用模型，也不向已有实例传播。 */
+/**
+ * 创建人设模板或保存新的模板版本。
+ *
+ * 模板保存不调用模型，也不向已有实例传播。
+ */
 async function save(value: {
   name: string;
   profileText: string;
@@ -216,7 +232,11 @@ async function save(value: {
     }
   }
 }
-/** 历史内容只读；编辑必须重新选择最新版本。 */
+/**
+ * 加载模板的指定历史版本。
+ *
+ * 历史内容只读；编辑必须重新选择最新版本。
+ */
 async function loadVersion(): Promise<void> {
   if (!selected.value || !Number.isInteger(versionNumber.value) || versionNumber.value < 1) {
     error.value = '请输入有效版本号。';
@@ -225,11 +245,19 @@ async function loadVersion(): Promise<void> {
   const result = await run(() => getTemplate(selected.value!.id, versionNumber.value));
   if (result) selected.value = result;
 }
-/** 回到当前最新模板后再编辑。 */
+/**
+ * 显示模板的最新版本。
+ *
+ * 回到当前最新模板后再编辑。
+ */
 async function latest(): Promise<void> {
   await loadPage();
 }
-/** 按需读取后续模板。 */
+/**
+ * 加载下一页人设模板。
+ *
+ * 按需读取后续模板。
+ */
 async function more(): Promise<void> {
   if (!nextAfterId.value) return;
   const result = await run(() => listTemplates(nextAfterId.value!));

@@ -55,12 +55,20 @@ const auth = useAuthStore();
 const router = useRouter();
 const password = ref('');
 
-/** 用户编辑密码时清除上一次请求的错误，不保存输入内容。 */
+/**
+ * 清除密码输入对应的登录错误提示。
+ *
+ * 用户编辑密码时清除上一次请求的错误，不保存输入内容。
+ */
 function handlePasswordInput(): void {
   auth.clearError();
 }
 
-/** 等待服务端登录结果后进入私人页面，并清除表单中的密码。 */
+/**
+ * 提交登录表单并跳转到目标页面。
+ *
+ * 等待服务端登录结果后进入私人页面，并清除表单中的密码。
+ */
 async function handleSubmit(): Promise<void> {
   if (auth.loggingIn || !password.value) {
     return;

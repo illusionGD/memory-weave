@@ -57,6 +57,7 @@ describe('生命周期公共命令与恢复', () => {
     await database?.dispose();
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
+  /** 为生命周期验收建立登录会话。 */
   async function login() {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);

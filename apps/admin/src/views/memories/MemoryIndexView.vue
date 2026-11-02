@@ -66,7 +66,11 @@ import { usePersonaPage } from '@/composables/usePersonaPage';
 const { loading, error, run } = usePersonaPage();
 const companions = ref<CompanionListResponse['items']>([]);
 const next = ref<string | null>(null);
-/** 选择器使用服务端分页，每页替换，避免下载全部实例。 */
+/**
+ * 加载一页可供浏览记忆的伴侣。
+ *
+ * 选择器使用服务端分页，每页替换，避免下载全部实例。
+ */
 async function refresh(afterId?: string): Promise<void> {
   const result = await run(() => listCompanions(afterId));
   companions.value = result?.items ?? [];

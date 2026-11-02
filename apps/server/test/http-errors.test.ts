@@ -13,36 +13,43 @@ const PRIVATE_DIAGNOSTIC = 'private-password; SELECT private_text; mysql://priva
 /** 只在测试 HTTP 服务内提供故障入口，不注册到生产应用或替换内部服务。 */
 @Controller()
 class FaultController {
+  /** 返回带自定义业务码的测试成功响应。 */
   @Get('custom-success')
   customSuccess(): ApiResult<{ saved: boolean }> {
     return new ApiResult({ saved: true }, { code: 10000, message: '记录已保存。' });
   }
 
+  /** 返回字段类似响应外层的测试业务数据。 */
   @Get('response-like-data')
   responseLikeData(): { code: number; data: string; message: string } {
     return { code: 42, data: '原始业务内容', message: '原始记录' };
   }
 
+  /** 抛出用于验证异常脱敏的测试错误。 */
   @Get('unknown-error')
   unknownError(): never {
     throw new Error(PRIVATE_DIAGNOSTIC);
   }
 
+  /** 抛出用于验证异常兜底的非 Error 值。 */
   @Get('thrown-value')
   thrownValue(): never {
     throw { message: PRIVATE_DIAGNOSTIC, status: 401, code: 401 };
   }
 
+  /** 抛出用于验证 HTTP 异常映射的测试错误。 */
   @Get('framework-error')
   frameworkError(): never {
     throw new HttpException({ message: PRIVATE_DIAGNOSTIC, code: 401 }, 400);
   }
 
+  /** 抛出使用自定义业务码的测试异常。 */
   @Get('custom-error')
   customError(): never {
     throw new ApiException(10001, '当前伴侣正在休息。', 409);
   }
 
+  /** 抛出使用自定义提示信息的测试异常。 */
   @Get('custom-message')
   customMessage(): never {
     throw new ApiException(40101, '此入口的密码不正确，请重新输入。');

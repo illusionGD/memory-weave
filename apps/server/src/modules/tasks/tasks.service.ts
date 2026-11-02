@@ -40,13 +40,18 @@ type TaskRow = typeof tasks.$inferSelect;
 /** 持久任务控制与 worker 协议；外部访问必须在这些短事务之外。 */
 @Injectable()
 export class TasksService {
+  /** 初始化持久任务管理服务。 */
   constructor(
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TaskConfigurationService) private readonly configuration: TaskConfigurationService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
   ) {}
 
-  /** 创建确定性诊断；同一命令重试只读取原任务，不清零进度。 */
+  /**
+   * 创建确定性诊断任务并保存初始进度。
+   *
+   * 创建确定性诊断；同一命令重试只读取原任务，不清零进度。
+   */
   createDiagnostic(input: DiagnosticTask): Promise<Task> {
     return this.store.locked(async (ownerId, tx) => {
       const requestKey = `diagnostic:${input.requestId.toLowerCase()}`;
@@ -74,7 +79,11 @@ export class TasksService {
     });
   }
 
-  /** 模型任务固定调用身份，任何接管都不能换键补发未知请求。 */
+  /**
+   * 创建使用固定模型请求标识的诊断任务。
+   *
+   * 模型任务固定调用身份，任何接管都不能换键补发未知请求。
+   */
   createModelProbe(input: QueuedModelProbe): Promise<Task> {
     return this.store.locked(async (ownerId, tx) => {
       const requestKey = `model_probe:${input.requestId.toLowerCase()}`;
@@ -102,14 +111,22 @@ export class TasksService {
     });
   }
 
-  /** F03 在实际派发的短事务内核对租约，避免排队期间的取消被忽略。 */
+  /**
+   * 校验任务是否仍有资格派发模型请求。
+   *
+   * F03 在实际派发的短事务内核对租约，避免排队期间的取消被忽略。
+   */
   async guardDispatch(ownerId: string, tx: DatabaseTransaction, lease: TaskLease): Promise<void> {
     await this.requireLease(ownerId, tx, await lockTaskScheduler(ownerId, tx), lease);
     if (!(await this.configuration.current(ownerId, tx)).config.enabled)
       throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
   }
 
-  /** 查询实际状态，必要时将已过期的执行尝试转入有界恢复。 */
+  /**
+   * 查询任务状态并处理过期的执行尝试。
+   *
+   * 查询实际状态，必要时将已过期的执行尝试转入有界恢复。
+   */
   get(id: string): Promise<Task> {
     return this.store.locked(async (ownerId, tx, now) => {
       await this.expire(ownerId, tx, now, (await this.configuration.current(ownerId, tx)).config);
@@ -117,7 +134,11 @@ export class TasksService {
     });
   }
 
-  /** UUID 游标与状态/实例筛选，不一次加载完整历史。 */
+  /**
+   * 按状态和实例筛选并分页查询任务。
+   *
+   * UUID 游标与状态/实例筛选，不一次加载完整历史。
+   */
   list(query: TaskListQuery): Promise<TaskList> {
     return this.store.locked(async (ownerId, tx, now) => {
       await this.expire(ownerId, tx, now, (await this.configuration.current(ownerId, tx)).config);
@@ -143,7 +164,11 @@ export class TasksService {
     });
   }
 
-  /** 在部署锁下原子检查容量并领取一个任务；返回后立即释放数据库锁。 */
+  /**
+   * 领取一个满足容量和调度条件的任务。
+   *
+   * 在部署锁下原子检查容量并领取一个任务；返回后立即释放数据库锁。
+   */
   claim(): Promise<TaskLease | null> {
     return this.store.locked(async (ownerId, tx, now) => {
       const current = await this.configuration.current(ownerId, tx);
@@ -236,7 +261,11 @@ export class TasksService {
     });
   }
 
-  /** 心跳不能复活已过期租约，也不能跨越此次尝试的绝对截止时间。 */
+  /**
+   * 更新任务执行租约的心跳。
+   *
+   * 心跳不能复活已过期租约，也不能跨越此次尝试的绝对截止时间。
+   */
   heartbeat(lease: TaskLease): Promise<void> {
     return this.store.locked(async (ownerId, tx, now) => {
       const row = await this.requireLease(ownerId, tx, now, lease);
@@ -262,7 +291,11 @@ export class TasksService {
     });
   }
 
-  /** 检查点仅单调前进，只有当前有效执行者可以写入。 */
+  /**
+   * 保存任务当前执行检查点。
+   *
+   * 检查点仅单调前进，只有当前有效执行者可以写入。
+   */
   checkpoint(lease: TaskLease, checkpoint: TaskCheckpoint): Promise<Task> {
     return this.store.locked(async (ownerId, tx, now) => {
       const row = await this.requireLease(ownerId, tx, now, lease);
@@ -287,6 +320,8 @@ export class TasksService {
   }
 
   /**
+   * 提交任务成功结果及领域数据变更。
+   *
    * 业务结果、精确进度及后续 outbox 由领域回调在同一事务提交。
    * 回调必须再次检查业务版本且不能执行外部操作；重复完成不会再次执行回调。
    */
@@ -346,7 +381,11 @@ export class TasksService {
     });
   }
 
-  /** 管理者改变任务运行状态；租约立即失效，外部已发出的动作仍需核对。 */
+  /**
+   * 执行任务暂停、恢复或取消操作。
+   *
+   * 管理者改变任务运行状态；租约立即失效，外部已发出的动作仍需核对。
+   */
   async control(id: string, action: 'pause' | 'resume' | 'cancel'): Promise<Task> {
     const result = await this.store.locked((ownerId, tx, now) =>
       this.controlInTransaction(ownerId, tx, now, id, action),
@@ -356,7 +395,11 @@ export class TasksService {
     return result;
   }
 
-  /** 域命令在已有调度事务内撤销租约；外部取消须在提交后另行执行。 */
+  /**
+   * 在当前事务中更新任务控制状态。
+   *
+   * 域命令在已有调度事务内撤销租约；外部取消须在提交后另行执行。
+   */
   async controlInTransaction(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -406,16 +449,25 @@ export class TasksService {
     return this.getInTransaction(ownerId, row.id, tx);
   }
 
-  /** 明确可恢复的失败才安排重试；未知外部结果由 block 保留待核对。 */
+  /**
+   * 记录任务失败并安排允许的重试。
+   *
+   * 明确可恢复的失败才安排重试；未知外部结果由 block 保留待核对。
+   */
   fail(lease: TaskLease, reason: string, retryable = false): Promise<Task> {
     return this.settleFailure(lease, reason, retryable, false);
   }
 
-  /** 持久保留阻塞原因，不重新发送未知外部请求。 */
+  /**
+   * 记录任务阻塞状态及原因。
+   *
+   * 持久保留阻塞原因，不重新发送未知外部请求。
+   */
   block(lease: TaskLease, reason: string): Promise<Task> {
     return this.settleFailure(lease, reason, false, true);
   }
 
+  /** 保存任务失败或阻塞的执行结果。 */
   private settleFailure(
     lease: TaskLease,
     reason: string,
@@ -445,6 +497,7 @@ export class TasksService {
     });
   }
 
+  /** 处理执行租约已经过期的任务。 */
   private async expire(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -477,6 +530,7 @@ export class TasksService {
     }
   }
 
+  /** 读取并校验任务的当前执行租约。 */
   private async requireLease(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -499,7 +553,11 @@ export class TasksService {
     return row;
   }
 
-  /** 域状态及来源版本在提交事务中重查，诊断的空范围不获得任何伴侣权限。 */
+  /**
+   * 校验任务的实例范围及来源有效性。
+   *
+   * 域状态及来源版本在提交事务中重查，诊断的空范围不获得任何伴侣权限。
+   */
   private async checkScope(ownerId: string, tx: DatabaseTransaction, row: TaskRow): Promise<void> {
     const scope = row.scope;
     if (row.input.kind === 'redacted') throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
@@ -583,6 +641,7 @@ export class TasksService {
     }
   }
 
+  /** 保存任务尝试的最终状态。 */
   private async finishAttempt(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -604,6 +663,7 @@ export class TasksService {
       );
   }
 
+  /** 读取并校验指定的任务记录。 */
   private async row(ownerId: string, id: string, tx: DatabaseTransaction): Promise<TaskRow> {
     const [row] = await tx
       .select()
@@ -613,11 +673,16 @@ export class TasksService {
     return row;
   }
 
-  /** 在调用者已有的调度事务内读取任务，避免嵌套加锁。 */
+  /**
+   * 在当前事务中查询任务详情。
+   *
+   * 在调用者已有的调度事务内读取任务，避免嵌套加锁。
+   */
   async getInTransaction(ownerId: string, id: string, tx: DatabaseTransaction): Promise<Task> {
     return this.view(await this.row(ownerId, id, tx), tx);
   }
 
+  /** 将任务及执行尝试转换为公共详情。 */
   private async view(row: TaskRow, tx: DatabaseTransaction): Promise<Task> {
     const attempts = await tx
       .select()
@@ -669,7 +734,11 @@ export class TasksService {
   }
 }
 
-/** 固定有界指数退避，尝试计数不会因重启或修改配置而归零。 */
+/**
+ * 计算任务重试的退避等待时间。
+ *
+ * 固定有界指数退避，尝试计数不会因重启或修改配置而归零。
+ */
 function retryDelay(config: TaskConfiguration, attempts: number): number {
   return Math.min(config.retryMaxMs, config.retryBaseMs * 2 ** Math.max(0, attempts - 1));
 }

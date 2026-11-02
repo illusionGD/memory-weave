@@ -65,12 +65,14 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
 
+  /** 为模型调用验收建立登录会话。 */
   async function login() {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     return agent;
   }
 
+  /** 启动模型验收使用的本地供应商服务。 */
   async function connectProvider(
     handler: (req: IncomingMessage, res: ServerResponse) => void,
     streaming = false,
@@ -101,6 +103,7 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
     return login();
   }
 
+  /** 配置模型验收使用的供应商和任务参数。 */
   async function useProvider(
     agent: Awaited<ReturnType<typeof login>>,
     amend?: (value: ModelConfiguration) => void,

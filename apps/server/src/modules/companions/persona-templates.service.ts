@@ -18,9 +18,14 @@ import { fingerprint } from '../shared/http';
 /** 保存独立模板，绝不以模板更新覆盖实例。 */
 @Injectable()
 export class PersonaTemplatesService {
+  /** 初始化人设模板的数据访问服务。 */
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
-  /** 幂等保存模板首版，不调用模型。 */
+  /**
+   * 创建人设模板及其首个版本。
+   *
+   * 幂等保存模板首版，不调用模型。
+   */
   create(input: CreatePersonaTemplate): Promise<PersonaTemplate> {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
@@ -59,12 +64,16 @@ export class PersonaTemplatesService {
     );
   }
 
-  /** 读取最新版本，或由创建命令指定的历史版本。 */
+  /** 查询模板的最新版本或指定历史版本。 */
   get(id: string, version?: number): Promise<PersonaTemplate> {
     return this.database.withOwner((ownerId, db) => this.read(db, ownerId, id, version));
   }
 
-  /** 旧命令重放原版本；新的编辑必须基于最新版本。 */
+  /**
+   * 保存人设模板的新版本。
+   *
+   * 旧命令重放原版本；新的编辑必须基于最新版本。
+   */
   update(id: string, input: UpdatePersonaTemplate): Promise<PersonaTemplate> {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
@@ -118,7 +127,7 @@ export class PersonaTemplatesService {
     );
   }
 
-  /** 按稳定标识分页列出模板最新版本。 */
+  /** 分页查询人设模板列表。 */
   list(query: IdPaginationQuery): Promise<PersonaTemplateList> {
     return this.database.withOwner(async (ownerId, db) => {
       const rows = await db
@@ -145,6 +154,7 @@ export class PersonaTemplatesService {
     });
   }
 
+  /** 读取指定的人设模板版本。 */
   private async read(
     db: Database | DatabaseTransaction,
     ownerId: string,
@@ -169,6 +179,7 @@ export class PersonaTemplatesService {
   }
 }
 
+/** 将模板存储记录转换为公共响应。 */
 function toTemplate(row: typeof personaTemplateVersions.$inferSelect): PersonaTemplate {
   return {
     id: row.templateId,

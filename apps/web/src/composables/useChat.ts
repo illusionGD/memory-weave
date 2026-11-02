@@ -69,7 +69,11 @@ export interface ChatPageState {
   remove(bubble: ChatBubble): Promise<void>;
 }
 
-/** 消息按身份去重，序号只在事件处理成功后推进；离开或切换会话丢弃迟到结果。 */
+/**
+ * 管理私聊消息、回复状态和事件连接。
+ *
+ * 消息按身份去重，序号只在事件处理成功后推进；离开或切换会话丢弃迟到结果。
+ */
 export function useChat(id: Ref<string>): ChatPageState {
   const router = useRouter();
   let disposed = false;
@@ -152,7 +156,11 @@ export function useChat(id: Ref<string>): ChatPageState {
     );
   });
 
-  /** HTTP 与事件可能交错，持久序号和任务更新时间较旧的快照不能倒退界面。 */
+  /**
+   * 将服务端聊天快照应用到页面状态。
+   *
+   * HTTP 与事件可能交错，持久序号和任务更新时间较旧的快照不能倒退界面。
+   */
   function adoptState(state: Chat): void {
     const current = chat.value;
     if (current && state.contentRevision < current.contentRevision) return;
@@ -177,7 +185,11 @@ export function useChat(id: Ref<string>): ChatPageState {
     chat.value = state;
   }
 
-  /** 将有效消息合并到当前最新页，同一原文重放不会出现两次。 */
+  /**
+   * 合并最新页中的聊天消息。
+   *
+   * 将有效消息合并到当前最新页，同一原文重放不会出现两次。
+   */
   function merge(item: ChatMessage): void {
     const index = items.value.findIndex((entry) => entry.message.id === item.message.id);
     if (index >= 0) items.value[index] = item;
@@ -189,7 +201,11 @@ export function useChat(id: Ref<string>): ChatPageState {
     }
   }
 
-  /** 只确认实际呈现在当前页的原文；回执失败不假装已送达，下次取得时可重试。 */
+  /**
+   * 提交当前已显示消息的送达回执。
+   *
+   * 只确认实际呈现在当前页的原文；回执失败不假装已送达，下次取得时可重试。
+   */
   async function acknowledge(token: number): Promise<void> {
     await nextTick();
     if (token !== generation || chat.value?.availability === 'cleaning') return;
@@ -218,7 +234,7 @@ export function useChat(id: Ref<string>): ChatPageState {
     }
   }
 
-  /** 认证失效离开私人页面；其他错误使用已验证的接口提示。 */
+  /** 处理聊天请求错误并更新页面提示。 */
   async function report(cause: unknown, token: number): Promise<void> {
     if (token !== generation) return;
     error.value = cause instanceof ApiError ? cause.message : '连接未完成，请稍后重试。';
@@ -228,7 +244,11 @@ export function useChat(id: Ref<string>): ChatPageState {
     }
   }
 
-  /** 每次断线带最后处理成功的游标恢复，取消页面不撤销模型生成。 */
+  /**
+   * 建立或恢复聊天事件连接。
+   *
+   * 每次断线带最后处理成功的游标恢复，取消页面不撤销模型生成。
+   */
   async function connect(token: number, attempt = 0): Promise<void> {
     if (token !== generation || !controller) return;
     try {
@@ -271,7 +291,11 @@ export function useChat(id: Ref<string>): ChatPageState {
     );
   }
 
-  /** 加载页面快照后再订阅，快照之后发生的消息由持久序号补齐。 */
+  /**
+   * 加载聊天历史和状态并订阅事件。
+   *
+   * 加载页面快照后再订阅，快照之后发生的消息由持久序号补齐。
+   */
   async function open(): Promise<void> {
     const token = ++generation;
     controller?.abort();
@@ -319,7 +343,11 @@ export function useChat(id: Ref<string>): ChatPageState {
     }
   }
 
-  /** 换页保留消息事件游标；历史页不冒充已显示新到达的消息。 */
+  /**
+   * 加载指定页的聊天历史。
+   *
+   * 换页保留消息事件游标；历史页不冒充已显示新到达的消息。
+   */
   async function page(before?: number): Promise<void> {
     const token = generation;
     loading.value = true;
@@ -346,16 +374,24 @@ export function useChat(id: Ref<string>): ChatPageState {
       if (token === generation) loading.value = false;
     }
   }
-  /** 读取较早的一页，避免无限堆积浏览器内存。 */
+  /**
+   * 加载更早的一页聊天消息。
+   *
+   * 读取较早的一页，避免无限堆积浏览器内存。
+   */
   async function earlier(): Promise<void> {
     if (nextBefore.value && !loading.value) await page(nextBefore.value);
   }
-  /** 回到最新页。 */
+  /** 返回聊天历史的最新页。 */
   async function latest(): Promise<void> {
     if (!loading.value) await page();
   }
 
-  /** 发送失败保留文字和命令身份；确认保存后再次发送相同文字属于新命令。 */
+  /**
+   * 发送用户输入并更新回复状态。
+   *
+   * 发送失败保留文字和命令身份；确认保存后再次发送相同文字属于新命令。
+   */
   async function send(): Promise<void> {
     if (saving.value || !draft.value.trim() || chat.value?.availability !== 'active') return;
     const token = generation;
@@ -383,7 +419,11 @@ export function useChat(id: Ref<string>): ChatPageState {
       if (token === generation) saving.value = false;
     }
   }
-  /** 停止当前所见轮次；发送新补充仍然可以继续聊天。 */
+  /**
+   * 停止当前页面所显示的回复轮次。
+   *
+   * 停止当前所见轮次；发送新补充仍然可以继续聊天。
+   */
   async function stop(): Promise<void> {
     const runId = chat.value?.currentRun?.id;
     if (!runId || saving.value) return;
@@ -398,7 +438,11 @@ export function useChat(id: Ref<string>): ChatPageState {
       if (token === generation) saving.value = false;
     }
   }
-  /** 删除沿用确切选择和命令身份；网络超时重试不会扩大范围。 */
+  /**
+   * 删除选中的聊天消息。
+   *
+   * 删除沿用确切选择和命令身份；网络超时重试不会扩大范围。
+   */
   async function remove(bubble: ChatBubble): Promise<void> {
     if (saving.value || !bubble.targets.length || chat.value?.availability === 'cleaning') return;
     const token = generation;

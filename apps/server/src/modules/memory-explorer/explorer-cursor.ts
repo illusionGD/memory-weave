@@ -12,7 +12,11 @@ const cursorSchema = z
   })
   .strict();
 export type ExplorerCursor = z.infer<typeof cursorSchema>;
-/** 游标只控制分页，不授予访问权；每页仍重新校验实际范围与生命周期。 */
+/**
+ * 解码并校验记忆浏览分页游标。
+ *
+ * 游标只控制分页，不授予访问权；每页仍重新校验实际范围与生命周期。
+ */
 export function readExplorerCursor(
   value: string | undefined,
   scope: unknown,
@@ -32,7 +36,11 @@ export function readExplorerCursor(
     throw new ApiException(API_CODES.INVALID_REQUEST, '分页条件已变化或游标无效，请刷新后重试。');
   }
 }
-/** 复合排序键避免同一毫秒内的版本遗漏。 */
+/**
+ * 生成记忆浏览的下一页游标。
+ *
+ * 复合排序键避免同一毫秒内的版本遗漏。
+ */
 export function writeExplorerCursor(
   scope: unknown,
   asOf: string,

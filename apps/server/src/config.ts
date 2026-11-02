@@ -56,6 +56,8 @@ export const SERVER_CONFIG = Symbol('SERVER_CONFIG');
 export class ConfigurationError extends Error {}
 
 /**
+ * 解析并校验后端启动配置。
+ *
  * 读取启动配置，在监听端口前拒绝不安全或含义不明确的配置值。
  * @param environment 环境变量；其中的敏感信息仅在服务端进程内部使用。
  * @returns 经过校验的服务端配置。
@@ -217,7 +219,11 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   };
 }
 
-/** 配置错误仅指出字段，不回显配置内容。 */
+/**
+ * 解析并校验记忆检索配置。
+ *
+ * 配置错误仅指出字段，不回显配置内容。
+ */
 function parseRetrievalConfiguration(value: string | undefined): RetrievalConfiguration {
   try {
     return retrievalConfigurationSchema.parse(JSON.parse(value || '{}') as unknown);

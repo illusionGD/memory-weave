@@ -17,7 +17,11 @@ import {
   organizeMemory,
 } from '@memory-weave/browser-client/memories';
 
-/** 记忆浏览、来源回查与批次状态；失败时清除旧正文，避免保留失效内容。 */
+/**
+ * 管理会话记忆、原文来源和整理批次的页面状态。
+ *
+ * 记忆浏览、来源回查与批次状态；失败时清除旧正文，避免保留失效内容。
+ */
 export function useMemories(
   companionId: Ref<string>,
   conversationId: Ref<string>,
@@ -41,7 +45,11 @@ export function useMemories(
   let requestId = crypto.randomUUID();
   let requestKey = '';
   let disposed = false;
-  /** 清除可能已因删除、重置或权限变更而失效的内容。 */
+  /**
+   * 清空记忆页面的数据与详情。
+   *
+   * 清除可能已因删除、重置或权限变更而失效的内容。
+   */
   function clear() {
     items.value = [];
     batches.value = null;
@@ -49,7 +57,11 @@ export function useMemories(
     source.value = null;
     next.value = null;
   }
-  /** 每次从当前 scope 读取，拒绝路由切换后的迟到响应。 */
+  /**
+   * 刷新当前会话的记忆和整理批次。
+   *
+   * 每次从当前 scope 读取，拒绝路由切换后的迟到响应。
+   */
   async function refresh() {
     if (page.saving.value || page.loading.value || disposed) return;
     const token = generation;
@@ -80,7 +92,11 @@ export function useMemories(
       source.value = null;
     }
   }
-  /** 点击不是逐条审批；自动批次仍按配置独立运行。 */
+  /**
+   * 提交记忆整理或批次重试请求。
+   *
+   * 点击不是逐条审批；自动批次仍按配置独立运行。
+   */
   async function organize(retryId?: string) {
     const token = generation;
     const key = JSON.stringify([companionId.value, query.value, retryId]);
@@ -103,7 +119,11 @@ export function useMemories(
       await refresh();
     } else clear();
   }
-  /** 页面保持有界，轮询不把读者带回第一页。 */
+  /**
+   * 加载下一页记忆。
+   *
+   * 页面保持有界，轮询不把读者带回第一页。
+   */
   async function more() {
     if (!next.value) return;
     memoryAfter.value = next.value;
@@ -114,18 +134,22 @@ export function useMemories(
     memoryAfter.value = undefined;
     await refresh();
   }
-  /** 整理日志也按稳定身份分页。 */
+  /** 加载下一页整理批次。 */
   async function moreBatches() {
     if (!batches.value?.nextAfterId) return;
     batchAfter.value = batches.value.nextAfterId;
     await refresh();
   }
-  /** 返回日志第一页。 */
+  /** 返回整理批次的第一页。 */
   async function firstBatches() {
     batchAfter.value = undefined;
     await refresh();
   }
-  /** 版本证据始终从服务端当前有效范围读取。 */
+  /**
+   * 加载指定记忆的详情与版本历史。
+   *
+   * 版本证据始终从服务端当前有效范围读取。
+   */
   async function inspect(id: string) {
     selected.value = id;
     detail.value = null;
@@ -137,7 +161,11 @@ export function useMemories(
       if (!result) clear();
     }
   }
-  /** 继续读取较早的语义版本，不重复加载当前页。 */
+  /**
+   * 加载下一页记忆版本。
+   *
+   * 继续读取较早的语义版本，不重复加载当前页。
+   */
   async function moreVersions() {
     if (!selected.value || !detail.value?.nextAfterId) return;
     const token = generation;
@@ -157,7 +185,11 @@ export function useMemories(
       detail.value.nextAfterId = result.nextAfterId;
     }
   }
-  /** 只追加一个版本的证据页；后续轮询仍检查该记忆是否有效。 */
+  /**
+   * 加载指定版本的下一页来源证据。
+   *
+   * 只追加一个版本的证据页；后续轮询仍检查该记忆是否有效。
+   */
   async function moreEvidence(versionId: string) {
     const version = detail.value?.versions.find((item) => item.versionId === versionId);
     if (!selected.value || !version?.evidenceNextAfterId) return;
@@ -176,7 +208,11 @@ export function useMemories(
     version.evidence.push(...result.items);
     version.evidenceNextAfterId = result.nextAfterId;
   }
-  /** 回查引用的完整原文，不将此读取视为新的佐证。 */
+  /**
+   * 加载记忆引用的完整原文。
+   *
+   * 回查引用的完整原文，不将此读取视为新的佐证。
+   */
   async function showSource(messageId: string, version: number) {
     const token = generation;
     source.value = null;

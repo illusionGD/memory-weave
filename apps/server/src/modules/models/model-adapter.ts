@@ -36,12 +36,17 @@ export interface ModelAdapterResponse {
 
 /** 模型供应商边界；显式一次尝试，不在内部重试。 */
 export interface ModelAdapter {
-  /** 一次且仅一次向供应商发送请求，所有重试由计量入口负责。 */
+  /**
+   * 向模型供应商发送一次请求并返回结果。
+   *
+   * 所有重试由统一计量入口负责。
+   */
   invoke(request: ModelAdapterRequest): Promise<ModelAdapterResponse>;
 }
 
 /** 不联网的固定协议测试，不评价语义效果或人格表现。 */
 export class DeterministicModelAdapter implements ModelAdapter {
+  /** 根据请求生成确定性模型测试结果。 */
   async invoke(request: ModelAdapterRequest): Promise<ModelAdapterResponse> {
     request.signal.throwIfAborted();
     const text = `测试模型已收到：${request.inputText}`;

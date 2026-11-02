@@ -158,7 +158,11 @@ const placeholderLabel = computed(() =>
 onMounted(handleRefresh);
 onBeforeUnmount(system.reset);
 
-/** 刷新服务状态，认证失效时清理页面并返回登录入口。 */
+/**
+ * 刷新运行状态并处理登录失效。
+ *
+ * 刷新服务状态，认证失效时清理页面并返回登录入口。
+ */
 async function handleRefresh(): Promise<void> {
   await system.refresh();
 

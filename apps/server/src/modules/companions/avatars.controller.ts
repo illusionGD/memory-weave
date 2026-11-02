@@ -19,8 +19,9 @@ import { AvatarsService } from './avatars.service';
 /** 头像和业务接口使用同一部署认证、Origin 限制与错误协议。 */
 @Controller('companions/:id/avatar')
 export class AvatarsController {
+  /** 初始化头像接口所需的服务。 */
   constructor(@Inject(AvatarsService) private readonly service: AvatarsService) {}
-  /** 上传正文是原始图片，命令元数据放在查询参数。 */
+  /** 接收并保存伴侣头像上传请求。 */
   @Put()
   upload(
     @Param('id') id: string,
@@ -35,12 +36,16 @@ export class AvatarsController {
       body,
     );
   }
-  /** 删除当前展示引用，恢复默认月亮头像。 */
+  /** 清除自定义头像并恢复默认头像。 */
   @Delete()
   clear(@Param('id') id: string, @Body() body: unknown): Promise<AvatarState> {
     return this.service.clear(parseId(id).toLowerCase(), parseInput(changeAvatarSchema, body));
   }
-  /** 二进制图片不包 JSON 外层；错误仍使用统一 code/data/message。 */
+  /**
+   * 返回伴侣当前头像的二进制图片。
+   *
+   * 二进制图片不包 JSON 外层；错误仍使用统一 code/data/message。
+   */
   @Get(':assetId')
   async read(
     @Param('id') id: string,

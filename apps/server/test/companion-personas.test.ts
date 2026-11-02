@@ -51,12 +51,14 @@ describe('伴侣初始人格的公开命令与查询', () => {
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
 
+  /** 为人格验收建立登录会话。 */
   async function login() {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     return agent;
   }
 
+  /** 等待伴侣初始人格整理完成。 */
   async function waitReady(agent: Awaited<ReturnType<typeof login>>, id: string) {
     for (let i = 0; i < 100; i++) {
       const state = (await agent.get(`/api/companions/${id}/persona`).expect(200)).body.data;
@@ -66,6 +68,7 @@ describe('伴侣初始人格的公开命令与查询', () => {
     throw new Error('初始整理没有完成');
   }
 
+  /** 配置人格验收使用的本地模型供应商。 */
   async function connectProvider(respond: (response: ServerResponse) => void) {
     provider = createServer((_req, res) => respond(res));
     await new Promise<void>((resolve) => provider!.listen(0, '127.0.0.1', resolve));
@@ -109,6 +112,7 @@ describe('伴侣初始人格的公开命令与查询', () => {
     return agent;
   }
 
+  /** 返回本地模型测试响应。 */
   function answer(res: ServerResponse, value: unknown) {
     res.setHeader('Content-Type', 'application/json');
     res.end(
@@ -120,6 +124,7 @@ describe('伴侣初始人格的公开命令与查询', () => {
     );
   }
 
+  /** 等待人格整理任务达到指定状态。 */
   async function waitStatus(agent: Awaited<ReturnType<typeof login>>, id: string, status: string) {
     for (let i = 0; i < 100; i++) {
       const state = (await agent.get(`/api/companions/${id}/persona`).expect(200)).body.data;
@@ -183,6 +188,7 @@ describe('伴侣初始人格的公开命令与查询', () => {
 
   it('管理者修订明确约束只追加当前版本，初始人格与另一实例不受影响', async () => {
     const agent = await login();
+    /** 创建人格验收使用的伴侣实例。 */
     const create = async (name: string) =>
       (
         await agent
@@ -253,6 +259,7 @@ describe('伴侣初始人格的公开命令与查询', () => {
         })
         .expect(201)
     ).body.data;
+    /** 创建人格验收使用的伴侣实例。 */
     const create = async (version: number) =>
       (
         await agent

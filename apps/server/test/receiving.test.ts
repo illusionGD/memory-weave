@@ -58,6 +58,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
+  /** 创建原文接收验收使用的伴侣实例。 */
   async function createCompanion(name: string) {
     const response = await agent
       .post('/api/companions')
@@ -66,6 +67,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
     return companionDetailSchema.parse(response.body.data);
   }
 
+  /** 创建原文接收验收使用的会话。 */
   async function createConversation(companionIds: string[], includeUser = true) {
     const response = await agent
       .post('/api/conversations')
@@ -80,6 +82,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
     return conversationDetailSchema.parse(response.body.data);
   }
 
+  /** 保存原文接收验收使用的消息草稿。 */
   async function saveMessage(conversationId: string, text: string) {
     const detail = await agent.get(`/api/conversations/${conversationId}`).expect(200);
     const conversation = conversationDetailSchema.parse(detail.body.data).conversation;
@@ -95,6 +98,7 @@ describe('伴侣视角的原文查询与独立接收', () => {
     return draftMessageSchema.parse(response.body.data);
   }
 
+  /** 发布原文接收验收使用的消息。 */
   async function publishMessage(conversationId: string, text: string) {
     const draft = await saveMessage(conversationId, text);
     const detail = await agent.get(`/api/conversations/${conversationId}`).expect(200);

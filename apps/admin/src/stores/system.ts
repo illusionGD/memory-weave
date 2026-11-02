@@ -13,7 +13,11 @@ export const useSystemStore = defineStore('system', () => {
   const checkedAt = ref<Date | null>(null);
   let requestVersion = 0;
 
-  /** 查询最新状态；旧请求不能覆盖退出或更新后的界面。 */
+  /**
+   * 查询并更新服务运行状态。
+   *
+   * 查询最新状态；旧请求不能覆盖退出或更新后的界面。
+   */
   async function refresh(): Promise<void> {
     const currentVersion = ++requestVersion;
     loading.value = true;
@@ -45,7 +49,7 @@ export const useSystemStore = defineStore('system', () => {
     }
   }
 
-  /** 清除私有状态并阻止退出前的在途响应重新填入页面。 */
+  /** 清空页面中的服务状态。 */
   function reset(): void {
     requestVersion += 1;
     status.value = null;

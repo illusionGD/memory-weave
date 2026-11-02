@@ -76,7 +76,11 @@ const navigation = [
     icon: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6',
   },
 ];
-/** 详情沿用所属管理分区，避免把首页同时标为选中。 */
+/**
+ * 判断导航项是否属于当前管理页面。
+ *
+ * 详情沿用所属管理分区，避免把首页同时标为选中。
+ */
 function isActive(path: string): boolean {
   return path === '/'
     ? route.path === '/'
@@ -88,7 +92,11 @@ function isActive(path: string): boolean {
           (route.name === 'memories' || route.name === 'memory-explorer')
         );
 }
-/** 服务端撤销成功后清空当前管理会话。 */
+/**
+ * 退出当前管理会话。
+ *
+ * 服务端撤销成功后清空当前管理会话。
+ */
 async function logout(): Promise<void> {
   if (await auth.signOut()) await router.replace({ name: 'login' });
 }

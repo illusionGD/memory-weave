@@ -6,6 +6,8 @@ import type { INestApplication } from '@nestjs/common';
 import { ConfigurationError } from './config';
 
 /**
+ * 注册聊天端和管理端静态资源路由。
+ *
  * 托管前端构建产物，未知 API 路由仍交由后端处理，避免错误返回 HTML 页面。
  * @param app 已创建、等待注册路由的 HTTP 应用。
  * @param directory 前端构建产物目录的绝对路径。

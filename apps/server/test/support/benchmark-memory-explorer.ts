@@ -103,7 +103,11 @@ try {
   ).body.data.conversation;
   const ownerId = (await agent.get('/api/workspace')).body.data.ownerId;
   await app.get(TaskWorkerService).start();
-  /** 固定候选只验证保存与读取，不将合成语料描述成模型效果。 */
+  /**
+   * 经 HTTP 创建并整理一批性能测试记忆。
+   *
+   * 固定候选只验证保存与读取，不将合成语料描述成模型效果。
+   */
   async function batch(texts: string[]): Promise<void> {
     const text = '隔离基准的固定原文。';
     let state = (await agent.get(`/api/conversations/${conversation.id}`)).body.data.conversation;
@@ -187,19 +191,28 @@ try {
     versionId: item.versionId,
     stamp: item.readStamp,
   }));
-  /** 限定一个进程顺序读取，另报告 4 并发端到端查询，不声称目标机器容量。 */
+  /**
+   * 测量记忆查询接口的延迟分布。
+   *
+   * 限定一个进程顺序读取，另报告 4 并发端到端查询，不声称目标机器容量。
+   */
   async function measure() {
     const samples: Record<string, number[]> = {};
     const operations = {
+      /** 查询二十条当前记忆以测量列表性能。 */
       entries20: () => agent.get(`${base}/entries`).query({ runtimeEpoch: 1 }).expect(200),
+      /** 查询二十条历史版本以测量时间线性能。 */
       timeline20: () => agent.get(`${base}/timeline`).query({ runtimeEpoch: 1 }).expect(200),
+      /** 执行关键词查询以测量筛选性能。 */
       keyword20: () =>
         agent.get(`${base}/entries`).query({ runtimeEpoch: 1, q: '认识 09' }).expect(200),
+      /** 查询四十八条关系以测量图谱性能。 */
       graph48: () =>
         agent
           .get(`${base}/graph`)
           .query({ runtimeEpoch: 1, centerKind: 'version', centerId: focused.versionId, limit: 48 })
           .expect(200),
+      /** 核对五十个读取引用以测量状态查询性能。 */
       validate50: () =>
         agent.post(`${base}/validate`).send({ runtimeEpoch: 1, references }).expect(200),
     };
@@ -235,6 +248,7 @@ try {
       }),
     );
   }
+  /** 获取记录时间和前置版本查询的执行计划。 */
   async function explain() {
     const [time] = await connection.query(
       'EXPLAIN SELECT id FROM memory_versions WHERE owner_id = ? AND created_at <= NOW(3) ORDER BY created_at DESC, id DESC LIMIT 21',

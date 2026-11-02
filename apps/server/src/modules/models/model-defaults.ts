@@ -4,7 +4,11 @@ import type { ModelConfiguration, ModelTaskConfig } from '@memory-weave/contract
 import { PERSONA_DEFINITION_VERSION } from '../companions/persona-definition';
 import { CHAT_DEFINITION_VERSION } from '../chats/chat-definition';
 
-/** 首次使用时保存一份独立默认值；测试供应商不代表真实模型能力。 */
+/**
+ * 创建默认模型配置。
+ *
+ * 首次使用时保存一份独立默认值；测试供应商不代表真实模型能力。
+ */
 export function defaultModelConfiguration(): ModelConfiguration {
   const tasks = Object.fromEntries(
     MODEL_TASK_ROLES.map((role) => [

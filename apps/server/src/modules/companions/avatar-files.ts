@@ -20,7 +20,11 @@ export interface StoredAvatar {
   /** 发布时间。 */
   updatedAt: string;
 }
-/** 只输出可认证读取的公共引用。 */
+/**
+ * 将头像存储记录转换为公开读取信息。
+ *
+ * 只输出可认证读取的公共引用。
+ */
 export function publicAvatar(id: string, avatar: StoredAvatar | null): CompanionAvatar | null {
   return avatar
     ? {
@@ -37,14 +41,21 @@ export function publicAvatar(id: string, avatar: StoredAvatar | null): Companion
 /** 图片目录仅由服务端 UUID 组成；调用方须持有实例锁或生命周期删除围栏。 */
 @Injectable()
 export class AvatarFiles {
+  /** 初始化头像文件存储目录。 */
   constructor(@Inject(SERVER_CONFIG) private readonly config: RuntimeConfig) {}
+  /** 生成伴侣头像的存储目录路径。 */
   private directory(ownerId: string, id: string): string {
     return join(this.config.dataDir, 'avatars', ownerId, id);
   }
+  /** 生成指定头像文件的存储路径。 */
   private filename(avatar: StoredAvatar): string {
     return `${avatar.id}.${avatar.hash}.webp`;
   }
-  /** 文件完整写入并同步后，调用方才能发布数据库引用。 */
+  /**
+   * 写入并同步头像图片文件。
+   *
+   * 文件完整写入并同步后，调用方才能发布数据库引用。
+   */
   async save(ownerId: string, id: string, avatar: StoredAvatar, bytes: Buffer): Promise<void> {
     const directory = this.directory(ownerId, id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -66,11 +77,19 @@ export class AvatarFiles {
       }
     }
   }
-  /** 不提供静态目录暴露，先经领域认证与当前引用检查再读取。 */
+  /**
+   * 读取指定头像文件的二进制内容。
+   *
+   * 不提供静态目录暴露，先经领域认证与当前引用检查再读取。
+   */
   read(ownerId: string, id: string, avatar: StoredAvatar): Promise<Buffer> {
     return readFile(join(this.directory(ownerId, id), this.filename(avatar)));
   }
-  /** 有界回收未引用的文件；持实例锁，不能删到尚未提交的新头像。 */
+  /**
+   * 清理伴侣目录中未被引用的头像文件。
+   *
+   * 有界回收未引用的文件；持实例锁，不能删到尚未提交的新头像。
+   */
   async prune(ownerId: string, id: string, avatar: StoredAvatar | null): Promise<void> {
     let directory;
     try {
@@ -86,7 +105,11 @@ export class AvatarFiles {
       if (++count >= 32) break;
     }
   }
-  /** 删除实例的持久清理阶段，可在中断后重复执行。 */
+  /**
+   * 删除指定伴侣的全部头像文件。
+   *
+   * 删除实例的持久清理阶段，可在中断后重复执行。
+   */
   removeAll(ownerId: string, id: string): Promise<void> {
     return rm(this.directory(ownerId, id), { recursive: true, force: true });
   }

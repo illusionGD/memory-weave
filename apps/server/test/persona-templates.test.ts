@@ -40,6 +40,7 @@ describe('人设模板的公开 HTTP 契约', () => {
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
 
+  /** 为模板验收建立登录会话。 */
   async function login() {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);

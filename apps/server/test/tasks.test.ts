@@ -64,12 +64,14 @@ describe('持久任务的公开控制与恢复边界', () => {
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
 
+  /** 为任务验收建立登录会话。 */
   async function login() {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
     return agent;
   }
 
+  /** 配置任务验收使用的短租约参数。 */
   async function fastLeases(agent: Awaited<ReturnType<typeof login>>) {
     const current = (await agent.get('/api/tasks/config')).body.data;
     await agent
@@ -88,6 +90,7 @@ describe('持久任务的公开控制与恢复边界', () => {
       .expect(200);
   }
 
+  /** 等待测试任务达到指定状态。 */
   async function waitTask(agent: Awaited<ReturnType<typeof login>>, id: string, status: string) {
     for (let i = 0; i < 120; i += 1) {
       const row = (await agent.get(`/api/tasks/${id}`).expect(200)).body.data;
@@ -97,6 +100,7 @@ describe('持久任务的公开控制与恢复边界', () => {
     throw new Error(`测试任务没有进入 ${status}。`);
   }
 
+  /** 启动任务验收使用的独立工作进程。 */
   async function spawnWorker(mode: 'checkpoint' | 'worker') {
     const definition = config.modelDeployment?.providers[0];
     child = spawn(
@@ -144,6 +148,7 @@ describe('持久任务的公开控制与恢复边界', () => {
     });
   }
 
+  /** 终止任务验收使用的工作进程。 */
   async function killWorker() {
     const exited = once(child!, 'exit');
     child!.kill('SIGKILL');
@@ -151,6 +156,7 @@ describe('持久任务的公开控制与恢复边界', () => {
     child = undefined;
   }
 
+  /** 配置任务验收使用的本地模型供应商。 */
   async function connectProvider(handler: (req: IncomingMessage, res: ServerResponse) => void) {
     provider = createServer(handler);
     await new Promise<void>((resolve) => provider!.listen(0, '127.0.0.1', resolve));

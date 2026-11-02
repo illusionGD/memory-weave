@@ -138,7 +138,11 @@ watch(
   },
   { immediate: true },
 );
-/** 使用公共查询契约校验，日期输入采用浏览器本地时区转换成 UTC。 */
+/**
+ * 校验并提交记忆筛选条件。
+ *
+ * 使用公共查询契约校验，日期输入采用浏览器本地时区转换成 UTC。
+ */
 function apply(): void {
   const values = Object.fromEntries(
     Object.entries(draft)
@@ -159,7 +163,11 @@ function apply(): void {
   delete filters.limit;
   emit('apply', filters);
 }
-/** 清空条件后重新读取，不沿用旧分页游标。 */
+/**
+ * 重置记忆筛选条件并重新查询。
+ *
+ * 清空条件后重新读取，不沿用旧分页游标。
+ */
 function reset(): void {
   for (const key of Object.keys(draft) as (keyof typeof draft)[]) draft[key] = '';
   validationError.value = null;

@@ -16,6 +16,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let requestVersion = 0;
 
   /**
+   * 加载当前用户资料。
+   *
    * 读取最新资料；旧页面请求不能覆盖后续页面的状态。
    * @returns 是否取得当前有效的资料。
    */
@@ -43,6 +45,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   /**
+   * 校验并保存用户显示名称。
+   *
    * 按共享规则验证名称，再等待服务端确认保存成功。
    * @param displayName 用户当前输入，公共契约负责去除首尾空白。
    * @returns 是否成功保存且结果仍属于当前页面。
@@ -76,14 +80,22 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
 
-  /** 编辑名称后清除过时的成功或失败提示，保留已读取的资料。 */
+  /**
+   * 清除资料编辑的操作提示。
+   *
+   * 编辑名称后清除过时的成功或失败提示，保留已读取的资料。
+   */
   function clearFeedback(): void {
     error.value = null;
     validationError.value = null;
     saved.value = false;
   }
 
-  /** 清空私人资料并使所有旧请求失效，不伪称取消了服务端已接受的写入。 */
+  /**
+   * 清空用户资料及其页面状态。
+   *
+   * 清空私人资料并使所有旧请求失效，不伪称取消了服务端已接受的写入。
+   */
   function reset(): void {
     requestVersion += 1;
     workspace.value = null;

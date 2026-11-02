@@ -61,7 +61,11 @@ const LIFECYCLE_STAGES_V3 = [
 ] as const;
 /** v4 追加头像文件阶段，不改变 v1–v3 的检查点含义。 */
 export const LIFECYCLE_STAGES = [...LIFECYCLE_STAGES_V3, 'avatar_files'] as const;
-/** 按操作创建时的协议恢复，升级不能重解释旧检查点。 */
+/**
+ * 获取指定生命周期协议的清理阶段列表。
+ *
+ * 按操作创建时的协议恢复，升级不能重解释旧检查点。
+ */
 export function lifecycleStages(version: number): readonly string[] {
   if (version === 1) return LIFECYCLE_STAGES_V1;
   if (version === 2) return LIFECYCLE_STAGES_V2;
@@ -84,9 +88,14 @@ export type LifecycleCleanupPage = (
   limit: number,
 ) => Promise<CleanupPage>;
 
-/** 当前模块的分批清理；所有派生数据只按明确作用域处理。 */
+/**
+ * 执行生命周期任务当前阶段的一页数据清理。
+ *
+ * 当前模块的分批清理；所有派生数据只按明确作用域处理。
+ */
 export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, operation, limit) => {
   const content = operation.kind === 'delete_messages';
+  /** 生成当前清理操作的查询范围条件。 */
   const scope = (value: unknown): SQL =>
     content
       ? lifecycleConversationScope(

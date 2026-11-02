@@ -21,12 +21,15 @@ export class AuthService implements OnModuleDestroy {
   private readonly sessions = new Map<string, number>();
   private readonly loginAttempts = new Map<string, { count: number; expiresAt: number }>();
 
+  /** 初始化密码校验数据和登录限制。 */
   private constructor(
     private readonly salt: Buffer,
     private readonly passwordHash: Buffer,
   ) {}
 
   /**
+   * 创建密码校验所需的认证服务。
+   *
    * 初始化密码校验信息，不保留传入的明文密码。
    * @param password 部署时配置的初始密码。
    * @returns 可用于校验登录的认证服务。
@@ -38,6 +41,8 @@ export class AuthService implements OnModuleDestroy {
   }
 
   /**
+   * 校验输入密码是否匹配部署密码。
+   *
    * 派生密码密钥，并通过恒定时间比较检查是否匹配。
    * @param password 通过登录请求格式校验后取得的密码。
    * @returns 提交的密码是否正确。
@@ -50,6 +55,8 @@ export class AuthService implements OnModuleDestroy {
   }
 
   /**
+   * 检查并记录当前来源的登录频率。
+   *
    * 在执行开销较大的密码哈希前，按来源和时间窗口限制登录次数及来源记录数量。
    * @param source 根据底层连接取得的客户端标识，不信任转发请求头。
    */
@@ -73,6 +80,8 @@ export class AuthService implements OnModuleDestroy {
   }
 
   /**
+   * 创建登录会话及其访问令牌。
+   *
    * 创建随机会话令牌，服务端仅保存令牌摘要。
    * @returns 仅通过 HttpOnly Cookie 发送给浏览器的会话令牌。
    */
@@ -88,6 +97,8 @@ export class AuthService implements OnModuleDestroy {
   }
 
   /**
+   * 判断会话令牌是否有效且尚未过期。
+   *
    * 通过服务端记录和过期时间校验会话，不信任客户端声明的状态。
    * @param token 尚未校验的 Cookie 值。
    * @returns 令牌是否对应有效会话。
@@ -105,6 +116,8 @@ export class AuthService implements OnModuleDestroy {
   }
 
   /**
+   * 撤销指定令牌对应的登录会话。
+   *
    * 撤销会话，使旧 Cookie 再次提交时无法通过认证。
    * @param token 会话 Cookie 的值，缺失时为 null。
    */
@@ -112,17 +125,23 @@ export class AuthService implements OnModuleDestroy {
     if (token) this.sessions.delete(this.digest(token));
   }
 
-  /** 关闭应用时清除当前进程内的凭据和会话。 */
+  /**
+   * 清理进程内的认证凭据和会话。
+   *
+   * 关闭应用时清除当前进程内的凭据和会话。
+   */
   onModuleDestroy(): void {
     this.passwordHash.fill(0);
     this.sessions.clear();
     this.loginAttempts.clear();
   }
 
+  /** 计算会话令牌的摘要。 */
   private digest(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }
 
+  /** 移除已经过期的登录会话。 */
   private removeExpiredSessions(): void {
     const now = Date.now();
     for (const [digest, expiresAt] of this.sessions) {

@@ -12,14 +12,20 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
   private timer: ReturnType<typeof setTimeout> | undefined;
   private pending: Promise<void> | undefined;
   private stopped = false;
+  /** 初始化头像文件巡检服务。 */
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(AvatarFiles) private readonly files: AvatarFiles,
   ) {}
-  /** 等数据库服务完成启动后异步巡检，每轮最多 20 个实例、每实例 32 个文件。 */
+  /**
+   * 启动头像文件的定期清理任务。
+   *
+   * 等数据库服务完成启动后异步巡检，每轮最多 20 个实例、每实例 32 个文件。
+   */
   onApplicationBootstrap(): void {
     this.schedule();
   }
+  /** 安排下一轮头像文件巡检。 */
   private schedule(): void {
     if (this.stopped) return;
     this.timer = setTimeout(() => {
@@ -31,6 +37,7 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
     }, 5000);
     this.timer.unref();
   }
+  /** 清理当前批次中未被引用的头像文件。 */
   private async sweep(): Promise<void> {
     await this.database.withOwner(async (ownerId, db) => {
       const rows = await db
@@ -64,7 +71,11 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
       if (rows.length < 20) this.afterId = null;
     });
   }
-  /** 停止计时器并等待当前有界文件操作退出。 */
+  /**
+   * 停止头像巡检并等待当前清理完成。
+   *
+   * 停止计时器并等待当前有界文件操作退出。
+   */
   async onModuleDestroy(): Promise<void> {
     this.stopped = true;
     clearTimeout(this.timer);

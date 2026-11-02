@@ -49,7 +49,11 @@ export const MEMORY_EDGE_LABELS = {
   conflict: '保留分歧',
   dependency: '依赖旧认识',
 } as const;
-/** 按浏览器本地时区展示准确记录时间，经历时间原文不经过此方法。 */
+/**
+ * 将记录时间格式化为本地时间文本。
+ *
+ * 按浏览器本地时区展示准确记录时间，经历时间原文不经过此方法。
+ */
 export function memoryTime(value: string): string {
   return new Date(value).toLocaleString('zh-CN', { hour12: false });
 }

@@ -45,9 +45,14 @@ import { ApiException } from '../../http/api-exception';
 /** 管理共享会话与单份原文，所有写入以部署归属及事务保护。 */
 @Injectable()
 export class ConversationsService {
+  /** 初始化会话与消息管理服务。 */
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
-  /** 一次建立初始成员和独立可见授权，不开放邀请及成员变更。 */
+  /**
+   * 创建会话、初始成员及可见授权。
+   *
+   * 一次建立初始成员和独立可见授权，不开放邀请及成员变更。
+   */
   create(input: CreateConversationRequest): Promise<ConversationDetail> {
     return this.database.withOwner((ownerId, db) =>
       db.transaction((tx) => this.createInTransaction(ownerId, tx, input), {
@@ -56,7 +61,11 @@ export class ConversationsService {
     );
   }
 
-  /** 供领域命令在同一事务中复用原文规则，不自行提交或调用外部服务。 */
+  /**
+   * 在当前事务中创建会话及初始成员。
+   *
+   * 供领域命令在同一事务中复用原文规则，不自行提交或调用外部服务。
+   */
   async createInTransaction(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -127,12 +136,20 @@ export class ConversationsService {
     return this.detail(ownerId, inserted.id, tx);
   }
 
-  /** 管理者按归属查询会话及成员，不改变任何接收状态。 */
+  /**
+   * 查询会话及其成员详情。
+   *
+   * 管理者按归属查询会话及成员，不改变任何接收状态。
+   */
   get(id: string): Promise<ConversationDetail> {
     return this.database.withOwner((ownerId, db) => this.detail(ownerId, id, db));
   }
 
-  /** 按稳定标识分页查询部署内会话，避免一次加载全部历史。 */
+  /**
+   * 分页查询当前部署的会话。
+   *
+   * 按稳定标识分页查询部署内会话，避免一次加载全部历史。
+   */
   list(input: IdPaginationQuery): Promise<ConversationListResponse> {
     return this.database.withOwner(async (ownerId, db) => {
       const rows = await db
@@ -154,7 +171,11 @@ export class ConversationsService {
     });
   }
 
-  /** 只保存单份草稿；验证真实成员及来源后再允许进入共享存储。 */
+  /**
+   * 校验发言者和来源并保存消息草稿。
+   *
+   * 只保存单份草稿；验证真实成员及来源后再允许进入共享存储。
+   */
   save(conversationId: string, input: SaveMessageRequest): Promise<Message> {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
@@ -170,7 +191,11 @@ export class ConversationsService {
     );
   }
 
-  /** 供领域命令在同一事务中复用原文规则，不自行提交或调用外部服务。 */
+  /**
+   * 在当前事务中保存消息草稿。
+   *
+   * 供领域命令在同一事务中复用原文规则，不自行提交或调用外部服务。
+   */
   async saveInTransaction(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -265,7 +290,11 @@ export class ConversationsService {
     return toMessage(row, tx);
   }
 
-  /** 管理查询可查看草稿，但不会使草稿正式发布或登记接收。 */
+  /**
+   * 查询会话中的消息及其保存状态。
+   *
+   * 管理查询可查看草稿，但不会使草稿正式发布或登记接收。
+   */
   getMessage(conversationId: string, messageId: string): Promise<Message> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireConversation(ownerId, conversationId, db);
@@ -285,7 +314,7 @@ export class ConversationsService {
     });
   }
 
-  /** 正式发布与各可见实例待整理登记原子提交，重试复用原发布结果。 */
+  /** 发布消息并登记可见伴侣的待整理范围。 */
   publish(
     conversationId: string,
     messageId: string,
@@ -303,7 +332,11 @@ export class ConversationsService {
     );
   }
 
-  /** 供领域命令在同一事务中复用原文规则，不自行提交或调用外部服务。 */
+  /**
+   * 在当前事务中发布消息并登记待整理范围。
+   *
+   * 供领域命令在同一事务中复用原文规则，不自行提交或调用外部服务。
+   */
   async publishInTransaction(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -441,7 +474,11 @@ export class ConversationsService {
     return toMessage(published, tx);
   }
 
-  /** 管理历史只返回正式发布消息，按服务端序号分页。 */
+  /**
+   * 分页查询会话已发布的消息。
+   *
+   * 管理历史只返回正式发布消息，按服务端序号分页。
+   */
   listMessages(
     conversationId: string,
     input: SequencePaginationQuery,
@@ -470,7 +507,11 @@ export class ConversationsService {
     });
   }
 
-  /** 聊天的写入必须同时失效旧回复，基础管理接口不能旁路该协议。 */
+  /**
+   * 检查会话是否允许通过基础管理接口写入。
+   *
+   * 聊天的写入必须同时失效旧回复，基础管理接口不能旁路该协议。
+   */
   private async assertUnmanaged(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -484,7 +525,11 @@ export class ConversationsService {
     if (chat) throw new ApiException(API_CODES.CHAT_MANAGED_CONVERSATION);
   }
 
-  /** 保存与发布均核对实际发言者，管理者代理不扩大成员访问权。 */
+  /**
+   * 解析并校验消息的实际发言者。
+   *
+   * 保存与发布均核对实际发言者，管理者代理不扩大成员访问权。
+   */
   private async speaker(
     ownerId: string,
     conversationId: string,
@@ -519,7 +564,11 @@ export class ConversationsService {
     return member;
   }
 
-  /** 来源和回复必须指向本会话内发言者有权查看的已发布原文。 */
+  /**
+   * 校验消息来源和回复目标的读取权限。
+   *
+   * 来源和回复必须指向本会话内发言者有权查看的已发布原文。
+   */
   private async validateReferences(
     ownerId: string,
     conversationId: string,
@@ -552,7 +601,7 @@ export class ConversationsService {
     }
   }
 
-  /** 返回稳定公共字段，成员按标识排序使重复查询结果稳定。 */
+  /** 组装会话及成员的详情响应。 */
   private async detail(
     ownerId: string,
     id: string,

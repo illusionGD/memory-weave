@@ -82,7 +82,11 @@ onScopeDispose(() => {
   generation++;
   discard();
 });
-/** 释放仅存在当前页面的原图预览，不把图片写入浏览器持久缓存。 */
+/**
+ * 释放当前选中图片的本地预览。
+ *
+ * 释放仅存在当前页面的原图预览，不把图片写入浏览器持久缓存。
+ */
 function discard(): void {
   if (preview.value) URL.revokeObjectURL(preview.value);
   preview.value = null;
@@ -90,7 +94,11 @@ function discard(): void {
   command = null;
   if (picker.value) picker.value.value = '';
 }
-/** 选图时固定版本，避免保存过程中用新版本覆盖其他终端的修改。 */
+/**
+ * 读取选中的头像图片并准备预览。
+ *
+ * 选图时固定版本，避免保存过程中用新版本覆盖其他终端的修改。
+ */
 function select(event: Event): void {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file) return;
@@ -113,7 +121,11 @@ function select(event: Event): void {
     expectedVersion: props.companion.avatarVersion,
   };
 }
-/** 上传成功后只更新展示字段；冲突时回查并要求重新选择，禁止静默覆盖。 */
+/**
+ * 上传头像或恢复默认头像，并同步页面资料。
+ *
+ * 上传成功后只更新展示字段；冲突时回查并要求重新选择，禁止静默覆盖。
+ */
 async function apply(operation: () => Promise<AvatarState>): Promise<void> {
   const token = generation;
   busy.value = true;
@@ -136,7 +148,11 @@ async function apply(operation: () => Promise<AvatarState>): Promise<void> {
     if (token === generation) busy.value = false;
   }
 }
-/** 重试保留同一图片与命令身份。 */
+/**
+ * 保存选中的头像图片。
+ *
+ * 重试保留同一图片与命令身份。
+ */
 async function save(): Promise<void> {
   if (selected.value && command && !busy.value && !restricted.value) {
     const file = selected.value;
@@ -144,7 +160,11 @@ async function save(): Promise<void> {
     await apply(() => uploadAvatar(props.companion.id, input, file));
   }
 }
-/** 恢复默认不需要删除确认，之后可再次上传。 */
+/**
+ * 恢复伴侣的默认头像。
+ *
+ * 恢复默认不需要删除确认，之后可再次上传。
+ */
 async function reset(): Promise<void> {
   if (busy.value || restricted.value) return;
   const input = {

@@ -257,7 +257,11 @@ onScopeDispose(() => {
   disposed = true;
   clearTimeout(timer);
 });
-/** 切换实例时不沿用上一实例的显示与编辑状态。 */
+/**
+ * 切换当前伴侣并重新加载详情。
+ *
+ * 切换实例时不沿用上一实例的显示与编辑状态。
+ */
 async function changeCompanion(): Promise<void> {
   if (route.name !== 'companion-detail' || typeof route.params.id !== 'string') return;
   state.value = null;
@@ -266,7 +270,11 @@ async function changeCompanion(): Promise<void> {
   history.value = null;
   await refresh();
 }
-/** 只轮询尚在运行的整理，离开页面停止读取。 */
+/**
+ * 刷新伴侣人格及整理任务状态。
+ *
+ * 只轮询尚在运行的整理，离开页面停止读取。
+ */
 async function refresh(): Promise<void> {
   clearTimeout(timer);
   const result = await run(() => getPersona(String(route.params.id)));
@@ -291,17 +299,25 @@ async function refresh(): Promise<void> {
   )
     timer = setTimeout(refresh, 1500);
 }
-/** 选择当前人格并关闭未提交编辑。 */
+/** 显示当前人格版本。 */
 function showCurrent(): void {
   selection.value = 'current';
   editingLocks.value = false;
 }
-/** 选择固定的初始人格，不覆盖当前版本。 */
+/**
+ * 显示固定的初始人格版本。
+ *
+ * 选择固定的初始人格，不覆盖当前版本。
+ */
 function showInitial(): void {
   selection.value = 'initial';
   editingLocks.value = false;
 }
-/** 明确输入版本后读取，不一次下载所有历史。 */
+/**
+ * 加载指定的人格历史版本。
+ *
+ * 明确输入版本后读取，不一次下载所有历史。
+ */
 async function loadHistory(): Promise<void> {
   if (!state.value || !Number.isInteger(historyNumber.value) || historyNumber.value < 1) {
     error.value = '请输入有效版本号。';
@@ -320,7 +336,11 @@ async function loadHistory(): Promise<void> {
     editingLocks.value = false;
   }
 }
-/** 编辑采用当前版本，防止后台刷新后无意覆盖他人的修订。 */
+/**
+ * 打开当前人格的长期约束编辑表单。
+ *
+ * 编辑采用当前版本，防止后台刷新后无意覆盖他人的修订。
+ */
 function editLocks(): void {
   if (!state.value) return;
   locksText.value =
@@ -330,11 +350,19 @@ function editLocks(): void {
   editingVersion.value = state.value.companion.currentPersonaVersion.version;
   editingLocks.value = true;
 }
-/** 丢弃本地编辑，不修改已保存约束。 */
+/**
+ * 关闭长期约束编辑表单。
+ *
+ * 丢弃本地编辑，不修改已保存约束。
+ */
 function closeLocks(): void {
   editingLocks.value = false;
 }
-/** 每次明确保存追加版本，同载荷重试沿用命令身份。 */
+/**
+ * 保存长期约束并更新人格版本。
+ *
+ * 每次明确保存追加版本，同载荷重试沿用命令身份。
+ */
 async function saveLocks(): Promise<void> {
   if (!state.value) return;
   const value = {
@@ -357,7 +385,11 @@ async function saveLocks(): Promise<void> {
     await refresh();
   }
 }
-/** 只有显式操作才为旧原稿或已知失败创建新任务。 */
+/**
+ * 启动或重试初始人格整理。
+ *
+ * 只有显式操作才为旧原稿或已知失败创建新任务。
+ */
 async function initialize(): Promise<void> {
   if (!state.value) return;
   const value = {
@@ -379,23 +411,34 @@ async function initialize(): Promise<void> {
     await refresh();
   }
 }
-/** 管理操作由服务端确认，页面不乐观伪造状态。 */
+/**
+ * 提交人格整理任务的控制操作。
+ *
+ * 管理操作由服务端确认，页面不乐观伪造状态。
+ */
 async function control(action: 'pause' | 'resume' | 'cancel'): Promise<void> {
   if (!state.value?.task) return;
   const result = await run(() => controlPersonaTask(state.value!.task!.id, action), true);
   if (result) await refresh();
 }
+/** 暂停人格整理任务。 */
 async function pause(): Promise<void> {
   await control('pause');
 }
+/** 恢复人格整理任务。 */
 async function resume(): Promise<void> {
   await control('resume');
 }
+/** 取消人格整理任务。 */
 async function cancel(): Promise<void> {
   await control('cancel');
 }
 const chatRouter = useRouter();
-/** 确认目标与影响后提交已看到的实例版本；不自动扩大到其他实例。 */
+/**
+ * 确认并提交伴侣重置或删除操作。
+ *
+ * 确认目标与影响后提交已看到的实例版本；不自动扩大到其他实例。
+ */
 async function manageCompanion(kind: 'reset_companion' | 'delete_companion'): Promise<void> {
   const companion = state.value?.companion;
   if (!companion || saving.value || companion.lifecycleOperationId) return;
@@ -422,15 +465,27 @@ async function manageCompanion(kind: 'reset_companion' | 'delete_companion'): Pr
   );
   if (result) await chatRouter.push({ name: 'lifecycle', params: { id: result.id } });
 }
-/** 重置当前实例，沿用创建时的初始人生。 */
+/**
+ * 重置当前伴侣的人生。
+ *
+ * 重置当前实例，沿用创建时的初始人生。
+ */
 async function resetCompanion(): Promise<void> {
   await manageCompanion('reset_companion');
 }
-/** 删除当前实例，保留共同原文的最小历史身份。 */
+/**
+ * 删除当前伴侣实例。
+ *
+ * 删除当前实例，保留共同原文的最小历史身份。
+ */
 async function deleteCompanion(): Promise<void> {
   await manageCompanion('delete_companion');
 }
-/** 只更新展示资料，正在生成的人格内容保持自己的版本。 */
+/**
+ * 更新页面中的伴侣头像资料。
+ *
+ * 只更新展示资料，正在生成的人格内容保持自己的版本。
+ */
 function updateAvatar(value: AvatarState): void {
   if (state.value)
     state.value = { ...state.value, companion: { ...state.value.companion, ...value } };

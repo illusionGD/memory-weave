@@ -53,10 +53,14 @@ export interface ReceivedMessageVersion {
 
 /** UUID 统一为小写；ASCII 不区分大小写索引保持既有 UUID 查询语义。 */
 const uuid = customType<{ data: string; driverData: string }>({
+  /** 返回 UUID 字段的 MySQL 列类型。 */
   dataType: () => 'char(36) character set ascii collate ascii_general_ci',
+  /** 将 UUID 字符串转换为数据库存储值。 */
   toDriver: (value) => value.toLowerCase(),
+  /** 将数据库 UUID 值转换为字符串。 */
   fromDriver: (value) => value.toLowerCase(),
 });
+/** 创建带默认时间的记录时间字段。 */
 const createdAt = () =>
   datetime('created_at', { fsp: 3 })
     .notNull()

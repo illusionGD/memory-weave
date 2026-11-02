@@ -5,7 +5,11 @@ import type { DatabaseTransaction } from '../../database/database.service';
 import { memoryEntries, conversations, conversationMembers } from '../../database/schema';
 import { requireCompanion, requireCompanionMember } from '../conversations/conversation-access';
 
-/** 查询范围始终以实例为中心；跨会话只允许本用户与本实例之间的私聊。 */
+/**
+ * 校验并构建记忆浏览的会话范围条件。
+ *
+ * 查询范围始终以实例为中心；跨会话只允许本用户与本实例之间的私聊。
+ */
 export async function explorerScope(
   ownerId: string,
   companionId: string,

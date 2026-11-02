@@ -14,10 +14,12 @@ import { AvatarFiles, publicAvatar } from './avatar-files';
 @Injectable()
 export class AvatarsService {
   private processing = 0;
+  /** 初始化头像管理与文件处理服务。 */
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(AvatarFiles) private readonly files: AvatarFiles,
   ) {}
+  /** 锁定伴侣记录并执行头像操作。 */
   private async lock(ownerId: string, id: string, tx: DatabaseTransaction) {
     const [row] = await tx
       .select()
@@ -27,12 +29,13 @@ export class AvatarsService {
     if (!row || row.deletedAt) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return row;
   }
+  /** 校验头像操作的实例代次与清理状态。 */
   private validate(row: typeof companions.$inferSelect, input: ChangeAvatar): void {
     if (row.lifecycleOperationId) throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
     if (row.runtimeEpoch !== input.runtimeEpoch)
       throw new ApiException(API_CODES.RUNTIME_EPOCH_MISMATCH);
   }
-  /** 有界解码、去除 EXIF 并归一为正方形 WebP；拒绝动画和伪装格式。 */
+  /** 解码上传图片并保存规范化头像。 */
   async upload(id: string, input: ChangeAvatar, mime: string, body: unknown): Promise<AvatarState> {
     if (!AVATAR_MEDIA_TYPES.includes(mime as (typeof AVATAR_MEDIA_TYPES)[number]))
       throw new ApiException(
@@ -109,7 +112,11 @@ export class AvatarsService {
       ),
     );
   }
-  /** 恢复默认允许安全重放；旧版本不能覆盖已经更换的新图片。 */
+  /**
+   * 清除当前头像引用并恢复默认头像。
+   *
+   * 恢复默认允许安全重放；旧版本不能覆盖已经更换的新图片。
+   */
   clear(id: string, input: ChangeAvatar): Promise<AvatarState> {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
@@ -131,7 +138,11 @@ export class AvatarsService {
       ),
     );
   }
-  /** 旧图片 URL 在替换或删除后立即失效；持锁避免检查后读到被替换文件。 */
+  /**
+   * 读取经过权限校验的当前头像文件。
+   *
+   * 旧图片 URL 在替换或删除后立即失效；持锁避免检查后读到被替换文件。
+   */
   read(id: string, assetId: string): Promise<Buffer> {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(async (tx) => {
@@ -144,7 +155,11 @@ export class AvatarsService {
   }
 }
 
-/** PNG 解码器可能只暴露首帧，单独检查有界块结构，不能把 APNG 当作静态图。 */
+/**
+ * 检测 PNG 数据是否包含动画控制块。
+ *
+ * PNG 解码器可能只暴露首帧，单独检查有界块结构，不能把 APNG 当作静态图。
+ */
 function hasAnimationControl(bytes: Buffer): boolean {
   let offset = 8;
   while (offset + 12 <= bytes.length) {

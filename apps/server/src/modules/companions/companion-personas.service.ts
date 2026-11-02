@@ -41,6 +41,7 @@ import {
 /** 原稿先落盘，模型结果经校验后与任务完成状态一起采用。 */
 @Injectable()
 export class CompanionPersonasService {
+  /** 初始化伴侣人格与整理任务管理服务。 */
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(TaskStore) private readonly store: TaskStore,
@@ -51,7 +52,11 @@ export class CompanionPersonasService {
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
   ) {}
 
-  /** 创建命令只保存原稿和任务，不在 HTTP 请求中等待模型。 */
+  /**
+   * 保存伴侣原稿、初始设定和人格整理任务。
+   *
+   * 创建命令只保存原稿和任务，不在 HTTP 请求中等待模型。
+   */
   async create(input: CompanionCreation): Promise<CompanionPersonaState> {
     const hash = fingerprint(input);
     const replayId = await this.store.locked(async (ownerId, tx) => {
@@ -133,7 +138,11 @@ export class CompanionPersonasService {
     return this.get(companionId);
   }
 
-  /** 旧实例不自动收费；管理者主动开始或重试才创建新的调用身份。 */
+  /**
+   * 为伴侣启动或重试初始人格整理任务。
+   *
+   * 旧实例不自动收费；管理者主动开始或重试才创建新的调用身份。
+   */
   async initialize(id: string, input: InitializePersona): Promise<CompanionPersonaState> {
     const requestKey = `persona_initialize:${id}:${input.requestId.toLowerCase()}`;
     const hash = fingerprint(input);
@@ -241,7 +250,11 @@ export class CompanionPersonasService {
     return this.get(id);
   }
 
-  /** 一致读取当前版本、初始基线和任务，不把刷新误当成重新生成。 */
+  /**
+   * 查询伴侣的当前人格、初始基线和任务状态。
+   *
+   * 一致读取当前版本、初始基线和任务，不把刷新误当成重新生成。
+   */
   get(id: string): Promise<CompanionPersonaState> {
     return this.store.locked(async (ownerId, tx) => {
       const companion = await this.instances.readInTransaction(tx, ownerId, id);
@@ -278,7 +291,11 @@ export class CompanionPersonasService {
     });
   }
 
-  /** 精确查询所属实例、代次与版本，不能仅凭版本标识跨实例读取。 */
+  /**
+   * 查询伴侣指定代次的人格版本。
+   *
+   * 精确查询所属实例、代次与版本，不能仅凭版本标识跨实例读取。
+   */
   version(id: string, runtimeEpoch: number, version: number): Promise<PersonaVersion> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireCompanion(ownerId, id, runtimeEpoch, db);
@@ -298,7 +315,11 @@ export class CompanionPersonasService {
     });
   }
 
-  /** 管理者显式修改约束时追加版本；不改原稿、初始人格或其他人格内容。 */
+  /**
+   * 修订长期约束并追加当前人格版本。
+   *
+   * 管理者显式修改约束时追加版本；不改原稿、初始人格或其他人格内容。
+   */
   reviseLocks(id: string, input: RevisePersonaLocks): Promise<PersonaVersion> {
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanion(ownerId, id, input.runtimeEpoch, tx);
@@ -359,7 +380,7 @@ export class CompanionPersonasService {
     });
   }
 
-  /** worker 执行受信任的初始整理；任何恢复都沿用任务对应的模型请求身份。 */
+  /** 执行初始人格整理并保存生成结果。 */
   async execute(lease: TaskLease): Promise<void> {
     if (lease.input.kind !== 'persona_initialization')
       throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
@@ -487,7 +508,11 @@ export class CompanionPersonasService {
     });
   }
 
-  /** 仅在显式创建时替换旧诊断占位定义；保留模型、价格、限额和历史配置。 */
+  /**
+   * 为初始人格整理启用对应的模型任务定义。
+   *
+   * 仅在显式创建时替换旧诊断占位定义；保留模型、价格、限额和历史配置。
+   */
   private async activateDefinition(): Promise<ModelConfigurationVersion> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const current = await this.configuration.get();

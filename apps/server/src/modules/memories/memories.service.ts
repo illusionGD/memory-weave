@@ -43,12 +43,17 @@ import type { MemoryBatchInput } from './memory-types';
 /** 固定批次、独立范围和管理查询；不在事务内调用模型。 */
 @Injectable()
 export class MemoriesService {
+  /** 初始化记忆批次管理服务。 */
   constructor(
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(ModelConfigurationService) private readonly models: ModelConfigurationService,
     @Inject(SERVER_CONFIG) private readonly runtime: RuntimeConfig,
   ) {}
-  /** 提前安排一个批次，同命令严格复用首次范围。 */
+  /**
+   * 为指定会话安排记忆整理批次。
+   *
+   * 提前安排一个批次，同命令严格复用首次范围。
+   */
   async organize(companionId: string, input: OrganizeMemory): Promise<MemoryBatchResult> {
     const current = await this.activateDefinition();
     return this.store.locked(async (ownerId, tx, now) => {
@@ -88,7 +93,11 @@ export class MemoriesService {
       return this.result(batch);
     });
   }
-  /** 已知失败可显式重新分批；保留旧任务，不自动重发未知模型调用。 */
+  /**
+   * 为失败的记忆整理重新建立批次。
+   *
+   * 已知失败可显式重新分批；保留旧任务，不自动重发未知模型调用。
+   */
   async retry(companionId: string, id: string, input: OrganizeMemory): Promise<MemoryBatchResult> {
     const current = await this.activateDefinition();
     return this.store.locked(async (ownerId, tx, now) => {
@@ -163,7 +172,11 @@ export class MemoriesService {
       return this.result(batch);
     });
   }
-  /** 持久范围决定待办，定时器仅唤醒；每轮最多检查十个有资格的会话。 */
+  /**
+   * 扫描待处理范围并安排自动记忆整理。
+   *
+   * 持久范围决定待办，定时器仅唤醒；每轮最多检查十个有资格的会话。
+   */
   async schedule(): Promise<void> {
     const config = memoryConfigurationSchema.parse(this.runtime.memoryConfiguration ?? {});
     if (!config.enabled) return;
@@ -237,7 +250,11 @@ export class MemoriesService {
       }
     });
   }
-  /** 查询当前会话的记忆，不隐式推进读取或整理进度。 */
+  /**
+   * 分页查询当前会话的记忆。
+   *
+   * 查询当前会话的记忆，不隐式推进读取或整理进度。
+   */
   list(companionId: string, query: MemoryQuery) {
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanionMember(
@@ -250,7 +267,11 @@ export class MemoriesService {
       return listMemoryRecords(ownerId, companionId, query, tx);
     });
   }
-  /** 回查当前及历史版本的精确来源。 */
+  /**
+   * 查询记忆的当前版本、历史版本和来源。
+   *
+   * 回查当前及历史版本的精确来源。
+   */
   detail(companionId: string, id: string, query: MemoryQuery) {
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanionMember(
@@ -263,7 +284,7 @@ export class MemoriesService {
       return memoryRecordDetail(ownerId, companionId, id, query, tx);
     });
   }
-  /** 单个版本的证据也保持有界分页。 */
+  /** 分页查询指定记忆版本的证据。 */
   evidence(companionId: string, id: string, versionId: string, query: MemoryQuery) {
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanionMember(
@@ -276,7 +297,11 @@ export class MemoriesService {
       return memoryRecordEvidence(ownerId, companionId, id, versionId, query, tx);
     });
   }
-  /** 失败和阻塞保持可见；无候选也能显示成功。 */
+  /**
+   * 查询会话的整理批次、任务及配置。
+   *
+   * 失败和阻塞保持可见；无候选也能显示成功。
+   */
   batches(companionId: string, query: MemoryQuery): Promise<MemoryBatchList> {
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanionMember(
@@ -318,9 +343,11 @@ export class MemoriesService {
       };
     });
   }
+  /** 将整理批次转换为任务受理结果。 */
   private result(batch: typeof memoryBatches.$inferSelect): MemoryBatchResult {
     return { id: batch.id, taskId: batch.taskId, sourceCount: batch.sequences.length };
   }
+  /** 创建记忆整理批次及其固定输入范围。 */
   private async createBatch(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -586,7 +613,11 @@ export class MemoriesService {
     }
     return row;
   }
-  /** 首次显式唤醒可升级旧占位定义，不更换模型、价格或预算。 */
+  /**
+   * 为记忆整理启用对应的模型任务定义。
+   *
+   * 首次显式唤醒可升级旧占位定义，不更换模型、价格或预算。
+   */
   private async activateDefinition(): Promise<ModelConfigurationVersion> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const current = await this.models.get();

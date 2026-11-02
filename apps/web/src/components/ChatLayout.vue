@@ -98,7 +98,11 @@ onScopeDispose(() => {
   window.removeEventListener('focus', refreshChats);
 });
 defineExpose({ refreshChats });
-/** 有界读取对话入口，不把稳定 UUID 分页误称为最近消息排序。 */
+/**
+ * 加载聊天侧栏中的会话入口。
+ *
+ * 有界读取对话入口，不把稳定 UUID 分页误称为最近消息排序。
+ */
 async function refreshChats(): Promise<void> {
   if (loading || disposed) return;
   loading = true;
@@ -114,7 +118,11 @@ async function refreshChats(): Promise<void> {
     loading = false;
   }
 }
-/** 服务端确认退出后再离开私人页面。 */
+/**
+ * 退出当前聊天端会话。
+ *
+ * 服务端确认退出后再离开私人页面。
+ */
 async function logout(): Promise<void> {
   if (await auth.signOut()) await router.replace({ name: 'login' });
 }

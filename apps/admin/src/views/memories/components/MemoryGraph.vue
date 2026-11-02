@@ -62,7 +62,11 @@ const loadError = ref(false);
 let graph: Core | null = null;
 let resize: ResizeObserver | null = null;
 let disposed = false;
-/** 图形只是同一数据的另一种展示，完整含义也保留在可访问的文本列表中。 */
+/**
+ * 根据节点与边绘制关系图谱。
+ *
+ * 图形只是同一数据的另一种展示，完整含义也保留在可访问的文本列表中。
+ */
 function render(): void {
   if (!graph) return;
   const elements: ElementDefinition[] = [
@@ -91,12 +95,20 @@ function render(): void {
     })
     .run();
 }
-/** 仅在用户操作或尺寸变化时重新适应，不启动持续动画。 */
+/**
+ * 调整图谱尺寸和缩放以适应画布。
+ *
+ * 仅在用户操作或尺寸变化时重新适应，不启动持续动画。
+ */
 function fit(): void {
   graph?.resize();
   graph?.fit(undefined, 36);
 }
-/** 节点文本使用稳定身份找回，名称相同不自动合并。 */
+/**
+ * 获取指定图谱节点的显示名称。
+ *
+ * 节点文本使用稳定身份找回，名称相同不自动合并。
+ */
 function nodeLabel(id: string): string {
   return props.nodes.find((node) => node.id === id)?.label ?? '节点';
 }

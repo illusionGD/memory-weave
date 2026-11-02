@@ -34,6 +34,7 @@ import { requireIndexSource } from './retrieval-index-access';
 /** 领域提交登记文档，worker 按当前编码空间补建任务，失败不改变正文或整理进度。 */
 @Injectable()
 export class RetrievalIndexService {
+  /** 初始化记忆索引调度与执行服务。 */
   constructor(
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
@@ -42,7 +43,11 @@ export class RetrievalIndexService {
     @Inject(RetrievalVector) private readonly vectors: RetrievalVector,
     @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
   ) {}
-  /** 有界补齐旧版本词项和新编码空间待办，空轮询不发模型。 */
+  /**
+   * 扫描记忆版本并安排词法和向量索引任务。
+   *
+   * 有界补齐旧版本词项和新编码空间待办，空轮询不发模型。
+   */
   async schedule(): Promise<void> {
     const limits = this.config.retrievalConfiguration ?? retrievalConfigurationSchema.parse({});
     const configuration = await this.configuration.get();
@@ -145,7 +150,7 @@ export class RetrievalIndexService {
       }
     });
   }
-  /** 过期版本停止占据当前向量候选；删除身份周期复查以补偿未知的迟到写入。 */
+  /** 删除过期向量点并复查已失效的索引。 */
   private async reconcileDeleted(limit: number): Promise<void> {
     const rows = await this.store.locked((ownerId, tx) =>
       tx
@@ -189,7 +194,11 @@ export class RetrievalIndexService {
       });
     }
   }
-  /** 模型成功结果可复用；Qdrant 重试只覆盖相同点，不重复生成记忆。 */
+  /**
+   * 执行记忆编码和向量索引写入任务。
+   *
+   * 模型成功结果可复用；Qdrant 重试只覆盖相同点，不重复生成记忆。
+   */
   async execute(lease: TaskLease): Promise<void> {
     if (lease.input.kind !== 'memory_index') throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     const id = lease.input.indexId;
@@ -257,7 +266,11 @@ export class RetrievalIndexService {
       throw error;
     }
   }
-  /** 幂等创建恢复任务；结果未知不重发，成功编码可复用。 */
+  /**
+   * 重试向量索引任务或重建已有索引点。
+   *
+   * 幂等创建恢复任务；结果未知不重发，成功编码可复用。
+   */
   async retry(
     companionId: string,
     indexId: string,
@@ -333,7 +346,11 @@ export class RetrievalIndexService {
     });
   }
 
-  /** 管理查询只显示身份与状态，正文仍从记忆查询接口读取。 */
+  /**
+   * 分页查询当前编码空间的索引记录。
+   *
+   * 管理查询只显示身份与状态，正文仍从记忆查询接口读取。
+   */
   async list(
     companionId: string,
     runtimeEpoch: number,

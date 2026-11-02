@@ -198,7 +198,11 @@ const {
 const log = ref<HTMLElement | null>(null);
 let following = true;
 
-/** 选中的已显示片段以及依赖输出会被清除，独立原文保留。 */
+/**
+ * 确认并删除选中的聊天消息。
+ *
+ * 选中的已显示片段以及依赖输出会被清除，独立原文保留。
+ */
 async function deleteMessage(bubble: ChatBubble): Promise<void> {
   if (
     !window.confirm(
@@ -208,19 +212,31 @@ async function deleteMessage(bubble: ChatBubble): Promise<void> {
     return;
   await remove(bubble);
 }
-/** 用户向上翻看时不强行滚回底部。 */
+/**
+ * 更新聊天视口的滚动位置状态。
+ *
+ * 用户向上翻看时不强行滚回底部。
+ */
 function trackScroll(): void {
   const element = log.value;
   if (element) following = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
 }
-/** 保留中文输入法回车确认，Shift+Enter 用于换行。 */
+/**
+ * 处理消息输入框的发送和换行按键。
+ *
+ * 保留中文输入法回车确认，Shift+Enter 用于换行。
+ */
 function handleKeydown(event: KeyboardEvent): void {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     void send();
   }
 }
-/** 使用浏览器本地时间，原始 ISO 时间仍保留在 time 元素。 */
+/**
+ * 将消息时间格式化为本地显示文本。
+ *
+ * 使用浏览器本地时间，原始 ISO 时间仍保留在 time 元素。
+ */
 function displayTime(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', {
     month: 'numeric',

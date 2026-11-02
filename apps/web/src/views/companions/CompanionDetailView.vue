@@ -95,7 +95,11 @@ onScopeDispose(() => {
   generation++;
   clearTimeout(timer);
 });
-/** 仅等待初始资料时轮询，路由切换后丢弃旧响应。 */
+/**
+ * 刷新伴侣资料和初始整理状态。
+ *
+ * 仅等待初始资料时轮询，路由切换后丢弃旧响应。
+ */
 async function refresh(): Promise<void> {
   clearTimeout(timer);
   const token = generation;
@@ -121,7 +125,11 @@ async function refresh(): Promise<void> {
   )
     timer = setTimeout(refresh, 1500);
 }
-/** 明确点击才开始私聊，同一操作的网络重试使用相同身份。 */
+/**
+ * 创建私聊并跳转到聊天页面。
+ *
+ * 明确点击才开始私聊，同一操作的网络重试使用相同身份。
+ */
 async function startChat(): Promise<void> {
   const companion = state.value?.companion;
   if (!companion || companion.lifecycleOperationId) return;
@@ -138,7 +146,11 @@ async function startChat(): Promise<void> {
   );
   if (chat && token === generation) await router.push({ name: 'chat', params: { id: chat.id } });
 }
-/** 只更新展示资料，正在生成的人格内容保持自己的版本。 */
+/**
+ * 更新页面中的伴侣头像资料。
+ *
+ * 只更新展示资料，正在生成的人格内容保持自己的版本。
+ */
 function updateAvatar(value: AvatarState): void {
   void layout.value?.refreshChats();
   if (state.value)

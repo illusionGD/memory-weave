@@ -13,12 +13,15 @@ import { ChatsService } from './chats.service';
 @Injectable()
 export class ChatEventsService implements OnModuleDestroy {
   private readonly connections = new Set<AbortController>();
+  /** 初始化聊天事件推送服务。 */
   constructor(
     @Inject(ChatsService) private readonly chats: ChatsService,
     @Inject(AuthService) private readonly auth: AuthService,
   ) {}
 
   /**
+   * 通过 SSE 推送聊天消息和当前状态。
+   *
    * SSE 每次最多查询 50 条原文，慢连接等待 drain，断开不取消模型生成。
    * @param id 已验证的私聊身份。
    * @param cursor 上一次成功处理的正式发布序号。
@@ -33,6 +36,7 @@ export class ChatEventsService implements OnModuleDestroy {
       throw new ApiException(API_CODES.RATE_LIMITED);
     const connection = new AbortController();
     this.connections.add(connection);
+    /** 关闭当前聊天事件连接。 */
     const close = (): void => connection.abort();
     response.once('close', close);
     response.status(200).set({
@@ -43,10 +47,12 @@ export class ChatEventsService implements OnModuleDestroy {
     response.flushHeaders();
     let stateHash = '';
     let heartbeatAt = Date.now();
+    /** 向聊天事件流写入数据。 */
     const write = async (text: string): Promise<void> => {
       if (connection.signal.aborted) return;
       if (!response.write(text)) await once(response, 'drain', { signal: connection.signal });
     };
+    /** 编码并发送一条 SSE 事件。 */
     const event = async (kind: string, data: unknown, sequence?: number): Promise<void> => {
       await write(
         `${sequence === undefined ? '' : `id: ${sequence}\n`}event: ${kind}\ndata: ${JSON.stringify({ code: API_CODES.OK, data, message: API_RESPONSES[API_CODES.OK].message })}\n\n`,
@@ -96,7 +102,11 @@ export class ChatEventsService implements OnModuleDestroy {
     }
   }
 
-  /** 应用关闭先结束事件连接，避免长连接阻塞后端重启。 */
+  /**
+   * 关闭所有聊天事件连接。
+   *
+   * 应用关闭先结束事件连接，避免长连接阻塞后端重启。
+   */
   onModuleDestroy(): void {
     for (const connection of this.connections) connection.abort();
   }

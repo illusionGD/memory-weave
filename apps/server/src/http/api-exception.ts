@@ -17,6 +17,8 @@ export class ApiException extends HttpException {
   readonly code: number;
 
   /**
+   * 创建包含业务响应码和提示信息的异常。
+   *
    * 声明可安全展示的业务失败，不能直接传入底层异常、凭据或请求原文。
    * @param code 共享常量或业务自定义的数字码。
    * @param message 可选的业务提示，优先于码表中的默认提示。
@@ -36,13 +38,19 @@ export class ApiException extends HttpException {
   }
 }
 
-/** 每次请求生成新的追踪编号，不接受客户端伪造或复用服务端日志标识。 */
+/**
+ * 为 HTTP 请求分配追踪编号。
+ *
+ * 每次请求生成新的追踪编号，不接受客户端伪造或复用服务端日志标识。
+ */
 export const assignRequestId: RequestHandler = (_request, response, next): void => {
   response.setHeader(REQUEST_ID_HEADER, randomUUID());
   next();
 };
 
 /**
+ * 发送统一格式的 API 错误响应。
+ *
  * 中间件与异常过滤器共用同一个输出入口，不拼装不同格式的失败正文。
  * @param response 尚未发送的 HTTP 响应。
  * @param error 业务明确声明或全局过滤器归一化后的安全异常。
@@ -68,6 +76,8 @@ export function sendApiError(response: Response, error: ApiException): void {
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   /**
+   * 将捕获的异常转换为统一错误响应。
+   *
    * 分类异常并交给统一出口，中间件错误可直接复用同一输出函数。
    * @param exception 业务或框架抛出的未知值。
    * @param host 当前 HTTP 请求上下文。

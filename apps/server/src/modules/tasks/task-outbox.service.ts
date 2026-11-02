@@ -10,7 +10,11 @@ import { TaskStore } from './task-store';
 import { TaskConfigurationService } from './task-configuration.service';
 import type { MessageOutboxInput } from './task-types';
 
-/** 在调用方业务事务内登记，重复事件不能替换已经保存的接收范围。 */
+/**
+ * 登记消息发布对应的待办事件。
+ *
+ * 在调用方业务事务内登记，重复事件不能替换已经保存的接收范围。
+ */
 export async function stageMessageOutbox(
   ownerId: string,
   tx: DatabaseTransaction,
@@ -39,12 +43,17 @@ export async function stageMessageOutbox(
 /** 只在主库内转交任务；不在转交事务中访问模型、向量库或工具。 */
 @Injectable()
 export class TaskOutboxService {
+  /** 初始化待办事件转交服务。 */
   constructor(
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TaskConfigurationService) private readonly configuration: TaskConfigurationService,
   ) {}
 
-  /** 分页展示待办与转交状态，不代表相应伴侣完成记忆整理。 */
+  /**
+   * 分页查询待办事件及其转交状态。
+   *
+   * 分页展示待办与转交状态，不代表相应伴侣完成记忆整理。
+   */
   list(query: IdPaginationQuery): Promise<TaskOutboxList> {
     return this.store.locked(async (ownerId, tx) => {
       const rows = await tx
@@ -74,7 +83,11 @@ export class TaskOutboxService {
     });
   }
 
-  /** 有界转交且幂等，任一存储写入失败则整批回滚，下一轮仍能重新领取。 */
+  /**
+   * 批量转交待办事件并保存处理结果。
+   *
+   * 有界转交且幂等，任一存储写入失败则整批回滚，下一轮仍能重新领取。
+   */
   dispatch(): Promise<number> {
     return this.store.locked(async (ownerId, tx, now) => {
       const current = await this.configuration.current(ownerId, tx);

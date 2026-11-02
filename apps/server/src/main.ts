@@ -2,7 +2,11 @@ import { TaskWorkerService } from './modules/tasks/task-worker.service';
 import { createApplication } from './app';
 import { ConfigurationError, loadServerConfig } from './config';
 
-/** 根据部署环境配置启动 HTTP 服务并监听端口。 */
+/**
+ * 启动后端 HTTP 服务并监听配置端口。
+ *
+ * 根据部署环境配置启动 HTTP 服务并监听端口。
+ */
 async function bootstrap(): Promise<void> {
   const config = loadServerConfig(process.env);
   const app = await createApplication(config);

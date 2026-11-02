@@ -96,19 +96,31 @@ const inputDescription = computed(() =>
 onMounted(handleLoad);
 onBeforeUnmount(workspace.reset);
 
-/** 重新读取资料，只有当前页面的有效响应可以更新输入框。 */
+/**
+ * 加载用户资料并更新编辑表单。
+ *
+ * 重新读取资料，只有当前页面的有效响应可以更新输入框。
+ */
 async function handleLoad(): Promise<void> {
   if (auth.loggingOut) return;
   if (await workspace.load()) displayName.value = workspace.workspace?.displayName ?? '';
   await handleUnauthorized();
 }
 
-/** 输入改变后清除上一次保存的提示，不提前改变持久名称。 */
+/**
+ * 清除显示名称编辑过程中的旧提示。
+ *
+ * 输入改变后清除上一次保存的提示，不提前改变持久名称。
+ */
 function handleNameInput(): void {
   workspace.clearFeedback();
 }
 
-/** 保存后采用服务端规范化的名称，失败时保留用户输入供重试。 */
+/**
+ * 保存用户显示名称并更新表单。
+ *
+ * 保存后采用服务端规范化的名称，失败时保留用户输入供重试。
+ */
 async function handleSave(): Promise<void> {
   if (auth.loggingOut) return;
   if (await workspace.save(displayName.value))
@@ -116,7 +128,11 @@ async function handleSave(): Promise<void> {
   await handleUnauthorized();
 }
 
-/** 私有接口失去认证时清理资料并返回登录入口。 */
+/**
+ * 清理失效登录状态并返回登录页面。
+ *
+ * 私有接口失去认证时清理资料并返回登录入口。
+ */
 async function handleUnauthorized(): Promise<void> {
   if (!workspace.unauthorized) return;
   auth.invalidateSession();

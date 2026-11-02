@@ -76,6 +76,7 @@ describe('批量记忆整理的公开协议', () => {
     await database?.dispose();
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
+  /** 创建记忆整理验收使用的伴侣实例。 */
   async function companion(name: string) {
     const r = await agent
       .post('/api/companions')
@@ -83,6 +84,7 @@ describe('批量记忆整理的公开协议', () => {
       .expect(201);
     return companionDetailSchema.parse(r.body.data);
   }
+  /** 创建记忆整理验收使用的会话。 */
   async function conversation(ids: string[]) {
     const r = await agent
       .post('/api/conversations')
@@ -96,6 +98,7 @@ describe('批量记忆整理的公开协议', () => {
       .expect(201);
     return conversationDetailSchema.parse(r.body.data).conversation;
   }
+  /** 保存并发布记忆整理验收使用的原文。 */
   async function publish(id: string, text: string) {
     let r = await agent.get(`/api/conversations/${id}`).expect(200);
     const saved = await agent
@@ -171,6 +174,7 @@ describe('批量记忆整理的公开协议', () => {
       'pending',
     ]);
   });
+  /** 配置记忆整理验收使用的本地模型供应商。 */
   async function useProvider() {
     calls = 0;
     provider = createServer((_req, res) => {
@@ -333,6 +337,7 @@ describe('批量记忆整理的公开协议', () => {
     validFrom: null,
     validUntil: null,
   };
+  /** 整理指定候选并等待测试批次完成。 */
   async function organizeValue(
     companionId: string,
     conversationId: string,

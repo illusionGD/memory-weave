@@ -63,6 +63,7 @@ describe('私聊的公开 HTTP 与事件边界', () => {
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
 
+  /** 为聊天验收建立登录会话。 */
   async function login() {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
@@ -446,6 +447,7 @@ describe('私聊的公开 HTTP 与事件边界', () => {
       .expect(200);
     const cookie = auth.headers['set-cookie']![0]!.split(';')[0]!;
     const address = await app.getUrl();
+    /** 读取一段聊天事件流数据。 */
     const readOne = async (after: number) => {
       const controller = new AbortController();
       try {

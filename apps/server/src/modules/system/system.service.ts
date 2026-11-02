@@ -21,6 +21,7 @@ const PACKAGE_INFO = JSON.parse(
 export class SystemService implements OnModuleDestroy {
   private readonly pool: Pool;
 
+  /** 初始化数据库、向量和存储检查服务。 */
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
     @Inject(DatabaseService) private readonly database: DatabaseService,
@@ -35,6 +36,8 @@ export class SystemService implements OnModuleDestroy {
   }
 
   /**
+   * 汇总数据库、向量服务和存储目录的检查结果。
+   *
    * 为登录后的运行状态页面提供已脱敏的检查结果。
    * @returns 应用、MySQL、Qdrant 和可写存储目录的可用状态。
    */
@@ -56,11 +59,16 @@ export class SystemService implements OnModuleDestroy {
     };
   }
 
-  /** 应用关闭时释放全部 MySQL 连接。 */
+  /**
+   * 关闭运行检查使用的数据库连接池。
+   *
+   * 应用关闭时释放全部 MySQL 连接。
+   */
   async onModuleDestroy(): Promise<void> {
     await this.pool.end();
   }
 
+  /** 检查 MySQL 连接和数据库结构状态。 */
   private async probeDatabase(): Promise<SystemStatus['database']> {
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>({
@@ -75,6 +83,7 @@ export class SystemService implements OnModuleDestroy {
     }
   }
 
+  /** 检查 Qdrant 服务的可用状态。 */
   private async probeVectorStore(): Promise<SystemStatus['vectorStore']> {
     try {
       const options: RequestInit = {
@@ -107,6 +116,7 @@ export class SystemService implements OnModuleDestroy {
     }
   }
 
+  /** 检查数据目录的读写能力。 */
   private async probeStorage(): Promise<SystemStatus['storage']> {
     const probePath = join(this.config.dataDir, `.health-${randomBytes(12).toString('hex')}`);
     try {

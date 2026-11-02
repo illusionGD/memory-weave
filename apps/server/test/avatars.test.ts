@@ -46,6 +46,7 @@ describe('伴侣头像公共 HTTP 接口', () => {
     await app?.close();
     await rm(config.dataDir, { recursive: true, force: true });
   });
+  /** 为头像验收建立登录会话。 */
   async function login() {
     const agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
@@ -103,6 +104,7 @@ describe('伴侣头像公共 HTTP 接口', () => {
         .send(png)
         .expect(200)
     ).body.data;
+    /** 等待头像生命周期清理完成。 */
     async function complete(kind: string, runtimeEpoch: number, expectedVersion: number) {
       const op = (
         await agent

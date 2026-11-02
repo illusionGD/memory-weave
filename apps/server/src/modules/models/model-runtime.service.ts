@@ -49,12 +49,15 @@ type CallRow = typeof modelCalls.$inferSelect;
 @Injectable()
 export class ModelRuntimeService {
   private readonly cancellations = new Map<string, AbortController>();
+  /** 初始化模型调用和用量管理服务。 */
   constructor(
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
     @Inject(ModelProvidersService) private readonly providers: ModelProvidersService,
   ) {}
 
   /**
+   * 执行模型诊断请求。
+   *
    * 使用当前部署配置进行隔离诊断；同键重试返回同一调用，不重发未知请求。
    * @param input 已通过公共契约校验的诊断命令。
    * @param guard 后台模块提供的派发前租约检查，不参与模型调用身份。
@@ -80,6 +83,8 @@ export class ModelRuntimeService {
   }
 
   /**
+   * 执行业务模块的模型请求并校验候选结果。
+   *
    * 领域模块复用的统一入口，返回经过模块 schema 校验的候选，不自动写业务状态。
    * @param command 调用身份、输入和预期配置。
    * @param definition 领域模块拥有的提示词、版本及输出规范。
@@ -97,6 +102,8 @@ export class ModelRuntimeService {
   }
 
   /**
+   * 执行流式模型请求并交付文本增量。
+   *
    * 流式业务入口仍使用同一调用身份和预算；重放只返回持久结果，不再次发送增量。
    * @param command 文本调用及预期配置。
    * @param definition 服务端拥有的提示词与版本。
@@ -116,7 +123,11 @@ export class ModelRuntimeService {
     return this.invoke(command, definition, scope, 'task', guard, onText);
   }
 
-  /** 两类入口共享同一配置、计量和幂等实现，诊断不能冒充真实经历。 */
+  /**
+   * 执行模型调用的预算预留、请求和结果结算。
+   *
+   * 两类入口共享同一配置、计量和幂等实现，诊断不能冒充真实经历。
+   */
   private async invoke(
     command: ModelProbe,
     definition: ModelTaskDefinition,
@@ -228,7 +239,10 @@ export class ModelRuntimeService {
               task,
               signal: AbortSignal.any([AbortSignal.timeout(task.timeoutMs), cancellation.signal]),
               ...(onText && this.providers.supportsStreaming(task.providerId)
-                ? { onText: (delta: string) => onText(delta, prepared.callId) }
+                ? {
+                    /** 校验并转发模型返回的文本增量。 */
+                    onText: (delta: string) => onText(delta, prepared.callId),
+                  }
                 : {}),
             });
             if (
@@ -261,7 +275,11 @@ export class ModelRuntimeService {
     return this.get(prepared.callId);
   }
 
-  /** 等待后重新检查版本、取消和范围，避免按旧配置继续发送重试。 */
+  /**
+   * 校验模型请求的当前派发资格。
+   *
+   * 等待后重新检查版本、取消和范围，避免按旧配置继续发送重试。
+   */
   private checkDispatch(id: string, guard?: ModelDispatchGuard): Promise<void> {
     return this.configuration.locked(async (ownerId, tx, current) => {
       await guard?.(ownerId, tx);
@@ -275,7 +293,11 @@ export class ModelRuntimeService {
     });
   }
 
-  /** 查询当前 owner 的调用；过期尝试显式转为未知，保留预算占用。 */
+  /**
+   * 查询模型调用详情及其尝试记录。
+   *
+   * 查询当前 owner 的调用；过期尝试显式转为未知，保留预算占用。
+   */
   get(id: string): Promise<ModelCall> {
     return this.configuration.locked(async (ownerId, tx) => {
       await expireAttempts(ownerId, tx);
@@ -283,7 +305,11 @@ export class ModelRuntimeService {
     });
   }
 
-  /** 先持久化取消，再中止本进程网络等待；已发出的请求仍需结算其消耗。 */
+  /**
+   * 取消模型调用并中止本进程中的网络等待。
+   *
+   * 先持久化取消，再中止本进程网络等待；已发出的请求仍需结算其消耗。
+   */
   async cancel(id: string): Promise<ModelCall> {
     const call = await this.configuration.locked(async (ownerId, tx) => {
       await expireAttempts(ownerId, tx);
@@ -305,7 +331,11 @@ export class ModelRuntimeService {
     return call;
   }
 
-  /** 查询固定 UTC 当日的全局及任务用量，不因配置版本变化重置。 */
+  /**
+   * 查询当前 UTC 日期的模型用量。
+   *
+   * 查询固定 UTC 当日的全局及任务用量，不因配置版本变化重置。
+   */
   usage(): Promise<ModelUsage> {
     return this.configuration.locked(async (ownerId, tx, current) => {
       await expireAttempts(ownerId, tx);
@@ -315,6 +345,7 @@ export class ModelRuntimeService {
         .select()
         .from(modelUsageWindows)
         .where(and(eq(modelUsageWindows.ownerId, ownerId), eq(modelUsageWindows.day, day)));
+      /** 组装模型任务的用量与额度视图。 */
       const view = (scope: string, limit: DailyModelBudget) => {
         const row = rows.find((row) => row.scope === scope);
         return {
@@ -346,7 +377,11 @@ export class ModelRuntimeService {
     });
   }
 
-  /** 将可观察输出与额度在同一事务结算；重试也必须再次原子预留。 */
+  /**
+   * 结算模型调用结果和资源消耗。
+   *
+   * 将可观察输出与额度在同一事务结算；重试也必须再次原子预留。
+   */
   private settle(
     attempt: AttemptRow,
     task: ModelTaskConfig,
@@ -481,7 +516,11 @@ export class ModelRuntimeService {
   }
 }
 
-/** 使用不依赖供应商 tokenizer 的保守输入上界；协议和提示词额外预留 512。 */
+/**
+ * 估算模型输入所需的预留额度。
+ *
+ * 使用不依赖供应商 tokenizer 的保守输入上界；协议和提示词额外预留 512。
+ */
 export function modelInputReservation(
   text: string,
   definition: ModelTaskDefinition,
@@ -496,7 +535,11 @@ export function modelInputReservation(
   return Buffer.byteLength(text, 'utf8') + Math.max(512, overhead);
 }
 
-/** 先验证能力、已配置价格和输入上限，再写预留或访问供应商。 */
+/**
+ * 校验模型任务配置、输入和供应商能力。
+ *
+ * 先验证能力、已配置价格和输入上限，再写预留或访问供应商。
+ */
 function assertRunnable(
   input: ModelProbe,
   task: ModelTaskConfig,
@@ -515,6 +558,8 @@ function assertRunnable(
 }
 
 /**
+ * 为一次模型请求尝试预留预算和并发容量。
+ *
  * 在已持有部署配置锁的事务中预留一次请求；全局和任务必须同时有额度。
  * @returns 已持久保存、可以在事务外发送的尝试。
  */
@@ -607,7 +652,11 @@ async function reserveAttempt(
   return attempt;
 }
 
-/** 用整数微单位向上取整，避免浮点金额累计误差。 */
+/**
+ * 计算模型调用的微美元费用。
+ *
+ * 用整数微单位向上取整，避免浮点金额累计误差。
+ */
 function costMicros(inputTokens: number, outputTokens: number, task: ModelTaskConfig): number {
   const numerator =
     BigInt(inputTokens) * BigInt(task.inputMicrosPerMillion ?? 0) +
@@ -615,7 +664,11 @@ function costMicros(inputTokens: number, outputTokens: number, task: ModelTaskCo
   return Number((numerator + 999_999n) / 1_000_000n);
 }
 
-/** 原窗口结算，即使调用跨日结束，也不将前一天的预留扣到新一天。 */
+/**
+ * 调整模型用量窗口中的预留和实际消耗。
+ *
+ * 原窗口结算，即使调用跨日结束，也不将前一天的预留扣到新一天。
+ */
 async function adjustUsage(
   ownerId: string,
   tx: DatabaseTransaction,
@@ -643,7 +696,11 @@ async function adjustUsage(
   }
 }
 
-/** 外部用量也要校验，缺失或畸形时不能当成零消耗。 */
+/**
+ * 校验供应商返回的用量数据。
+ *
+ * 外部用量也要校验，缺失或畸形时不能当成零消耗。
+ */
 function validUsage(value: unknown): ModelAdapterResponse['usage'] {
   const parsed = z
     .object({
@@ -654,7 +711,11 @@ function validUsage(value: unknown): ModelAdapterResponse['usage'] {
   return parsed.success ? parsed.data : null;
 }
 
-/** 严格校验完整文本、诊断字段和向量维度，不自动修复或调用第二个模型。 */
+/**
+ * 校验并转换模型输出结果。
+ *
+ * 严格校验完整文本、诊断字段和向量维度，不自动修复或调用第二个模型。
+ */
 function validatedResult(
   operation: ModelProbe['operation'],
   value: unknown,
@@ -674,7 +735,11 @@ function validatedResult(
   }
 }
 
-/** 进程消失或结果迟到时，保留预留并明确标记未知，不自动重复调用。 */
+/**
+ * 将超时的模型请求尝试标记为结果未知。
+ *
+ * 进程消失或结果迟到时，保留预留并明确标记未知，不自动重复调用。
+ */
 async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise<void> {
   const expired = await tx
     .select()
@@ -706,7 +771,11 @@ async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise
   }
 }
 
-/** 只映射本部署的可展示字段，排序保持真实尝试次序。 */
+/**
+ * 读取并组装模型调用及其尝试详情。
+ *
+ * 只映射本部署的可展示字段，排序保持真实尝试次序。
+ */
 async function readCall(ownerId: string, tx: DatabaseTransaction, id: string): Promise<ModelCall> {
   const [call] = await tx
     .select()
@@ -760,7 +829,11 @@ async function readCall(ownerId: string, tx: DatabaseTransaction, id: string): P
   };
 }
 
-/** 从业务拥有的 Zod 规则生成输出规范，不接收客户端自由 schema。 */
+/**
+ * 根据任务定义生成模型输出规范。
+ *
+ * 从业务拥有的 Zod 规则生成输出规范，不接收客户端自由 schema。
+ */
 function outputSpecification(
   definition: ModelTaskDefinition,
   operation: ModelProbe['operation'],
@@ -777,7 +850,11 @@ function outputSpecification(
   }
 }
 
-/** 相同 owner、有效运行代次及当前会话成员是模型调用的必要范围。 */
+/**
+ * 校验模型调用的用户、实例和会话范围。
+ *
+ * 相同 owner、有效运行代次及当前会话成员是模型调用的必要范围。
+ */
 async function assertScope(
   ownerId: string,
   tx: DatabaseTransaction,

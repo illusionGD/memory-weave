@@ -75,7 +75,11 @@ defineProps<{
   /** 回查时携带精确人生代次。 */
   runtimeEpoch: number;
 }>();
-/** 显示本地收到时间，不把收到时间当作事实发生时间。 */
+/**
+ * 将原文接收时间格式化为本地显示文本。
+ *
+ * 显示本地收到时间，不把收到时间当作事实发生时间。
+ */
 function displayTime(value: string): string {
   return new Date(value).toLocaleString();
 }

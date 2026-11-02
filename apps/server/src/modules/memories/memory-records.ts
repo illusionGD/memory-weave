@@ -29,7 +29,11 @@ type Entry = typeof memoryEntries.$inferSelect;
 type Version = typeof memoryVersions.$inferSelect;
 type Batch = typeof memoryBatches.$inferSelect;
 
-/** 版本正文与当前可用状态分离，失效版本只返回无内容身份。 */
+/**
+ * 将记忆及版本记录转换为公共条目。
+ *
+ * 版本正文与当前可用状态分离，失效版本只返回无内容身份。
+ */
 export function toMemoryItem(entry: Entry, version: Version): MemoryItem {
   return {
     id: entry.id,
@@ -41,7 +45,11 @@ export function toMemoryItem(entry: Entry, version: Version): MemoryItem {
     mode: version.mode,
   };
 }
-/** 用有界存在性查询检查全部来源，不能靠截断证据绕过失效记录。 */
+/**
+ * 校验记忆版本的全部原文来源是否可见。
+ *
+ * 用有界存在性查询检查全部来源，不能靠截断证据绕过失效记录。
+ */
 export async function assertVersionSources(
   ownerId: string,
   entry: Entry,
@@ -94,7 +102,11 @@ export async function assertVersionSources(
     .limit(1);
   if (invalid) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
 }
-/** 证据独立分页，只从仍可见的原文取出精确片段。 */
+/**
+ * 分页读取版本证据及其精确引文。
+ *
+ * 证据独立分页，只从仍可见的原文取出精确片段。
+ */
 async function evidenceFor(
   ownerId: string,
   entry: Entry,
@@ -136,7 +148,11 @@ async function evidenceFor(
     nextAfterId: rows.length > limit ? rows[limit - 1]!.evidence.id : null,
   };
 }
-/** 回查某个版本的后续证据页。 */
+/**
+ * 查询指定记忆版本的一页来源证据。
+ *
+ * 回查某个版本的后续证据页。
+ */
 export async function memoryRecordEvidence(
   ownerId: string,
   companionId: string,
@@ -162,7 +178,11 @@ export async function memoryRecordEvidence(
   if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   return evidenceFor(ownerId, row.entry, row.version, tx, query.afterId, query.limit);
 }
-/** 当前版本的有界查询，不扫描会话全部原文。 */
+/**
+ * 分页查询会话中各记忆的当前版本。
+ *
+ * 当前版本的有界查询，不扫描会话全部原文。
+ */
 export async function listMemoryRecords(
   ownerId: string,
   companionId: string,
@@ -191,7 +211,11 @@ export async function listMemoryRecords(
     nextAfterId: rows.length > query.limit ? rows[query.limit - 1]!.entry.id : null,
   };
 }
-/** 历史版本与来源独立分页；删除正文后不展示旧证据。 */
+/**
+ * 查询记忆详情及一页历史版本。
+ *
+ * 历史版本与来源独立分页；删除正文后不展示旧证据。
+ */
 export async function memoryRecordDetail(
   ownerId: string,
   companionId: string,
@@ -248,7 +272,11 @@ export async function memoryRecordDetail(
     nextAfterId: versions.length > query.limit ? versions[query.limit - 1]!.id : null,
   };
 }
-/** 采用候选前检查精确来源、修订版本与现实作用域，整批失败则不推进任何范围。 */
+/**
+ * 校验并保存本批次的记忆候选。
+ *
+ * 采用候选前检查精确来源、修订版本与现实作用域，整批失败则不推进任何范围。
+ */
 export async function adoptMemories(
   ownerId: string,
   batch: Batch,
@@ -259,6 +287,7 @@ export async function adoptMemories(
   const counts = { add: 0, merge: 0, revise: 0, conflict: 0, defer: 0 };
   const used = new Set<string>();
   const changed = new Set<string>();
+  /** 报告记忆候选的校验失败。 */
   const invalid = () => {
     throw new ApiException(API_CODES.MODEL_OUTPUT_INVALID);
   };

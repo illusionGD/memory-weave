@@ -27,6 +27,8 @@ import type { TaskLease } from '../tasks/task-types';
 @Injectable()
 export class ChatContextService {
   /**
+   * 创建或读取聊天轮次的上下文快照。
+   *
    * 创建或恢复同一轮的精确上下文，后续恢复不重新抽样或混入新消息。
    * @param ownerId 部署归属。
    * @param tx 已持有调度与当前会话锁的事务。
@@ -157,6 +159,7 @@ export class ChatContextService {
     };
     // MySQL JSON 会调整字段顺序；每次按同一 schema 重建新格式，确保恢复时 inputText 字节一致。
     if (snapshot.recall) snapshot.recall = recallResultSchema.parse(snapshot.recall);
+    /** 组装聊天模型所需的上下文消息。 */
     const assemble = (): string =>
       JSON.stringify({
         ...(snapshot.recall ? { recall: snapshot.recall } : {}),

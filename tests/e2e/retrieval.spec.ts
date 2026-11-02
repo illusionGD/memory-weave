@@ -13,6 +13,7 @@ test('另一场私聊的新补充出现在本轮来源，刷新后仍能查看',
       })
     ).json()
   ).data;
+  /** 创建浏览器检索验收使用的伴侣实例。 */
   const create = async (title: string) =>
     (
       await (

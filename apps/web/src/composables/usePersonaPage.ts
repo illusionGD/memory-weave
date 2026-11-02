@@ -16,7 +16,11 @@ export interface PersonaPageState {
   run<T>(operation: () => Promise<T>, mutation?: boolean): Promise<T | null>;
 }
 
-/** 页面级请求状态；离开后丢弃旧响应，401 交回登录页。 */
+/**
+ * 管理页面请求的加载状态、结果和错误提示。
+ *
+ * 页面级请求状态；离开后丢弃旧响应，401 交回登录页。
+ */
 export function usePersonaPage(): PersonaPageState {
   const auth = useAuthStore();
   const router = useRouter();
@@ -30,7 +34,12 @@ export function usePersonaPage(): PersonaPageState {
     generation++;
   });
 
-  /** @param operation HTTP 操作。 @param mutation 是否为写入。 @returns 仍属于此页面的成功结果。 */
+  /**
+   * 执行页面操作并返回成功结果。
+   * @param operation HTTP 操作。
+   * @param mutation 是否为写入。
+   * @returns 仍属于此页面的成功结果。
+   */
   async function run<T>(operation: () => Promise<T>, mutation = false): Promise<T | null> {
     if (disposed || saving.value) return null;
     const token = ++generation;

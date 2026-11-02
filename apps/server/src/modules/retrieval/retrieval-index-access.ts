@@ -5,7 +5,11 @@ import { memoryEntries, memoryVersions, memoryVectorIndexes } from '../../databa
 import { ApiException } from '../../http/api-exception';
 import { assertVersionSources } from '../memories/memory-records';
 
-/** 模型派发、向量写入及进度提交前核对权威版本和来源。 */
+/**
+ * 校验向量索引对应的记忆版本和来源。
+ *
+ * 模型派发、向量写入及进度提交前核对权威版本和来源。
+ */
 export async function requireIndexSource(ownerId: string, id: string, tx: DatabaseTransaction) {
   const [row] = await tx
     .select({ index: memoryVectorIndexes, entry: memoryEntries, version: memoryVersions })

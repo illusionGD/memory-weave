@@ -16,7 +16,11 @@ export interface ExplorerRecord {
   /** 该实例成员当前权限版本。 */
   permissionVersion: number;
 }
-/** 历史状态按当时的版本表达，不用当前分歧覆盖全部旧版本。 */
+/**
+ * 将记忆版本转换为浏览页面条目。
+ *
+ * 历史状态按当时的版本表达，不用当前分歧覆盖全部旧版本。
+ */
 export function toExplorerItem(row: ExplorerRecord): MemoryExplorerItem {
   return {
     ...toMemoryItem(row.entry, row.version),
@@ -45,7 +49,11 @@ export const explorerSelection = {
   contentRevision: conversations.contentRevision,
   permissionVersion: sql<number>`(SELECT cm.permission_version FROM conversation_members cm WHERE cm.owner_id = ${memoryEntries.ownerId} AND cm.conversation_id = ${memoryEntries.conversationId} AND cm.companion_id = ${memoryEntries.companionId} AND cm.runtime_epoch = ${memoryEntries.runtimeEpoch} AND cm.kind = 'companion' LIMIT 1)`,
 };
-/** 指纹只比较可见状态，不能代替每次正文读取时的来源与生命周期校验。 */
+/**
+ * 计算记忆版本及来源可见状态的读取指纹。
+ *
+ * 指纹只比较可见状态，不能代替每次正文读取时的来源与生命周期校验。
+ */
 export function explorerReadStamp(row: {
   entry: Pick<
     ExplorerRecord['entry'],

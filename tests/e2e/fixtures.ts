@@ -22,6 +22,7 @@ export const test = base.extend<object, { authenticatedState: AuthenticatedState
     },
     { scope: 'worker' },
   ],
+  /** 为浏览器验收建立登录状态。 */
   storageState: async ({ authenticatedState }, use) => {
     await use(authenticatedState);
   },

@@ -22,6 +22,7 @@ try {
       env: { ...process.env, TEST_DATABASE_URL: database.databaseUrl },
     },
   );
+  /** 停止记忆浏览验收的浏览器测试进程。 */
   const stop = () => child.kill('SIGTERM');
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);

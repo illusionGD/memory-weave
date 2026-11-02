@@ -17,7 +17,7 @@ export interface ApiResultOptions {
 /** 控制器按需声明自定义响应；普通领域对象不需要包裹此类型。 */
 export class ApiResult<T> {
   /**
-   * 保存业务数据及响应覆盖项，由统一拦截器完成包装。
+   * 创建携带业务数据及响应覆盖项的返回结果。
    * @param data 本接口的业务数据，无数据时使用 null。
    * @param options 可选的数字码和提示覆盖项。
    */
@@ -30,6 +30,8 @@ export class ApiResult<T> {
 /** 控制器返回领域数据，HTTP 出口统一包装一次；静态页面不经过此拦截器。 */
 export class ApiResponseInterceptor implements NestInterceptor<unknown, ApiResponse> {
   /**
+   * 将成功响应包装为统一 API 格式。
+   *
    * 将 JSON 接口的成功结果包装为公共协议；失败继续交给异常过滤器。
    * @param context 当前 HTTP 执行上下文。
    * @param next 控制器的领域结果。

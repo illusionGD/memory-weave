@@ -25,6 +25,7 @@ export class DatabaseService implements OnApplicationShutdown {
   private readonly pool: Pool;
   readonly db: Database;
 
+  /** 初始化数据库连接与查询服务。 */
   constructor(@Inject(SERVER_CONFIG) config: RuntimeConfig) {
     this.pool = createPool({
       ...mysqlConnectionOptions(config.databaseUrl),
@@ -36,7 +37,11 @@ export class DatabaseService implements OnApplicationShutdown {
     this.db = drizzle(this.pool, { schema, mode: 'default' });
   }
 
-  /** 只读检查当前迁移与数据库历史是否一致，不在健康检查中执行 DDL。 */
+  /**
+   * 查询数据库迁移的就绪状态。
+   *
+   * 只读检查当前迁移与数据库历史是否一致，不在健康检查中执行 DDL。
+   */
   async getSchemaStatus(): Promise<{
     status: 'ready' | 'pending' | 'unavailable';
     version: string | null;
@@ -45,6 +50,8 @@ export class DatabaseService implements OnApplicationShutdown {
   }
 
   /**
+   * 取得部署管理者并执行领域操作。
+   *
    * 从持久配置取得部署管理者，再执行带归属限制的领域操作。
    * @param operation 领域服务必须在所有查询及写入中限定 ownerId。
    * @returns 已完成的领域操作结果；不向 HTTP 返回驱动异常与连接信息。
@@ -86,13 +93,21 @@ export class DatabaseService implements OnApplicationShutdown {
     }
   }
 
-  /** 应用关闭时释放业务连接，不影响其他服务持有的连接。 */
+  /**
+   * 关闭应用使用的数据库连接池。
+   *
+   * 应用关闭时释放业务连接，不影响其他服务持有的连接。
+   */
   async onApplicationShutdown(): Promise<void> {
     await this.pool.end();
   }
 }
 
-/** Drizzle 会把驱动异常放在 cause 中，只提取受控分类所需的错误代码。 */
+/**
+ * 从数据库异常及其原因中提取错误代码。
+ *
+ * Drizzle 会把驱动异常放在 cause 中，只提取受控分类所需的错误代码。
+ */
 function databaseErrorCode(error: unknown): string | undefined {
   let current = error;
   for (let depth = 0; depth < 5; depth += 1) {

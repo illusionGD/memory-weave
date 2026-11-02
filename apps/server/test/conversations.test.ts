@@ -49,6 +49,7 @@ describe('会话与原文 HTTP 契约', () => {
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
 
+  /** 创建会话验收使用的伴侣实例。 */
   async function companion(name: string): Promise<{ companionId: string; runtimeEpoch: number }> {
     const response = await agent
       .post('/api/companions')

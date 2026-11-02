@@ -37,7 +37,11 @@ type Candidate = {
   message?: typeof messages.$inferSelect;
 };
 
-/** 以真实持久关系生成一个有界邻接页；每个端点均核对当前来源，不保留独立图数据库副本。 */
+/**
+ * 查询指定记忆或版本的一页邻接关系。
+ *
+ * 以真实持久关系生成一个有界邻接页；每个端点均核对当前来源，不保留独立图数据库副本。
+ */
 export async function readMemoryGraph(
   ownerId: string,
   companionId: string,
@@ -61,7 +65,11 @@ export async function readMemoryGraph(
       throw new ApiException(API_CODES.INVALID_REQUEST);
     }
   }
-  /** 查询自身的来源表，不能用未校验的节点或边标识直接返回正文。 */
+  /**
+   * 查询图谱范围内的记忆及版本记录。
+   *
+   * 查询自身的来源表，不能用未校验的节点或边标识直接返回正文。
+   */
   async function records(where: SQL) {
     return tx
       .select(explorerSelection)
@@ -90,7 +98,11 @@ export async function readMemoryGraph(
   if (!center) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   const centerKey = `${query.centerKind}:${query.centerId}`;
   const nodes = new Map<string, MemoryGraphNode>();
-  /** 同一节点重复出现只映射一次，实际权限与引用有效性在每页重新检查。 */
+  /**
+   * 将记忆记录转换为图谱节点。
+   *
+   * 同一节点重复出现只映射一次，实际权限与引用有效性在每页重新检查。
+   */
   async function addRecord(row: ExplorerRecord, kind: 'memory' | 'version') {
     const id = `${kind}:${kind === 'memory' ? row.entry.id : row.version.id}`;
     if (nodes.has(id)) return;
@@ -107,7 +119,11 @@ export async function readMemoryGraph(
   }
   await addRecord(center, query.centerKind);
   const candidates: Candidate[] = [];
-  /** 前缀固定关系种类，数据库只读取该种类尚未返回的稳定身份。 */
+  /**
+   * 构建指定关系类型的游标续查条件。
+   *
+   * 前缀固定关系种类，数据库只读取该种类尚未返回的稳定身份。
+   */
   function afterKey(
     prefix: string,
     column: import('drizzle-orm/mysql-core').AnyMySqlColumn,
@@ -283,7 +299,11 @@ export async function readMemoryGraph(
         : null,
   };
 }
-/** 只有显式 previousVersionId 可以解释为修订，通用上下文依赖另行标记。 */
+/**
+ * 将版本的修订关系转换为图谱边。
+ *
+ * 只有显式 previousVersionId 可以解释为修订，通用上下文依赖另行标记。
+ */
 function revisionEdge(row: ExplorerRecord): MemoryGraphEdge {
   const operation = row.version.operation;
   return {

@@ -9,9 +9,14 @@ import { ApiException } from '../../http/api-exception';
 /** 维护部署管理者资料，改名只影响显示名称，不重建用户身份。 */
 @Injectable()
 export class WorkspaceService {
+  /** 初始化部署管理者资料服务。 */
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
-  /** 读取当前部署的资料，不接受请求指定其他 owner。 */
+  /**
+   * 查询当前部署管理者的身份和显示名称。
+   *
+   * 读取当前部署的资料，不接受请求指定其他 owner。
+   */
   get(): Promise<WorkspaceResponse> {
     return this.database.withOwner(async (ownerId, db) => {
       const [owner] = await db
@@ -24,7 +29,11 @@ export class WorkspaceService {
     });
   }
 
-  /** 仅更新当前部署的显示字段，重复提交相同名称不会改变任何关联标识。 */
+  /**
+   * 保存当前管理者的显示名称。
+   *
+   * 仅更新当前部署的显示字段，重复提交相同名称不会改变任何关联标识。
+   */
   update(input: UpdateWorkspaceRequest): Promise<WorkspaceResponse> {
     return this.database.withOwner(async (ownerId, db) => {
       const [result] = await db

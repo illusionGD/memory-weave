@@ -140,7 +140,7 @@ const {
 const sortedVersions = computed(() =>
   [...(detail.value?.versions ?? [])].sort((a, b) => b.version - a.version),
 );
-/** 将领域状态转成使用者可理解的文字。 */
+/** 将记忆状态转换为显示文本。 */
 function statusLabel(status: string): string {
   return (
     (
@@ -152,7 +152,11 @@ function statusLabel(status: string): string {
     )[status] ?? status
   );
 }
-/** 保留真实变化和原先记错之间的区别。 */
+/**
+ * 将记忆版本的操作类型转换为显示文本。
+ *
+ * 保留真实变化和原先记错之间的区别。
+ */
 function operationLabel(operation: string): string {
   return (
     (

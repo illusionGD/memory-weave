@@ -23,13 +23,14 @@ import { parseInput } from '../shared/http';
 /** 提供 HTTP 认证接口，未显式标记公开的路由均受默认守卫保护。 */
 @Controller('auth')
 export class AuthController {
+  /** 初始化认证接口所需的服务和配置。 */
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
   ) {}
 
   /**
-   * 验证部署密码，为浏览器建立由服务端管理的会话。
+   * 校验部署密码并建立登录会话。
    * @param body 尚未校验的 JSON 请求体。
    * @param request 包含底层连接来源地址的请求。
    * @param response 用于设置会话 Cookie 的 HTTP 响应。
@@ -57,7 +58,7 @@ export class AuthController {
   }
 
   /**
-   * 确认当前会话已通过全局认证守卫的校验。
+   * 返回当前会话的认证状态。
    * @returns 已认证的会话状态。
    */
   @Get('session')
@@ -66,6 +67,8 @@ export class AuthController {
   }
 
   /**
+   * 撤销登录会话并清除浏览器 Cookie。
+   *
    * 先撤销服务端会话，再清除浏览器中的 Cookie。
    * @param request 携带会话 Cookie 且已通过认证的请求。
    * @param response 用于清除 Cookie 的 HTTP 响应。

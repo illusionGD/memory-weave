@@ -20,9 +20,14 @@ import { toPersonaVersion } from './persona-version';
 /** 保存部署管理者的实例身份、不可变初始快照及当前人格版本。 */
 @Injectable()
 export class CompanionsService {
+  /** 初始化伴侣实例的数据访问服务。 */
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
-  /** 将初始文本直接保存到独立快照和当前版本，不调用模型。 */
+  /**
+   * 根据初始文本创建伴侣及人格记录。
+   *
+   * 将初始文本直接保存到独立快照和当前版本，不调用模型。
+   */
   create(input: CreateCompanionRequest): Promise<CompanionDetail> {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
@@ -34,7 +39,11 @@ export class CompanionsService {
     );
   }
 
-  /** 在已有领域事务中保存原稿，供创建任务与实例原子提交。 */
+  /**
+   * 在当前事务中保存伴侣原稿与初始人格。
+   *
+   * 在已有领域事务中保存原稿，供创建任务与实例原子提交。
+   */
   async createInTransaction(
     ownerId: string,
     tx: DatabaseTransaction,
@@ -98,12 +107,20 @@ export class CompanionsService {
     return this.readInTransaction(tx, ownerId, id);
   }
 
-  /** 按当前部署归属查找实例，不能跨管理者查询。 */
+  /**
+   * 查询当前管理者拥有的伴侣。
+   *
+   * 按当前部署归属查找实例，不能跨管理者查询。
+   */
   get(id: string): Promise<CompanionDetail> {
     return this.database.withOwner((ownerId, db) => this.readInTransaction(db, ownerId, id));
   }
 
-  /** 按稳定 UUID 查询多一条，以判断下一页是否实际存在。 */
+  /**
+   * 分页查询伴侣列表和后续游标。
+   *
+   * 按稳定 UUID 查询多一条，以判断下一页是否实际存在。
+   */
   list(query: IdPaginationQuery): Promise<CompanionListResponse> {
     return this.database.withOwner(async (ownerId, db) => {
       const rows = await db
@@ -134,7 +151,11 @@ export class CompanionsService {
     });
   }
 
-  /** 限定管理者及实例关系，当前人格必须属于同一实例。 */
+  /**
+   * 在当前事务中读取伴侣及当前人格。
+   *
+   * 限定管理者及实例关系，当前人格必须属于同一实例。
+   */
   async readInTransaction(
     db: Database | DatabaseTransaction,
     ownerId: string,
@@ -159,7 +180,11 @@ export class CompanionsService {
     return this.toDetail(row);
   }
 
-  /** 只映射公共字段，幂等指纹等内部字段不进入响应。 */
+  /**
+   * 将伴侣和人格记录转换为详情响应。
+   *
+   * 只映射公共字段，幂等指纹等内部字段不进入响应。
+   */
   private toDetail(row: {
     companion: typeof companions.$inferSelect;
     persona: typeof personaVersions.$inferSelect;

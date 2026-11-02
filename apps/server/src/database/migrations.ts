@@ -39,7 +39,7 @@ const defaultMigrationDirectory = fileURLToPath(new URL('../../drizzle-mysql/', 
 // MySQL DDL 隐式提交；applying 状态必须先持久落盘，失败后不能把半完成结构当作就绪。
 const HISTORY_TABLE = '__memory_weave_migrations';
 
-/** 校验迁移清单与文件，拒绝缺项、重复、乱序或未登记的 SQL。 */
+/** 读取并校验本地 SQL 迁移清单。 */
 async function readLocalMigrations(directory: string): Promise<MigrationEntry[]> {
   try {
     const journal: unknown = JSON.parse(
@@ -100,7 +100,11 @@ async function readLocalMigrations(directory: string): Promise<MigrationEntry[]>
   }
 }
 
-/** 历史只能是当前发布包的完整前缀；未完成的 DDL 不允许自动跳过或重试。 */
+/**
+ * 读取并校验数据库已应用的迁移历史。
+ *
+ * 历史只能是当前发布包的完整前缀；未完成的 DDL 不允许自动跳过或重试。
+ */
 async function readVerifiedHistory(
   client: Pick<Connection, 'query'>,
   local: MigrationEntry[],
@@ -132,7 +136,11 @@ async function readVerifiedHistory(
   return rows;
 }
 
-/** 执行当前发布包的 SQL 迁移；数据库连接与语句错误不会泄露到调用方。 */
+/**
+ * 执行尚未应用的数据库迁移。
+ *
+ * 执行当前发布包的 SQL 迁移；数据库连接与语句错误不会泄露到调用方。
+ */
 export async function runMigrations(
   databaseUrl: string,
   migrationDirectory = defaultMigrationDirectory,
@@ -179,7 +187,11 @@ export async function runMigrations(
   }
 }
 
-/** 查询结构就绪状态，不执行任何数据库写入。 */
+/**
+ * 建立数据库连接并查询结构就绪状态。
+ *
+ * 查询结构就绪状态，不执行任何数据库写入。
+ */
 export async function getSchemaStatus(
   databaseUrl: string,
   migrationDirectory = defaultMigrationDirectory,
@@ -195,7 +207,11 @@ export async function getSchemaStatus(
   }
 }
 
-/** 通过既有连接池查询迁移历史，供 HTTP 就绪检查复用，不执行 DDL。 */
+/**
+ * 通过现有数据库连接查询迁移就绪状态。
+ *
+ * 通过既有连接池查询迁移历史，供 HTTP 就绪检查复用，不执行 DDL。
+ */
 export async function querySchemaStatus(
   client: Pick<Connection, 'query'>,
   migrationDirectory = defaultMigrationDirectory,

@@ -72,7 +72,11 @@ const name = ref(props.initial?.name ?? '');
 const profileText = ref(props.initial?.profileText ?? '');
 const locks = ref(props.initial?.lockedFeatures.join('\n') ?? '');
 const validation = ref<string | null>(null);
-/** 一段原稿即可提交，明确约束只有填写时才单独校验。 */
+/**
+ * 校验并提交人设表单。
+ *
+ * 一段原稿即可提交，明确约束只有填写时才单独校验。
+ */
 function submit(): void {
   const parsed = lockedFeaturesSchema.safeParse(
     locks.value

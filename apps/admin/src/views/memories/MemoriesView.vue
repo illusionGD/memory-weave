@@ -206,11 +206,19 @@ const {
 const sortedVersions = computed(() =>
   [...(detail.value?.versions ?? [])].sort((a, b) => b.version - a.version),
 );
-/** 显式唤醒不参与逐条批准。 */
+/**
+ * 提交当前会话的记忆整理请求。
+ *
+ * 显式唤醒不参与逐条批准。
+ */
 function organizeNow(): void {
   void organize();
 }
-/** 未知外部结果保留阻塞，不能用新身份重复请求。 */
+/**
+ * 判断整理批次是否允许重试。
+ *
+ * 未知外部结果保留阻塞，不能用新身份重复请求。
+ */
 function canRetry(batch: MemoryBatch): boolean {
   return (
     !batch.completedAt &&
@@ -218,7 +226,7 @@ function canRetry(batch: MemoryBatch): boolean {
     batch.reason !== 'model_result_unknown'
   );
 }
-/** 将领域状态转成使用者可理解的文字。 */
+/** 将记忆状态转换为显示文本。 */
 function statusLabel(status: string): string {
   return (
     (
@@ -230,7 +238,11 @@ function statusLabel(status: string): string {
     )[status] ?? status
   );
 }
-/** 保留真实变化和原先记错之间的区别。 */
+/**
+ * 将记忆版本的操作类型转换为显示文本。
+ *
+ * 保留真实变化和原先记错之间的区别。
+ */
 function operationLabel(operation: string): string {
   return (
     (
@@ -244,7 +256,7 @@ function operationLabel(operation: string): string {
     )[operation] ?? operation
   );
 }
-/** 当前批次的持久执行状态。 */
+/** 将整理任务状态转换为显示文本。 */
 function taskLabel(status: string): string {
   return (
     (
@@ -261,7 +273,11 @@ function taskLabel(status: string): string {
     )[status] ?? status
   );
 }
-/** 失败信息不展示原始模型错误或私有正文。 */
+/**
+ * 将整理失败原因转换为页面提示。
+ *
+ * 失败信息不展示原始模型错误或私有正文。
+ */
 function reasonLabel(reason: string): string {
   return (
     (

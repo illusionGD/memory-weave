@@ -11,12 +11,15 @@ import { ApiException } from '../../http/api-exception';
 /** 路由默认需要认证，只有显式标记为公开时才允许直接访问。 */
 @Injectable()
 export class AuthGuard implements CanActivate {
+  /** 初始化登录会话校验守卫。 */
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(AuthService) private readonly auth: AuthService,
   ) {}
 
   /**
+   * 校验请求是否具有有效的登录会话。
+   *
    * 校验受保护路由的服务端会话，无有效会话时拒绝请求。
    * @param context 路由元数据与请求上下文。
    * @returns 请求是否可以访问目标路由。

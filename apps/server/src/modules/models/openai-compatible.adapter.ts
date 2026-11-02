@@ -6,6 +6,7 @@ import { readModelStream } from './openai-stream';
 
 /** 外部失败只携带受控分类，不能把 URL、凭据或响应正文传到日志。 */
 export class ModelProviderError extends Error {
+  /** 创建供应商调用失败的结构化异常。 */
   constructor(
     readonly code: number,
     readonly retryable = false,
@@ -16,9 +17,14 @@ export class ModelProviderError extends Error {
 
 /** 兼容 Chat Completions / Embeddings 的单次 HTTP adapter；不隐式重试。 */
 export class OpenAiCompatibleAdapter implements ModelAdapter {
+  /** 初始化兼容 OpenAI 协议的供应商适配器。 */
   constructor(private readonly provider: ModelProvider) {}
 
-  /** 严格限制响应体、超时和重定向，JSON 数据仍需统一入口校验。 */
+  /**
+   * 调用兼容 OpenAI 协议的模型服务。
+   *
+   * 严格限制响应体、超时和重定向，JSON 数据仍需统一入口校验。
+   */
   async invoke(request: ModelAdapterRequest): Promise<ModelAdapterResponse> {
     const embedding = request.operation === 'embedding';
     const body: Record<string, unknown> = embedding
@@ -145,7 +151,11 @@ export class OpenAiCompatibleAdapter implements ModelAdapter {
   }
 }
 
-/** 限制响应大小，避免供应商意外返回巨大页面或无界内容。 */
+/**
+ * 读取并解析模型服务的 JSON 响应。
+ *
+ * 限制响应大小，避免供应商意外返回巨大页面或无界内容。
+ */
 async function readJson(response: Response): Promise<unknown> {
   if (!response.body) throw new ModelProviderError(API_CODES.MODEL_OUTPUT_INVALID);
   const reader = response.body.getReader();

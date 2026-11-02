@@ -14,7 +14,11 @@ import {
 import type { CleanupPage, LifecycleRecord } from '../lifecycle/lifecycle-cleanup';
 import { lifecycleConversationScope } from '../lifecycle/lifecycle-scope';
 
-/** F08 的清理步骤不访问外部服务，正文擦除与进度在同一事务中提交。 */
+/**
+ * 清理当前生命周期操作涉及的记忆数据。
+ *
+ * F08 的清理步骤不访问外部服务，正文擦除与进度在同一事务中提交。
+ */
 export async function cleanupMemoryPage(
   ownerId: string,
   tx: DatabaseTransaction,
