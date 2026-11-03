@@ -1,43 +1,43 @@
+import type {
+  MemoryBatchList,
+  MemoryBatchResult,
+  MemoryQuery,
+  ModelConfigurationVersion,
+  OrganizeMemory,
+} from '@memory-weave/contracts';
+import { API_CODES, memoryConfigurationSchema } from '@memory-weave/contracts';
+import { Inject, Injectable } from '@nestjs/common';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import type { RuntimeConfig } from '../../config';
+import { SERVER_CONFIG } from '../../config';
+import type { DatabaseTransaction } from '../../database/database.service';
+import {
+  companions,
+  conversationMembers,
+  conversations,
+  memoryBatches,
+  memoryEntries,
+  memoryVersions,
+  messages,
+  processingRanges,
+  readReceipts,
+  tasks,
+} from '../../database/schema';
+import { tables } from '../../database/tables';
+import { ApiException } from '../../http/api-exception';
+import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
+import { ModelConfigurationService } from '../models/model-configuration.service';
+import { fingerprint } from '../shared/http';
+import { TaskStore } from '../tasks/task-store';
 import { requireMemoryBatch } from './memory-access';
+import { MEMORY_DEFINITION_VERSION } from './memory-definition';
 import {
   listMemoryRecords,
   memoryRecordDetail,
   memoryRecordEvidence,
   toMemoryItem,
 } from './memory-records';
-import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, inArray, isNull, lt, sql } from 'drizzle-orm';
-import { API_CODES, memoryConfigurationSchema } from '@memory-weave/contracts';
-import type {
-  MemoryBatchList,
-  MemoryBatchResult,
-  MemoryQuery,
-  OrganizeMemory,
-  ModelConfigurationVersion,
-} from '@memory-weave/contracts';
-import { SERVER_CONFIG } from '../../config';
-import type { RuntimeConfig } from '../../config';
-import {
-  memoryBatches,
-  messages,
-  processingRanges,
-  tasks,
-  companions,
-  conversations,
-  conversationMembers,
-  memoryEntries,
-  memoryVersions,
-  modelCalls,
-  readReceipts,
-} from '../../database/schema';
-import type { DatabaseTransaction } from '../../database/database.service';
-import { ApiException } from '../../http/api-exception';
-import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
-import { fingerprint } from '../shared/http';
-import { TaskStore } from '../tasks/task-store';
-import { ModelConfigurationService } from '../models/model-configuration.service';
-import { MEMORY_DEFINITION_VERSION } from './memory-definition';
 import type { MemoryBatchInput } from './memory-types';
 
 /** 固定批次、独立范围和管理查询；不在事务内调用模型。 */
@@ -65,12 +65,9 @@ export class MemoriesService {
         tx,
       );
       const hash = fingerprint({ companionId, ...input });
-      const [existing] = await tx
-        .select()
-        .from(memoryBatches)
-        .where(
-          and(eq(memoryBatches.ownerId, ownerId), eq(memoryBatches.requestId, input.requestId)),
-        );
+      const existing = await tables.memoryBatches
+        .bind(tx, ownerId)
+        .findOne({ where: { requestId: input.requestId } });
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return this.result(existing);
@@ -109,12 +106,9 @@ export class MemoriesService {
         tx,
       );
       const hash = fingerprint({ companionId, retryBatchId: id, ...input });
-      const [replay] = await tx
-        .select()
-        .from(memoryBatches)
-        .where(
-          and(eq(memoryBatches.ownerId, ownerId), eq(memoryBatches.requestId, input.requestId)),
-        );
+      const replay = await tables.memoryBatches
+        .bind(tx, ownerId)
+        .findOne({ where: { requestId: input.requestId } });
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return this.result(replay);
@@ -126,16 +120,12 @@ export class MemoriesService {
         previous.conversationId !== input.conversationId
       )
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-      const [task] = await tx
-        .select()
-        .from(tasks)
-        .where(eq(tasks.id, previous.taskId ?? ''));
-      const [call] = await tx
-        .select()
-        .from(modelCalls)
-        .where(
-          and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.requestId, previous.taskId ?? '')),
-        );
+      const task = await tables.tasks
+        .bind(tx, ownerId)
+        .findOne({ where: { id: previous.taskId ?? '' } });
+      const call = await tables.modelCalls
+        .bind(tx, ownerId)
+        .findOne({ where: { requestId: previous.taskId ?? '' } });
       if (
         previous.completedAt ||
         !task ||
@@ -147,17 +137,13 @@ export class MemoriesService {
           API_CODES.TASK_STATE_CONFLICT,
           '原批次仍在执行或外部结果未确定，不能重发。',
         );
-      await tx.update(memoryBatches).set({ completedAt: now }).where(eq(memoryBatches.id, id));
-      await tx
-        .update(processingRanges)
-        .set({ status: 'pending', batchId: null })
-        .where(
-          and(
-            eq(processingRanges.ownerId, ownerId),
-            eq(processingRanges.batchId, id),
-            eq(processingRanges.status, 'processing'),
-          ),
-        );
+      await tables.memoryBatches
+        .bind(tx, ownerId)
+        .updateWhere({ where: { id: id }, set: { completedAt: now } });
+      await tables.processingRanges.bind(tx, ownerId).updateWhere({
+        where: { batchId: id, status: 'processing' },
+        set: { status: 'pending', batchId: null },
+      });
       const batch = await this.createBatch(
         ownerId,
         tx,
@@ -366,18 +352,10 @@ export class MemoriesService {
       command.conversationId,
       tx,
     );
-    const [active] = await tx
-      .select({ id: memoryBatches.id })
-      .from(memoryBatches)
-      .where(
-        and(
-          eq(memoryBatches.ownerId, ownerId),
-          eq(memoryBatches.companionId, companionId),
-          eq(memoryBatches.runtimeEpoch, command.runtimeEpoch),
-          isNull(memoryBatches.completedAt),
-        ),
-      )
-      .limit(1);
+    const active = await tables.memoryBatches.bind(tx, ownerId).findOne({
+      where: { companionId: companionId, runtimeEpoch: command.runtimeEpoch, completedAt: null },
+      fields: { id: memoryBatches.id },
+    });
     if (active) return null;
     const ranges = await tx
       .select({ range: processingRanges, message: messages, speaker: conversationMembers })
@@ -570,9 +548,8 @@ export class MemoriesService {
         runtimeEpoch: command.runtimeEpoch,
         conversationId: command.conversationId,
       };
-      await tx.insert(tasks).values({
+      await tables.tasks.bind(tx, ownerId).insert({
         id: taskId,
-        ownerId,
         requestKey: `memory-batch:${id}`,
         fingerprint: fingerprint({ input: taskInput, scope }),
         kind: 'memory_extraction',
@@ -601,15 +578,13 @@ export class MemoriesService {
           })),
         )
         .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
-      await tx
-        .update(processingRanges)
-        .set({ status: 'processing', batchId: id })
-        .where(
-          inArray(
-            processingRanges.id,
-            selected.map((r) => r.range.id),
-          ),
-        );
+      await tables.processingRanges.bind(tx, ownerId).updateWhere({
+        where: inArray(
+          processingRanges.id,
+          selected.map((r) => r.range.id),
+        ),
+        set: { status: 'processing', batchId: id },
+      });
     }
     return row;
   }

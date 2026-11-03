@@ -1,9 +1,10 @@
+import type { UpdateWorkspaceRequest, WorkspaceResponse } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import type { UpdateWorkspaceRequest, WorkspaceResponse } from '@memory-weave/contracts';
 import { eq } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
 import { owners } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 
 /** 维护部署管理者资料，改名只影响显示名称，不重建用户身份。 */
@@ -19,11 +20,9 @@ export class WorkspaceService {
    */
   get(): Promise<WorkspaceResponse> {
     return this.database.withOwner(async (ownerId, db) => {
-      const [owner] = await db
-        .select({ ownerId: owners.id, displayName: owners.displayName })
-        .from(owners)
-        .where(eq(owners.id, ownerId))
-        .limit(1);
+      const owner = await tables.owners.bind(db, ownerId).findOne({
+        fields: { ownerId: owners.id, displayName: owners.displayName },
+      });
       if (!owner) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
       return { ...owner, schemaVersion: 1 };
     });
@@ -36,10 +35,10 @@ export class WorkspaceService {
    */
   update(input: UpdateWorkspaceRequest): Promise<WorkspaceResponse> {
     return this.database.withOwner(async (ownerId, db) => {
-      const [result] = await db
-        .update(owners)
-        .set({ displayName: input.displayName })
-        .where(eq(owners.id, ownerId));
+      const result = await tables.owners.bind(db, ownerId).updateWhere({
+        where: eq(owners.id, ownerId),
+        set: { displayName: input.displayName },
+      });
       if (result.affectedRows === 0) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
       return { ownerId, displayName: input.displayName, schemaVersion: 1 };
     });

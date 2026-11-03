@@ -1,39 +1,35 @@
-import { API_CODES } from '@memory-weave/contracts';
 import type { ModelConfigurationVersion, RecallResult } from '@memory-weave/contracts';
+import { API_CODES, recallQuerySchema } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, desc, lte, isNull } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
+import { and, asc, desc, eq, isNull, lte } from 'drizzle-orm';
+import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
+  chatMemorySources,
   chatRuns,
   chatRunSources,
-  chatMemorySources,
   chatSegments,
-  chatThreads,
-  companions,
   messages,
-  modelCalls,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
-import { ConversationsService } from '../conversations/conversations.service';
 import {
-  requireConversation,
-  requireCompanionMember,
   assertVisible,
+  requireCompanionMember,
+  requireConversation,
 } from '../conversations/conversation-access';
+import { ConversationsService } from '../conversations/conversations.service';
 import { ModelConfigurationService } from '../models/model-configuration.service';
 import { ModelProvidersService } from '../models/model-providers.service';
 import { ModelRuntimeService } from '../models/model-runtime.service';
-import { TasksService } from '../tasks/tasks.service';
+import { validateRecallSnapshot } from '../retrieval/retrieval-snapshot';
+import { RetrievalService } from '../retrieval/retrieval.service';
 import { TaskStore } from '../tasks/task-store';
 import type { TaskLease } from '../tasks/task-types';
-import { chatDefinition, chatDefinitionV1, CHAT_DEFINITION_VERSION } from './chat-definition';
-import { RetrievalService } from '../retrieval/retrieval.service';
-import { validateRecallSnapshot } from '../retrieval/retrieval-snapshot';
-import { recallQuerySchema } from '@memory-weave/contracts';
-import { createHash } from 'node:crypto';
+import { TasksService } from '../tasks/tasks.service';
 import { ChatContextService } from './chat-context.service';
+import { CHAT_DEFINITION_VERSION, chatDefinition, chatDefinitionV1 } from './chat-definition';
 
 /** 持久任务执行聊天；每次发布均重查当前轮次和租约，迟到输出无法写入。 */
 @Injectable()
@@ -299,28 +295,18 @@ export class ChatExecutionService {
     lease: TaskLease,
   ): Promise<typeof chatRuns.$inferSelect> {
     await this.jobs.guardDispatch(ownerId, tx, lease);
-    const [thread] = await tx
-      .select()
-      .from(chatThreads)
-      .where(
-        and(
-          eq(chatThreads.ownerId, ownerId),
-          eq(chatThreads.conversationId, lease.task.scope.conversationId!),
-        ),
-      );
-    const [run] = await tx
-      .select()
-      .from(chatRuns)
-      .where(and(eq(chatRuns.ownerId, ownerId), eq(chatRuns.id, lease.task.id)));
+    const thread = await tables.chatThreads
+      .bind(tx, ownerId)
+      .findOne({ where: { conversationId: lease.task.scope.conversationId! } });
+    const run = await tables.chatRuns.bind(tx, ownerId).findOne({ where: { id: lease.task.id } });
     if (!thread || !run || thread.currentRunId !== run.id || run.interruptedAt)
       throw new ApiException(API_CODES.TASK_LEASE_LOST);
     if (run.context) {
       if (run.context.recall)
         await validateRecallSnapshot(ownerId, lease.task.scope, run.context.recall, tx);
-      const [companion] = await tx
-        .select()
-        .from(companions)
-        .where(and(eq(companions.ownerId, ownerId), eq(companions.id, thread.companionId)));
+      const companion = await tables.companions
+        .bind(tx, ownerId)
+        .findOne({ where: { id: thread.companionId } });
       if (companion?.currentPersonaVersionId !== run.context.personaVersionId)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
     }
@@ -336,10 +322,9 @@ export class ChatExecutionService {
     // 模型取消与片段发布共用配置锁，顺序固定为模型锁 → 调度锁 → 会话锁。
     return this.configuration.locked(async (ownerId, tx) => {
       const run = await this.guard(ownerId, tx, lease);
-      const [call] = await tx
-        .select()
-        .from(modelCalls)
-        .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.requestId, run.id)));
+      const call = await tables.modelCalls
+        .bind(tx, ownerId)
+        .findOne({ where: { requestId: run.id } });
       if (!call || !['running', 'succeeded'].includes(call.status))
         throw new ApiException(API_CODES.MODEL_CANCELLED);
       const prefix = await this.published(ownerId, tx, run.id);
@@ -378,9 +363,11 @@ export class ChatExecutionService {
           expectedRevision: draft.revision,
         },
       );
-      await tx
-        .insert(chatSegments)
-        .values({ ownerId, messageId: message.id, runId: run.id, position: expectedOffset + 1 });
+      await tables.chatSegments.bind(tx, ownerId).insert({
+        messageId: message.id,
+        runId: run.id,
+        position: expectedOffset + 1,
+      });
       await this.guard(ownerId, tx, lease);
     });
   }

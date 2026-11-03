@@ -1,20 +1,22 @@
-import { publicAvatar } from './avatar-files';
-import { lockTaskScheduler } from '../tasks/task-store';
-import { API_CODES } from '@memory-weave/contracts';
-import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
 import type {
   CompanionDetail,
   CompanionListResponse,
-  IdPaginationQuery,
   CreateCompanionRequest,
+  IdPaginationQuery,
 } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
-import { DatabaseService } from '../../database/database.service';
+import { randomUUID } from 'node:crypto';
+import { idCursorPage } from '../../database/cursor-pagination';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
+import { DatabaseService } from '../../database/database.service';
 import { companions, personaVersions } from '../../database/schema';
-import { fingerprint } from '../shared/http';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
+import { fingerprint } from '../shared/http';
+import { lockTaskScheduler } from '../tasks/task-store';
+import { publicAvatar } from './avatar-files';
 import { toPersonaVersion } from './persona-version';
 
 /** 保存部署管理者的实例身份、不可变初始快照及当前人格版本。 */
@@ -91,19 +93,17 @@ export class CompanionsService {
         throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
       return this.readInTransaction(tx, ownerId, stored.id);
     }
-    await tx.insert(personaVersions).values({
+    await tables.personaVersions.bind(tx, ownerId).insert({
       id: personaId,
-      ownerId,
       companionId: id,
       runtimeEpoch: 1,
       version: 1,
       profileText: input.initialProfile,
       createdAt,
     });
-    await tx
-      .update(companions)
-      .set({ currentPersonaVersionId: personaId })
-      .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)));
+    await tables.companions
+      .bind(tx, ownerId)
+      .updateWhere({ where: { id: id }, set: { currentPersonaVersionId: personaId } });
     return this.readInTransaction(tx, ownerId, id);
   }
 
@@ -143,10 +143,10 @@ export class CompanionsService {
         )
         .orderBy(asc(companions.id))
         .limit(query.limit + 1);
-      const items = rows.slice(0, query.limit).map((row) => this.toDetail(row));
+      const page = idCursorPage(rows, query.limit, (row) => row.companion.id);
       return {
-        items,
-        nextAfterId: rows.length > query.limit ? items.at(-1)!.id : null,
+        items: page.items.map((row) => this.toDetail(row)),
+        nextAfterId: page.nextAfterId,
       };
     });
   }

@@ -1,12 +1,9 @@
-import { publicAvatar } from '../companions/avatar-files';
-import { API_CODES, chatConfigurationSchema } from '@memory-weave/contracts';
 import type {
   Chat,
   ChatConfiguration,
   ChatDelivery,
-  ChatMessage,
-  StopChat,
   ChatList,
+  ChatMessage,
   ChatMessageList,
   ChatMessageQuery,
   ChatRun,
@@ -14,32 +11,33 @@ import type {
   IdPaginationQuery,
   SendChatMessage,
   SentChatMessage,
+  StopChat,
 } from '@memory-weave/contracts';
+import { API_CODES, chatConfigurationSchema } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gt, lt, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+import type { RuntimeConfig } from '../../config';
+import { SERVER_CONFIG } from '../../config';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatDeliveries,
   chatRuns,
-  chatThreads,
   chatSegments,
-  conversations,
-  companions,
+  chatThreads,
   messages,
-  tasks,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
-import { ConversationsService } from '../conversations/conversations.service';
+import { publicAvatar } from '../companions/avatar-files';
 import {
   requireCompanion,
   requireConversation,
   toMessage,
 } from '../conversations/conversation-access';
-import { fingerprint } from '../shared/http';
-import { SERVER_CONFIG } from '../../config';
-import type { RuntimeConfig } from '../../config';
+import { ConversationsService } from '../conversations/conversations.service';
 import { ModelRuntimeService } from '../models/model-runtime.service';
+import { fingerprint } from '../shared/http';
 import { TaskStore } from '../tasks/task-store';
 import { TasksService } from '../tasks/tasks.service';
 
@@ -94,17 +92,11 @@ export class ChatsService {
    */
   list(input: IdPaginationQuery): Promise<ChatList> {
     return this.store.locked(async (ownerId, tx) => {
-      const rows = await tx
-        .select()
-        .from(chatThreads)
-        .where(
-          and(
-            eq(chatThreads.ownerId, ownerId),
-            input.afterId ? gt(chatThreads.conversationId, input.afterId) : undefined,
-          ),
-        )
-        .orderBy(asc(chatThreads.conversationId))
-        .limit(input.limit + 1);
+      const rows = await tables.chatThreads.bind(tx, ownerId).findMany({
+        where: input.afterId ? gt(chatThreads.conversationId, input.afterId) : undefined,
+        orderBy: [asc(chatThreads.conversationId)],
+        limit: input.limit + 1,
+      });
       return {
         items: await Promise.all(
           rows.slice(0, input.limit).map((row) => this.read(ownerId, row.conversationId, tx)),
@@ -187,9 +179,8 @@ export class ChatsService {
         }
       }
       const runId = randomUUID();
-      await tx.insert(tasks).values({
+      await tables.tasks.bind(tx, ownerId).insert({
         id: runId,
-        ownerId,
         requestKey: `chat_reply:${runId}`,
         fingerprint: hash,
         availableAt: new Date(
@@ -207,9 +198,8 @@ export class ChatsService {
         },
         totalSteps: 1,
       });
-      await tx.insert(chatRuns).values({
+      await tables.chatRuns.bind(tx, ownerId).insert({
         id: runId,
-        ownerId,
         conversationId: id,
         triggerMessageId: message.id,
         firstUserSequence,
@@ -237,19 +227,15 @@ export class ChatsService {
     return this.store.locked(async (ownerId, tx) => {
       await this.thread(ownerId, id, tx, false);
       await requireConversation(ownerId, id, tx);
-      const rows = await tx
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.ownerId, ownerId),
-            eq(messages.conversationId, id),
-            eq(messages.state, 'published'),
-            input.beforeSequence ? lt(messages.sequence, input.beforeSequence) : undefined,
-          ),
-        )
-        .orderBy(desc(messages.sequence))
-        .limit(input.limit + 1);
+      const rows = await tables.messages.bind(tx, ownerId).findMany({
+        where: and(
+          eq(messages.conversationId, id),
+          eq(messages.state, 'published'),
+          input.beforeSequence ? lt(messages.sequence, input.beforeSequence) : undefined,
+        ),
+        orderBy: [desc(messages.sequence)],
+        limit: input.limit + 1,
+      });
       return {
         items: await this.messageItems(ownerId, tx, rows.slice(0, input.limit).reverse()),
         nextBeforeSequence: rows.length > input.limit ? rows[input.limit - 1]!.sequence : null,
@@ -275,19 +261,15 @@ export class ChatsService {
     return this.store.locked(async (ownerId, tx) => {
       await this.thread(ownerId, id, tx, false);
       await requireConversation(ownerId, id, tx);
-      const rows = await tx
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.ownerId, ownerId),
-            eq(messages.conversationId, id),
-            eq(messages.state, 'published'),
-            gt(messages.sequence, afterSequence),
-          ),
-        )
-        .orderBy(asc(messages.sequence))
-        .limit(50);
+      const rows = await tables.messages.bind(tx, ownerId).findMany({
+        where: and(
+          eq(messages.conversationId, id),
+          eq(messages.state, 'published'),
+          gt(messages.sequence, afterSequence),
+        ),
+        orderBy: [asc(messages.sequence)],
+        limit: 50,
+      });
       return this.messageItems(ownerId, tx, rows);
     });
   }
@@ -412,10 +394,9 @@ export class ChatsService {
     tx: DatabaseTransaction,
     active = true,
   ): Promise<typeof chatThreads.$inferSelect> {
-    const [thread] = await tx
-      .select()
-      .from(chatThreads)
-      .where(and(eq(chatThreads.ownerId, ownerId), eq(chatThreads.conversationId, id)));
+    const thread = await tables.chatThreads
+      .bind(tx, ownerId)
+      .findOne({ where: { conversationId: id } });
     if (!thread) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     if (active) {
       await requireCompanion(ownerId, thread.companionId, thread.runtimeEpoch, tx);
@@ -427,14 +408,12 @@ export class ChatsService {
   /** 组装聊天详情和当前轮次状态。 */
   private async read(ownerId: string, id: string, tx: DatabaseTransaction): Promise<Chat> {
     const thread = await this.thread(ownerId, id, tx, false);
-    const [companion] = await tx
-      .select()
-      .from(companions)
-      .where(and(eq(companions.ownerId, ownerId), eq(companions.id, thread.companionId)));
-    const [conversation] = await tx
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, id)));
+    const companion = await tables.companions
+      .bind(tx, ownerId)
+      .findOne({ where: { id: thread.companionId } });
+    const conversation = await tables.conversations
+      .bind(tx, ownerId)
+      .findOne({ where: { id: id } });
     const availability = conversation!.lifecycleOperationId
       ? 'cleaning'
       : !companion || companion.deletedAt || companion.runtimeEpoch !== thread.runtimeEpoch
@@ -465,10 +444,7 @@ export class ChatsService {
 
   /** 将聊天轮次及任务记录转换为响应数据。 */
   private async run(ownerId: string, id: string, tx: DatabaseTransaction): Promise<ChatRun> {
-    const [row] = await tx
-      .select()
-      .from(chatRuns)
-      .where(and(eq(chatRuns.ownerId, ownerId), eq(chatRuns.id, id)));
+    const row = await tables.chatRuns.bind(tx, ownerId).findOne({ where: { id: id } });
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     const task = await this.jobs.getInTransaction(ownerId, id, tx);
     return {

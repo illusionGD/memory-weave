@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { RecallResult, TaskScope } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { conversations, memoryEntries, memoryVersions, messages } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
 import { assertVersionSources } from '../memories/memory-records';
@@ -58,19 +59,16 @@ export async function validateRecallSnapshot(
     if (member.permissionVersion !== source.permissionVersion)
       throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
     await assertVisible(member, source.sequence, tx);
-    const [row] = await tx
-      .select({ id: messages.id })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.ownerId, ownerId),
-          eq(messages.id, source.messageId),
-          eq(messages.conversationId, source.conversationId),
-          eq(messages.contentVersion, source.contentVersion),
-          eq(messages.state, 'published'),
-          isNull(messages.deletedAt),
-        ),
-      );
+    const row = await tables.messages.bind(tx, ownerId).findOne({
+      where: {
+        id: source.messageId,
+        conversationId: source.conversationId,
+        contentVersion: source.contentVersion,
+        state: 'published',
+        deletedAt: null,
+      },
+      fields: { id: messages.id },
+    });
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   }
   for (const item of result.memories) {

@@ -1,13 +1,15 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { isNull, and, asc, eq, gt } from 'drizzle-orm';
 import type { IdPaginationQuery, TaskOutboxList } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
+import { Inject, Injectable } from '@nestjs/common';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
+import { idCursorPage } from '../../database/cursor-pagination';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { messages, taskOutbox } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
-import { TaskStore } from './task-store';
 import { TaskConfigurationService } from './task-configuration.service';
+import { TaskStore } from './task-store';
 import type { MessageOutboxInput } from './task-types';
 
 /**
@@ -21,17 +23,15 @@ export async function stageMessageOutbox(
   payload: MessageOutboxInput,
 ): Promise<void> {
   const eventKey = `message:${payload.messageId.toLowerCase()}:${payload.contentVersion}`;
-  const [existing] = await tx
-    .select()
-    .from(taskOutbox)
-    .where(and(eq(taskOutbox.ownerId, ownerId), eq(taskOutbox.eventKey, eventKey)));
+  const existing = await tables.taskOutbox
+    .bind(tx, ownerId)
+    .findOne({ where: { eventKey: eventKey } });
   if (existing) {
     if (fingerprint(existing.payload) !== fingerprint(payload))
       throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
     return;
   }
-  await tx.insert(taskOutbox).values({
-    ownerId,
+  await tables.taskOutbox.bind(tx, ownerId).insert({
     eventKey,
     kind: 'message_published',
     sourceId: payload.messageId,
@@ -56,19 +56,14 @@ export class TaskOutboxService {
    */
   list(query: IdPaginationQuery): Promise<TaskOutboxList> {
     return this.store.locked(async (ownerId, tx) => {
-      const rows = await tx
-        .select()
-        .from(taskOutbox)
-        .where(
-          and(
-            eq(taskOutbox.ownerId, ownerId),
-            query.afterId ? gt(taskOutbox.id, query.afterId) : undefined,
-          ),
-        )
-        .orderBy(asc(taskOutbox.id))
-        .limit(query.limit + 1);
+      const rows = await tables.taskOutbox.bind(tx, ownerId).findMany({
+        where: query.afterId ? gt(taskOutbox.id, query.afterId) : undefined,
+        orderBy: [asc(taskOutbox.id)],
+        limit: query.limit + 1,
+      });
+      const page = idCursorPage(rows, query.limit, (row) => row.id);
       return {
-        items: rows.slice(0, query.limit).map((row) => ({
+        items: page.items.map((row) => ({
           id: row.id,
           kind: row.kind,
           status: row.status,
@@ -78,7 +73,7 @@ export class TaskOutboxService {
           createdAt: row.createdAt.toISOString(),
           dispatchedAt: row.dispatchedAt?.toISOString() ?? null,
         })),
-        nextAfterId: rows.length > query.limit ? rows[query.limit - 1]!.id : null,
+        nextAfterId: page.nextAfterId,
       };
     });
   }
@@ -92,12 +87,11 @@ export class TaskOutboxService {
     return this.store.locked(async (ownerId, tx, now) => {
       const current = await this.configuration.current(ownerId, tx);
       if (!current.config.enabled) return 0;
-      const rows = await tx
-        .select()
-        .from(taskOutbox)
-        .where(and(eq(taskOutbox.ownerId, ownerId), eq(taskOutbox.status, 'pending')))
-        .orderBy(asc(taskOutbox.createdAt), asc(taskOutbox.id))
-        .limit(current.config.outboxBatchSize);
+      const rows = await tables.taskOutbox.bind(tx, ownerId).findMany({
+        where: { status: 'pending' },
+        orderBy: [asc(taskOutbox.createdAt), asc(taskOutbox.id)],
+        limit: current.config.outboxBatchSize,
+      });
       for (const event of rows) {
         const payload = event.payload;
         const [source] = await tx
@@ -116,17 +110,17 @@ export class TaskOutboxService {
           )
           .for('update');
         if (!source) {
-          await tx
-            .update(taskOutbox)
-            .set({ status: 'blocked', reason: 'source_changed' })
-            .where(eq(taskOutbox.id, event.id));
+          await tables.taskOutbox.bind(tx, ownerId).updateWhere({
+            where: { id: event.id },
+            set: { status: 'blocked', reason: 'source_changed' },
+          });
           continue;
         }
         // F08 以已持久登记的 processingRanges 组成批次，不再为每条消息创建占位任务。
-        await tx
-          .update(taskOutbox)
-          .set({ status: 'dispatched', reason: null, dispatchedAt: now })
-          .where(eq(taskOutbox.id, event.id));
+        await tables.taskOutbox.bind(tx, ownerId).updateWhere({
+          where: { id: event.id },
+          set: { status: 'dispatched', reason: null, dispatchedAt: now },
+        });
       }
       return rows.length;
     });

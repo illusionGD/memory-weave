@@ -1,8 +1,3 @@
-import { lockTaskScheduler } from '../tasks/task-store';
-import { sql } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
-import { API_CODES } from '@memory-weave/contracts';
-import { Inject, Injectable } from '@nestjs/common';
 import type {
   CompanionSequenceQuery,
   ConversationProgressResponse,
@@ -12,7 +7,10 @@ import type {
   ReceiveMessagesResponse,
   SourceLookupQuery,
 } from '@memory-weave/contracts';
-import { isNull, and, asc, eq, gt, gte, inArray, lte, or } from 'drizzle-orm';
+import { API_CODES } from '@memory-weave/contracts';
+import { Inject, Injectable } from '@nestjs/common';
+import { and, asc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
 import {
   conversationMembers,
@@ -22,7 +20,11 @@ import {
   receiveBatches,
   visibilityGrants,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
+import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
+import { lockTaskScheduler } from '../tasks/task-store';
+import type { QueryDatabase } from './conversation-access';
 import {
   assertVisible,
   requireCompanion,
@@ -30,8 +32,6 @@ import {
   requireConversation,
   toMessage,
 } from './conversation-access';
-import type { QueryDatabase } from './conversation-access';
-import { ApiException } from '../../http/api-exception';
 
 /** 按伴侣当前代次和成员范围提供原文查询，普通查询不登记实际取得。 */
 @Injectable()
@@ -76,19 +76,14 @@ export class ReceivingService {
   ): Promise<PublishedMessage> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireCompanion(ownerId, companionId, input.runtimeEpoch, db);
-      const [row] = await db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.ownerId, ownerId),
-            eq(messages.id, messageId),
-            eq(messages.contentVersion, input.contentVersion),
-            eq(messages.state, 'published'),
-            isNull(messages.deletedAt),
-          ),
-        )
-        .limit(1);
+      const row = await tables.messages.bind(db, ownerId).findOne({
+        where: {
+          id: messageId,
+          contentVersion: input.contentVersion,
+          state: 'published',
+          deletedAt: null,
+        },
+      });
       if (!row || row.sequence === null) {
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       }
@@ -231,39 +226,29 @@ export class ReceivingService {
             afterSequence: input.afterSequence,
             limit: input.limit,
           });
-          const [existing] = await tx
-            .select()
-            .from(receiveBatches)
-            .where(
-              and(
-                eq(receiveBatches.ownerId, ownerId),
-                eq(receiveBatches.companionId, companionId),
-                eq(receiveBatches.runtimeEpoch, input.runtimeEpoch),
-                eq(receiveBatches.conversationId, conversationId),
-                eq(receiveBatches.requestId, input.requestId),
-              ),
-            )
-            .limit(1);
+          const existing = await tables.receiveBatches.bind(tx, ownerId).findOne({
+            where: {
+              companionId: companionId,
+              runtimeEpoch: input.runtimeEpoch,
+              conversationId: conversationId,
+              requestId: input.requestId,
+            },
+          });
           if (existing) {
             if (existing.fingerprint !== requestFingerprint) {
               throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
             }
             const rows: (typeof messages.$inferSelect)[] = [];
             for (const reference of existing.messages) {
-              const [row] = await tx
-                .select()
-                .from(messages)
-                .where(
-                  and(
-                    eq(messages.ownerId, ownerId),
-                    eq(messages.conversationId, conversationId),
-                    eq(messages.id, reference.messageId),
-                    eq(messages.contentVersion, reference.contentVersion),
-                    eq(messages.state, 'published'),
-                    isNull(messages.deletedAt),
-                  ),
-                )
-                .limit(1);
+              const row = await tables.messages.bind(tx, ownerId).findOne({
+                where: {
+                  conversationId: conversationId,
+                  id: reference.messageId,
+                  contentVersion: reference.contentVersion,
+                  state: 'published',
+                  deletedAt: null,
+                },
+              });
               if (!row || row.sequence === null) {
                 throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
               }
@@ -275,9 +260,8 @@ export class ReceivingService {
           const rows = await this.visibleRows(member, input.afterSequence, input.limit, tx);
           const acquiredAt = new Date();
           const batchId = randomUUID();
-          await tx.insert(receiveBatches).values({
+          await tables.receiveBatches.bind(tx, ownerId).insert({
             id: batchId,
-            ownerId,
             companionId,
             runtimeEpoch: input.runtimeEpoch,
             conversationId,
@@ -289,11 +273,9 @@ export class ReceivingService {
             })),
             acquiredAt,
           });
-          const [batch] = await tx
-            .select()
-            .from(receiveBatches)
-            .where(and(eq(receiveBatches.ownerId, ownerId), eq(receiveBatches.id, batchId)))
-            .limit(1);
+          const batch = await tables.receiveBatches
+            .bind(tx, ownerId)
+            .findOne({ where: { id: batchId } });
           if (!batch) throw new Error('Failed to persist the receive batch.');
           if (rows.length > 0) {
             await tx

@@ -1,26 +1,25 @@
-import { API_CODES } from '@memory-weave/contracts';
 import type {
   IdPaginationQuery,
   LifecycleCommand,
-  RetryLifecycle,
   LifecycleList,
   LifecycleOperation,
+  RetryLifecycle,
 } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, isNull, isNotNull, sql, or, gte } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
-  companions,
-  conversationMembers,
   conversations,
-  messages,
   lifecycleMessageTargets,
   lifecycleOperations,
+  messages,
   personaFoundations,
   personaVersions,
   tasks,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { requireCompanion, requireConversation } from '../conversations/conversation-access';
 import { ModelConfigurationService } from '../models/model-configuration.service';
@@ -48,15 +47,9 @@ export class LifecycleService {
     return this.models.locked(async (ownerId, tx) => {
       await lockTaskScheduler(ownerId, tx);
       const hash = fingerprint(input);
-      const [existing] = await tx
-        .select()
-        .from(lifecycleOperations)
-        .where(
-          and(
-            eq(lifecycleOperations.ownerId, ownerId),
-            eq(lifecycleOperations.requestId, input.requestId),
-          ),
-        );
+      const existing = await tables.lifecycleOperations
+        .bind(tx, ownerId)
+        .findOne({ where: { requestId: input.requestId } });
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return this.read(ownerId, tx, existing.id);
@@ -96,24 +89,20 @@ export class LifecycleService {
         const id = randomUUID();
         // 跨私聊回忆只在同一伴侣与用户之间开放；先限制这组可能依赖的会话，传播完成后统一解除。
         const affected = sql`${conversations.ownerId} = ${ownerId} AND (${conversations.id} = ${conversation.id} OR (${conversations.kind} = 'private' AND EXISTS (SELECT 1 FROM conversation_members cm WHERE cm.conversation_id = ${conversations.id} AND cm.kind = 'companion' AND cm.companion_id IN (SELECT companion_id FROM conversation_members WHERE conversation_id = ${conversation.id} AND kind = 'companion'))))`;
-        const [busy] = await tx
-          .select({ id: conversations.id })
-          .from(conversations)
-          .where(
-            and(
-              affected,
-              or(
-                isNotNull(conversations.lifecycleOperationId),
-                gte(conversations.version, 2147483647),
-                gte(conversations.contentRevision, 2147483647),
-              ),
+        const busy = await tables.conversations.bind(tx, ownerId).findOne({
+          where: and(
+            affected,
+            or(
+              isNotNull(conversations.lifecycleOperationId),
+              gte(conversations.version, 2147483647),
+              gte(conversations.contentRevision, 2147483647),
             ),
-          )
-          .limit(1);
+          ),
+          fields: { id: conversations.id },
+        });
         if (busy) throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
-        await tx.insert(lifecycleOperations).values({
+        await tables.lifecycleOperations.bind(tx, ownerId).insert({
           id,
-          ownerId,
           requestId: input.requestId,
           taskId: id,
           fingerprint: hash,
@@ -130,17 +119,16 @@ export class LifecycleService {
             kind: 'selected' as const,
           })),
         );
-        await tx
-          .update(conversations)
-          .set({
+        await tables.conversations.bind(tx, ownerId).updateWhere({
+          where: affected,
+          set: {
             lifecycleOperationId: id,
             contentRevision: sql`${conversations.contentRevision} + 1`,
             version: sql`${conversations.version} + 1`,
-          })
-          .where(affected);
-        await tx.insert(tasks).values({
+          },
+        });
+        await tables.tasks.bind(tx, ownerId).insert({
           id,
-          ownerId,
           requestKey: `lifecycle:${input.requestId.toLowerCase()}`,
           fingerprint: hash,
           kind: 'lifecycle_cleanup',
@@ -157,9 +145,8 @@ export class LifecycleService {
         throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
       const id = randomUUID();
       const nextEpoch = input.kind === 'reset_companion' ? companion.runtimeEpoch + 1 : null;
-      await tx.insert(lifecycleOperations).values({
+      await tables.lifecycleOperations.bind(tx, ownerId).insert({
         id,
-        ownerId,
         requestId: input.requestId,
         taskId: id,
         fingerprint: hash,
@@ -170,16 +157,9 @@ export class LifecycleService {
         nextEpoch,
       });
       if (nextEpoch) {
-        const [foundation] = await tx
-          .select()
-          .from(personaFoundations)
-          .where(
-            and(
-              eq(personaFoundations.ownerId, ownerId),
-              eq(personaFoundations.companionId, companion.id),
-              eq(personaFoundations.runtimeEpoch, companion.runtimeEpoch),
-            ),
-          );
+        const foundation = await tables.personaFoundations
+          .bind(tx, ownerId)
+          .findOne({ where: { companionId: companion.id, runtimeEpoch: companion.runtimeEpoch } });
         const [initial] = foundation?.initialPersonaVersionId
           ? await tx
               .select()
@@ -192,9 +172,8 @@ export class LifecycleService {
               )
           : [];
         const personaId = randomUUID();
-        await tx.insert(personaVersions).values({
+        await tables.personaVersions.bind(tx, ownerId).insert({
           id: personaId,
-          ownerId,
           companionId: companion.id,
           runtimeEpoch: nextEpoch,
           version: 1,
@@ -213,40 +192,33 @@ export class LifecycleService {
             initialPersonaVersionId: initial?.document ? personaId : null,
           });
         }
-        await tx
-          .update(companions)
-          .set({
+        await tables.companions.bind(tx, ownerId).updateWhere({
+          where: { id: companion.id },
+          set: {
             runtimeEpoch: nextEpoch,
             version: companion.version + 1,
             currentPersonaVersionId: personaId,
             lifecycleOperationId: id,
-          })
-          .where(eq(companions.id, companion.id));
+          },
+        });
       } else {
-        await tx
-          .update(conversationMembers)
-          .set({ deletedAt: new Date() })
-          .where(
-            and(
-              eq(conversationMembers.ownerId, ownerId),
-              eq(conversationMembers.companionId, companion.id),
-            ),
-          );
-        await tx
-          .update(companions)
-          .set({
+        await tables.conversationMembers
+          .bind(tx, ownerId)
+          .updateWhere({ where: { companionId: companion.id }, set: { deletedAt: new Date() } });
+        await tables.companions.bind(tx, ownerId).updateWhere({
+          where: { id: companion.id },
+          set: {
             version: companion.version + 1,
             currentPersonaVersionId: null,
             initialSnapshot: null,
             name: '已删除伴侣',
             deletedAt: new Date(),
             lifecycleOperationId: id,
-          })
-          .where(eq(companions.id, companion.id));
+          },
+        });
       }
-      await tx.insert(tasks).values({
+      await tables.tasks.bind(tx, ownerId).insert({
         id,
-        ownerId,
         requestKey: `lifecycle:${input.requestId.toLowerCase()}`,
         fingerprint: hash,
         kind: 'lifecycle_cleanup',
@@ -262,16 +234,14 @@ export class LifecycleService {
   retry(id: string, input: RetryLifecycle): Promise<LifecycleOperation> {
     return this.models.locked(async (ownerId, tx) => {
       await lockTaskScheduler(ownerId, tx);
-      const [operation] = await tx
-        .select()
-        .from(lifecycleOperations)
-        .where(and(eq(lifecycleOperations.ownerId, ownerId), eq(lifecycleOperations.id, id)));
+      const operation = await tables.lifecycleOperations
+        .bind(tx, ownerId)
+        .findOne({ where: { id: id } });
       if (!operation) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       const requestKey = `lifecycle_retry:${id}:${input.requestId.toLowerCase()}`;
-      const [existing] = await tx
-        .select({ id: tasks.id })
-        .from(tasks)
-        .where(and(eq(tasks.ownerId, ownerId), eq(tasks.requestKey, requestKey)));
+      const existing = await tables.tasks
+        .bind(tx, ownerId)
+        .findOne({ where: { requestKey: requestKey }, fields: { id: tasks.id } });
       if (existing || operation.completedAt) return this.read(ownerId, tx, id);
       const previous = await this.jobs.getInTransaction(ownerId, operation.taskId, tx);
       if (!['failed', 'cancelled', 'blocked', 'paused'].includes(previous.status))
@@ -279,9 +249,8 @@ export class LifecycleService {
       if (previous.status === 'paused')
         await this.jobs.controlInTransaction(ownerId, tx, new Date(), previous.id, 'cancel');
       const taskId = randomUUID();
-      await tx.insert(tasks).values({
+      await tables.tasks.bind(tx, ownerId).insert({
         id: taskId,
-        ownerId,
         requestKey,
         fingerprint: fingerprint({ operationId: id }),
         kind: 'lifecycle_cleanup',
@@ -291,7 +260,9 @@ export class LifecycleService {
         totalSteps: lifecycleStages(operation.protocolVersion).length,
         stage: lifecycleStages(operation.protocolVersion)[operation.stage] ?? 'cleanup_complete',
       });
-      await tx.update(lifecycleOperations).set({ taskId }).where(eq(lifecycleOperations.id, id));
+      await tables.lifecycleOperations
+        .bind(tx, ownerId)
+        .updateWhere({ where: { id: id }, set: { taskId } });
       return this.read(ownerId, tx, id);
     });
   }
@@ -312,17 +283,12 @@ export class LifecycleService {
    */
   list(query: IdPaginationQuery): Promise<LifecycleList> {
     return this.store.locked(async (ownerId, tx) => {
-      const rows = await tx
-        .select({ id: lifecycleOperations.id })
-        .from(lifecycleOperations)
-        .where(
-          and(
-            eq(lifecycleOperations.ownerId, ownerId),
-            query.afterId ? gt(lifecycleOperations.id, query.afterId) : undefined,
-          ),
-        )
-        .orderBy(asc(lifecycleOperations.id))
-        .limit(query.limit + 1);
+      const rows = await tables.lifecycleOperations.bind(tx, ownerId).findMany({
+        where: query.afterId ? gt(lifecycleOperations.id, query.afterId) : undefined,
+        fields: { id: lifecycleOperations.id },
+        orderBy: [asc(lifecycleOperations.id)],
+        limit: query.limit + 1,
+      });
       return {
         items: await Promise.all(
           rows.slice(0, query.limit).map((row) => this.read(ownerId, tx, row.id)),
@@ -338,10 +304,7 @@ export class LifecycleService {
     tx: DatabaseTransaction,
     id: string,
   ): Promise<LifecycleOperation> {
-    const [row] = await tx
-      .select()
-      .from(lifecycleOperations)
-      .where(and(eq(lifecycleOperations.ownerId, ownerId), eq(lifecycleOperations.id, id)));
+    const row = await tables.lifecycleOperations.bind(tx, ownerId).findOne({ where: { id: id } });
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return {
       id,

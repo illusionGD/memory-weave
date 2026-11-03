@@ -1,19 +1,22 @@
-import { API_CODES } from '@memory-weave/contracts';
 import type {
   CreatePersonaTemplate,
-  UpdatePersonaTemplate,
   IdPaginationQuery,
   PersonaTemplate,
   PersonaTemplateList,
+  UpdatePersonaTemplate,
 } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { DatabaseService } from '../../database/database.service';
+import { idCursorPage } from '../../database/cursor-pagination';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
+import { DatabaseService } from '../../database/database.service';
 import { personaTemplates, personaTemplateVersions } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
+import { PersonaTemplateRepository } from './persona-template.repository';
 
 /** 保存独立模板，绝不以模板更新覆盖实例。 */
 @Injectable()
@@ -49,10 +52,9 @@ export class PersonaTemplatesService {
           if (!head || head.fingerprint !== hash)
             throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
           if (head.id === id)
-            await tx.insert(personaTemplateVersions).values({
+            await tables.personaTemplateVersions.bind(tx, ownerId).insert({
               ...input,
               id: randomUUID(),
-              ownerId,
               templateId: id,
               version: 1,
               fingerprint: hash,
@@ -85,16 +87,9 @@ export class PersonaTemplatesService {
             .for('update');
           if (!head) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
           const hash = fingerprint(input);
-          const [replay] = await tx
-            .select()
-            .from(personaTemplateVersions)
-            .where(
-              and(
-                eq(personaTemplateVersions.ownerId, ownerId),
-                eq(personaTemplateVersions.templateId, id),
-                eq(personaTemplateVersions.requestId, input.requestId),
-              ),
-            );
+          const replay = await tables.personaTemplateVersions.bind(tx, ownerId).findOne({
+            where: { templateId: id, requestId: input.requestId },
+          });
           if (replay) {
             if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
             return toTemplate(replay);
@@ -105,7 +100,6 @@ export class PersonaTemplatesService {
             throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
           const row = {
             id: randomUUID(),
-            ownerId,
             templateId: id,
             version: head.version + 1,
             requestId: input.requestId,
@@ -115,12 +109,11 @@ export class PersonaTemplatesService {
             lockedFeatures: input.lockedFeatures,
             createdAt: new Date(),
           };
-          await tx.insert(personaTemplateVersions).values(row);
-          await tx
-            .update(personaTemplates)
-            .set({ version: row.version })
-            .where(eq(personaTemplates.id, id));
-          return toTemplate(row);
+          await tables.personaTemplateVersions.bind(tx, ownerId).insert(row);
+          await tables.personaTemplates
+            .bind(tx, ownerId)
+            .updateWhere({ where: { id }, set: { version: row.version } });
+          return toTemplate({ ...row, ownerId });
         },
         { isolationLevel: 'read committed' },
       ),
@@ -130,27 +123,9 @@ export class PersonaTemplatesService {
   /** 分页查询人设模板列表。 */
   list(query: IdPaginationQuery): Promise<PersonaTemplateList> {
     return this.database.withOwner(async (ownerId, db) => {
-      const rows = await db
-        .select({ value: personaTemplateVersions })
-        .from(personaTemplates)
-        .innerJoin(
-          personaTemplateVersions,
-          and(
-            eq(personaTemplateVersions.ownerId, personaTemplates.ownerId),
-            eq(personaTemplateVersions.templateId, personaTemplates.id),
-            eq(personaTemplateVersions.version, personaTemplates.version),
-          ),
-        )
-        .where(
-          and(
-            eq(personaTemplates.ownerId, ownerId),
-            query.afterId ? gt(personaTemplates.id, query.afterId) : undefined,
-          ),
-        )
-        .orderBy(asc(personaTemplates.id))
-        .limit(query.limit + 1);
-      const items = rows.slice(0, query.limit).map(({ value }) => toTemplate(value));
-      return { items, nextAfterId: rows.length > query.limit ? items.at(-1)!.id : null };
+      const rows = await new PersonaTemplateRepository(db, ownerId).listCurrent(query);
+      const page = idCursorPage(rows, query.limit, (row) => row.templateId);
+      return { items: page.items.map(toTemplate), nextAfterId: page.nextAfterId };
     });
   }
 
@@ -161,21 +136,9 @@ export class PersonaTemplatesService {
     id: string,
     version?: number,
   ): Promise<PersonaTemplate> {
-    const [row] = await db
-      .select({ value: personaTemplateVersions })
-      .from(personaTemplates)
-      .innerJoin(
-        personaTemplateVersions,
-        and(
-          eq(personaTemplateVersions.ownerId, personaTemplates.ownerId),
-          eq(personaTemplateVersions.templateId, personaTemplates.id),
-          eq(personaTemplateVersions.version, version ?? personaTemplates.version),
-        ),
-      )
-      .where(and(eq(personaTemplates.ownerId, ownerId), eq(personaTemplates.id, id)))
-      .limit(1);
+    const row = await new PersonaTemplateRepository(db, ownerId).getVersion(id, version);
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-    return toTemplate(row.value);
+    return toTemplate(row);
   }
 }
 

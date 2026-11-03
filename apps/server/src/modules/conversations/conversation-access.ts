@@ -1,5 +1,5 @@
-import { API_CODES } from '@memory-weave/contracts';
 import type { Conversation, ConversationMember, Message } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
 import { and, asc, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
 import {
@@ -10,6 +10,7 @@ import {
   messageSources,
   visibilityGrants,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 
 /** 查询与事务共用的数据库接口，调用方负责事务边界。 */
@@ -48,11 +49,7 @@ export async function requireCompanion(
   runtimeEpoch: number,
   db: QueryDatabase,
 ): Promise<typeof companions.$inferSelect> {
-  const [row] = await db
-    .select()
-    .from(companions)
-    .where(and(eq(companions.ownerId, ownerId), eq(companions.id, companionId)))
-    .limit(1);
+  const row = await tables.companions.bind(db, ownerId).findOne({ where: { id: companionId } });
   if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   if (row.deletedAt) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   if (row.runtimeEpoch !== runtimeEpoch) throw new ApiException(API_CODES.RUNTIME_EPOCH_MISMATCH);
@@ -74,19 +71,14 @@ export async function requireCompanionMember(
 ): Promise<typeof conversationMembers.$inferSelect> {
   await requireCompanion(ownerId, companionId, runtimeEpoch, db);
   await requireConversation(ownerId, conversationId, db);
-  const [member] = await db
-    .select()
-    .from(conversationMembers)
-    .where(
-      and(
-        eq(conversationMembers.ownerId, ownerId),
-        eq(conversationMembers.conversationId, conversationId),
-        eq(conversationMembers.companionId, companionId),
-        eq(conversationMembers.runtimeEpoch, runtimeEpoch),
-        eq(conversationMembers.kind, 'companion'),
-      ),
-    )
-    .limit(1);
+  const member = await tables.conversationMembers.bind(db, ownerId).findOne({
+    where: {
+      conversationId: conversationId,
+      companionId: companionId,
+      runtimeEpoch: runtimeEpoch,
+      kind: 'companion',
+    },
+  });
   if (!member) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   return member;
 }

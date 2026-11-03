@@ -1,8 +1,9 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { conversationMembers, conversations } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { requireCompanionMember } from '../conversations/conversation-access';
 
 /**
@@ -18,21 +19,12 @@ export async function recallConversationScope(
   tx: DatabaseTransaction,
 ): Promise<SQL> {
   await requireCompanionMember(ownerId, companionId, runtimeEpoch, conversationId, tx);
-  const [target] = await tx
-    .select()
-    .from(conversations)
-    .where(eq(conversations.id, conversationId));
-  const [user] = await tx
-    .select()
-    .from(conversationMembers)
-    .where(
-      and(
-        eq(conversationMembers.conversationId, conversationId),
-        eq(conversationMembers.kind, 'user'),
-        eq(conversationMembers.userId, ownerId),
-      ),
-    )
-    .limit(1);
+  const target = await tables.conversations
+    .bind(tx, ownerId)
+    .findOne({ where: { id: conversationId } });
+  const user = await tables.conversationMembers
+    .bind(tx, ownerId)
+    .findOne({ where: { conversationId: conversationId, kind: 'user', userId: ownerId } });
   if (target?.kind !== 'private' || !user) return sql`${conversations.id} = ${conversationId}`;
   const member = alias(conversationMembers, 'recall_member');
   const other = alias(conversationMembers, 'recall_other');

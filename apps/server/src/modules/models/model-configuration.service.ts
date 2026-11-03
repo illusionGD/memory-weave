@@ -1,15 +1,16 @@
-import { API_CODES, MODEL_TASK_ROLES } from '@memory-weave/contracts';
 import type {
   ModelConfiguration,
   ModelConfigurationVersion,
   UpdateModelConfiguration,
 } from '@memory-weave/contracts';
+import { API_CODES, MODEL_TASK_ROLES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
-import { DatabaseService } from '../../database/database.service';
 import type { DatabaseTransaction } from '../../database/database.service';
+import { DatabaseService } from '../../database/database.service';
 import { modelConfigurationHeads, modelConfigurationVersions } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { defaultModelConfiguration } from './model-defaults';
@@ -36,15 +37,9 @@ export class ModelConfigurationService {
    */
   getVersion(version: number): Promise<ModelConfigurationVersion> {
     return this.database.withOwner(async (ownerId, db) => {
-      const [row] = await db
-        .select()
-        .from(modelConfigurationVersions)
-        .where(
-          and(
-            eq(modelConfigurationVersions.ownerId, ownerId),
-            eq(modelConfigurationVersions.version, version),
-          ),
-        );
+      const row = await tables.modelConfigurationVersions
+        .bind(db, ownerId)
+        .findOne({ where: { version: version } });
       if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return toVersion(row);
     });
@@ -58,15 +53,9 @@ export class ModelConfigurationService {
   update(input: UpdateModelConfiguration): Promise<ModelConfigurationVersion> {
     const hash = fingerprint({ ...input, requestId: input.requestId.toLowerCase() });
     return this.locked(async (ownerId, tx, current) => {
-      const [replay] = await tx
-        .select()
-        .from(modelConfigurationVersions)
-        .where(
-          and(
-            eq(modelConfigurationVersions.ownerId, ownerId),
-            eq(modelConfigurationVersions.requestId, input.requestId),
-          ),
-        );
+      const replay = await tables.modelConfigurationVersions
+        .bind(tx, ownerId)
+        .findOne({ where: { requestId: input.requestId } });
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return toVersion(replay);
@@ -88,10 +77,10 @@ export class ModelConfigurationService {
         createdAt: new Date(),
       };
       await tx.insert(modelConfigurationVersions).values(row);
-      await tx
-        .update(modelConfigurationHeads)
-        .set({ activeVersion: row.version })
-        .where(eq(modelConfigurationHeads.ownerId, ownerId));
+      await tables.modelConfigurationHeads.bind(tx, ownerId).updateWhere({
+        where: eq(modelConfigurationHeads.ownerId, ownerId),
+        set: { activeVersion: row.version },
+      });
       return toVersion(row);
     });
   }
@@ -134,21 +123,15 @@ export class ModelConfigurationService {
               createdAt: new Date(),
             };
             await tx.insert(modelConfigurationVersions).values(row);
-            await tx
-              .update(modelConfigurationHeads)
-              .set({ activeVersion: 1 })
-              .where(eq(modelConfigurationHeads.ownerId, ownerId));
+            await tables.modelConfigurationHeads.bind(tx, ownerId).updateWhere({
+              where: eq(modelConfigurationHeads.ownerId, ownerId),
+              set: { activeVersion: 1 },
+            });
             return operation(ownerId, tx, toVersion(row));
           }
-          const [row] = await tx
-            .select()
-            .from(modelConfigurationVersions)
-            .where(
-              and(
-                eq(modelConfigurationVersions.ownerId, ownerId),
-                eq(modelConfigurationVersions.version, head.activeVersion),
-              ),
-            );
+          const row = await tables.modelConfigurationVersions
+            .bind(tx, ownerId)
+            .findOne({ where: { version: head.activeVersion } });
           if (!row) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
           return operation(ownerId, tx, toVersion(row));
         },

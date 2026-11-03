@@ -1,14 +1,15 @@
-import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
-import { API_CODES } from '@memory-weave/contracts';
 import type {
   TaskConfiguration,
   TaskConfigurationVersion,
   UpdateTaskConfiguration,
 } from '@memory-weave/contracts';
-import { taskConfigurationVersions } from '../../database/schema';
+import { API_CODES } from '@memory-weave/contracts';
+import { Inject, Injectable } from '@nestjs/common';
+import { desc, eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import type { DatabaseTransaction } from '../../database/database.service';
+import { taskConfigurationVersions } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { TaskStore } from './task-store';
@@ -49,15 +50,9 @@ export class TaskConfigurationService {
   getVersion(version: number): Promise<TaskConfigurationVersion> {
     return this.store.locked(async (ownerId, tx) => {
       await this.current(ownerId, tx);
-      const [row] = await tx
-        .select()
-        .from(taskConfigurationVersions)
-        .where(
-          and(
-            eq(taskConfigurationVersions.ownerId, ownerId),
-            eq(taskConfigurationVersions.version, version),
-          ),
-        );
+      const row = await tables.taskConfigurationVersions
+        .bind(tx, ownerId)
+        .findOne({ where: { version: version } });
       if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return view(row);
     });
@@ -72,15 +67,9 @@ export class TaskConfigurationService {
     return this.store.locked(async (ownerId, tx, now) => {
       const current = await this.current(ownerId, tx);
       const hash = fingerprint({ expectedVersion: input.expectedVersion, config: input.config });
-      const [existing] = await tx
-        .select()
-        .from(taskConfigurationVersions)
-        .where(
-          and(
-            eq(taskConfigurationVersions.ownerId, ownerId),
-            eq(taskConfigurationVersions.requestId, input.requestId),
-          ),
-        );
+      const existing = await tables.taskConfigurationVersions
+        .bind(tx, ownerId)
+        .findOne({ where: { requestId: input.requestId } });
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return view(existing);

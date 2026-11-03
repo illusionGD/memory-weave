@@ -1,7 +1,3 @@
-import { lockTaskScheduler } from '../tasks/task-store';
-import { API_CODES } from '@memory-weave/contracts';
-import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
 import type {
   ConversationDetail,
   ConversationListResponse,
@@ -14,7 +10,11 @@ import type {
   SequencePaginationQuery,
   SpeakerRequest,
 } from '@memory-weave/contracts';
-import { isNull, and, asc, eq, gt, sql } from 'drizzle-orm';
+import { API_CODES } from '@memory-weave/contracts';
+import { Inject, Injectable } from '@nestjs/common';
+import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { idCursorPage } from '../../database/cursor-pagination';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { DatabaseService } from '../../database/database.service';
 import {
@@ -24,23 +24,24 @@ import {
   conversations,
   messages,
   messageSources,
-  processingRanges,
   visibilityGrants,
 } from '../../database/schema';
-import { stageMessageOutbox } from '../tasks/task-outbox.service';
-import type { MessageOutboxInput } from '../tasks/task-types';
+import { tables } from '../../database/tables';
+import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
+import { stageMessageOutbox } from '../tasks/task-outbox.service';
+import { lockTaskScheduler } from '../tasks/task-store';
+import type { MessageOutboxInput } from '../tasks/task-types';
+import type { QueryDatabase } from './conversation-access';
 import {
+  assertVisible,
   requireCompanion,
   requireCompanionMember,
   requireConversation,
-  assertVisible,
   toConversation,
-  toMessage,
   toMember,
+  toMessage,
 } from './conversation-access';
-import type { QueryDatabase } from './conversation-access';
-import { ApiException } from '../../http/api-exception';
 
 /** 管理共享会话与单份原文，所有写入以部署归属及事务保护。 */
 @Injectable()
@@ -152,21 +153,15 @@ export class ConversationsService {
    */
   list(input: IdPaginationQuery): Promise<ConversationListResponse> {
     return this.database.withOwner(async (ownerId, db) => {
-      const rows = await db
-        .select()
-        .from(conversations)
-        .where(
-          and(
-            eq(conversations.ownerId, ownerId),
-            input.afterId ? gt(conversations.id, input.afterId) : undefined,
-          ),
-        )
-        .orderBy(asc(conversations.id))
-        .limit(input.limit + 1);
-      const selected = rows.slice(0, input.limit);
+      const rows = await tables.conversations.bind(db, ownerId).findMany({
+        where: input.afterId ? gt(conversations.id, input.afterId) : undefined,
+        orderBy: [asc(conversations.id)],
+        limit: input.limit + 1,
+      });
+      const page = idCursorPage(rows, input.limit, (row) => row.id);
       return {
-        items: selected.map(toConversation),
-        nextAfterId: rows.length > input.limit ? (selected.at(-1)?.id ?? null) : null,
+        items: page.items.map(toConversation),
+        nextAfterId: page.nextAfterId,
       };
     });
   }
@@ -229,17 +224,9 @@ export class ConversationsService {
       input.sources,
       tx,
     );
-    const [existing] = await tx
-      .select()
-      .from(messages)
-      .where(
-        and(
-          eq(messages.ownerId, ownerId),
-          eq(messages.conversationId, conversationId),
-          eq(messages.requestId, input.requestId),
-        ),
-      )
-      .limit(1);
+    const existing = await tables.messages
+      .bind(tx, ownerId)
+      .findOne({ where: { conversationId: conversationId, requestId: input.requestId } });
     if (existing) {
       if (existing.fingerprint !== requestFingerprint)
         throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
@@ -249,9 +236,8 @@ export class ConversationsService {
       throw new ApiException(API_CODES.VERSION_CONFLICT);
     const receivedAt = new Date();
     const messageId = randomUUID();
-    await tx.insert(messages).values({
+    await tables.messages.bind(tx, ownerId).insert({
       id: messageId,
-      ownerId,
       conversationId,
       speakerMembershipId: member.id,
       requestId: input.requestId,
@@ -271,11 +257,7 @@ export class ConversationsService {
             : 'admin_companion_input',
       replyToMessageId: input.replyToMessageId ?? null,
     });
-    const [row] = await tx
-      .select()
-      .from(messages)
-      .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)))
-      .limit(1);
+    const row = await tables.messages.bind(tx, ownerId).findOne({ where: { id: messageId } });
     if (!row) throw new ApiException(API_CODES.CONFLICT);
     if (input.sources.length > 0)
       await tx.insert(messageSources).values(
@@ -298,17 +280,9 @@ export class ConversationsService {
   getMessage(conversationId: string, messageId: string): Promise<Message> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireConversation(ownerId, conversationId, db);
-      const [row] = await db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.ownerId, ownerId),
-            eq(messages.conversationId, conversationId),
-            eq(messages.id, messageId),
-          ),
-        )
-        .limit(1);
+      const row = await tables.messages
+        .bind(db, ownerId)
+        .findOne({ where: { conversationId: conversationId, id: messageId } });
       if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return toMessage(row, db);
     });
@@ -345,17 +319,9 @@ export class ConversationsService {
     input: PublishMessageRequest,
   ): Promise<Message> {
     const conversation = await requireConversation(ownerId, conversationId, tx, true);
-    const [row] = await tx
-      .select()
-      .from(messages)
-      .where(
-        and(
-          eq(messages.ownerId, ownerId),
-          eq(messages.conversationId, conversationId),
-          eq(messages.id, messageId),
-        ),
-      )
-      .limit(1);
+    const row = await tables.messages
+      .bind(tx, ownerId)
+      .findOne({ where: { conversationId: conversationId, id: messageId } });
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     const original = await toMessage(row, tx);
     const member = await this.speaker(ownerId, conversationId, original.speaker, tx);
@@ -397,27 +363,23 @@ export class ConversationsService {
     const sequence = conversation.lastSequence + 1;
     await assertVisible(member, sequence, tx);
     const publishedAt = new Date();
-    await tx
-      .update(messages)
-      .set({
+    await tables.messages.bind(tx, ownerId).updateWhere({
+      where: { id: messageId },
+      set: {
         state: 'published',
         sequence,
         publishedAt,
         revision: row.revision + 1,
         publishRequestId: input.requestId,
         publishFingerprint: requestFingerprint,
-      })
-      .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)));
-    const [published] = await tx
-      .select()
-      .from(messages)
-      .where(and(eq(messages.ownerId, ownerId), eq(messages.id, messageId)))
-      .limit(1);
+      },
+    });
+    const published = await tables.messages.bind(tx, ownerId).findOne({ where: { id: messageId } });
     if (!published) throw new ApiException(API_CODES.CONFLICT);
-    await tx
-      .update(conversations)
-      .set({ lastSequence: sequence, version: conversation.version + 1 })
-      .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, conversationId)));
+    await tables.conversations.bind(tx, ownerId).updateWhere({
+      where: { id: conversationId },
+      set: { lastSequence: sequence, version: conversation.version + 1 },
+    });
     const recipients = await tx
       .select({ member: conversationMembers })
       .from(conversationMembers)
@@ -452,8 +414,7 @@ export class ConversationsService {
         runtimeEpoch: recipient.runtimeEpoch,
         permissionVersion: recipient.permissionVersion,
       });
-      await tx.insert(processingRanges).values({
-        ownerId,
+      await tables.processingRanges.bind(tx, ownerId).insert({
         companionId: recipient.companionId,
         runtimeEpoch: recipient.runtimeEpoch,
         conversationId,
@@ -485,19 +446,15 @@ export class ConversationsService {
   ): Promise<MessageListResponse> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireConversation(ownerId, conversationId, db);
-      const rows = await db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.ownerId, ownerId),
-            eq(messages.conversationId, conversationId),
-            eq(messages.state, 'published'),
-            gt(messages.sequence, input.afterSequence),
-          ),
-        )
-        .orderBy(asc(messages.sequence))
-        .limit(input.limit + 1);
+      const rows = await tables.messages.bind(db, ownerId).findMany({
+        where: and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.state, 'published'),
+          gt(messages.sequence, input.afterSequence),
+        ),
+        orderBy: [asc(messages.sequence)],
+        limit: input.limit + 1,
+      });
       const selected = rows.slice(0, input.limit);
       const mapped = await Promise.all(selected.map((row) => toMessage(row, db)));
       return {
@@ -518,10 +475,10 @@ export class ConversationsService {
     conversationId: string,
   ): Promise<void> {
     await requireConversation(ownerId, conversationId, tx, true);
-    const [chat] = await tx
-      .select({ id: chatThreads.conversationId })
-      .from(chatThreads)
-      .where(and(eq(chatThreads.ownerId, ownerId), eq(chatThreads.conversationId, conversationId)));
+    const chat = await tables.chatThreads.bind(tx, ownerId).findOne({
+      where: { conversationId: conversationId },
+      fields: { id: chatThreads.conversationId },
+    });
     if (chat) throw new ApiException(API_CODES.CHAT_MANAGED_CONVERSATION);
   }
 
@@ -547,18 +504,9 @@ export class ConversationsService {
       if (member.leftSequence !== null) throw new ApiException(API_CODES.MEMBER_LEFT);
       return member;
     }
-    const [member] = await db
-      .select()
-      .from(conversationMembers)
-      .where(
-        and(
-          eq(conversationMembers.ownerId, ownerId),
-          eq(conversationMembers.conversationId, conversationId),
-          eq(conversationMembers.kind, 'user'),
-          eq(conversationMembers.userId, ownerId),
-        ),
-      )
-      .limit(1);
+    const member = await tables.conversationMembers
+      .bind(db, ownerId)
+      .findOne({ where: { conversationId: conversationId, kind: 'user', userId: ownerId } });
     if (!member || member.leftSequence !== null)
       throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return member;
@@ -580,22 +528,17 @@ export class ConversationsService {
     const refs: { messageId: string; contentVersion?: number }[] = [...sources];
     if (replyToMessageId) refs.push({ messageId: replyToMessageId });
     for (const reference of refs) {
-      const [row] = await db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.ownerId, ownerId),
-            eq(messages.conversationId, conversationId),
-            eq(messages.id, reference.messageId),
-            eq(messages.state, 'published'),
-            isNull(messages.deletedAt),
-            reference.contentVersion === undefined
-              ? undefined
-              : eq(messages.contentVersion, reference.contentVersion),
-          ),
-        )
-        .limit(1);
+      const row = await tables.messages.bind(db, ownerId).findOne({
+        where: and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.id, reference.messageId),
+          eq(messages.state, 'published'),
+          isNull(messages.deletedAt),
+          reference.contentVersion === undefined
+            ? undefined
+            : eq(messages.contentVersion, reference.contentVersion),
+        ),
+      });
       if (!row || row.sequence === null) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       await assertVisible(member, row.sequence, db);
     }

@@ -1,35 +1,35 @@
+import type { OrganizeMemory, RecallIndexList } from '@memory-weave/contracts';
+import { API_CODES, retrievalConfigurationSchema } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, inArray, isNull, ne, sql, or, isNotNull, lte } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { API_CODES, retrievalConfigurationSchema } from '@memory-weave/contracts';
-import type { RecallIndexList, OrganizeMemory } from '@memory-weave/contracts';
-import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
+import { SERVER_CONFIG } from '../../config';
 import {
   memoryEntries,
-  memoryVersions,
   memorySearchDocuments,
   memoryVectorIndexes,
+  memoryVersions,
   tasks,
-  modelCalls,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { requireCompanion } from '../conversations/conversation-access';
 import { ModelConfigurationService } from '../models/model-configuration.service';
 import { ModelRuntimeService } from '../models/model-runtime.service';
-import { TaskStore } from '../tasks/task-store';
-import { TasksService } from '../tasks/tasks.service';
-import type { TaskLease } from '../tasks/task-types';
 import { fingerprint } from '../shared/http';
+import { TaskStore } from '../tasks/task-store';
+import type { TaskLease } from '../tasks/task-types';
+import { TasksService } from '../tasks/tasks.service';
+import { requireIndexSource } from './retrieval-index-access';
 import { registerSearchDocument } from './retrieval-lexical';
 import {
   embeddingDefinition,
   embeddingSpace,
-  vectorCollection,
   RetrievalVector,
+  vectorCollection,
 } from './retrieval-vector';
-import { requireIndexSource } from './retrieval-index-access';
 
 /** 领域提交登记文档，worker 按当前编码空间补建任务，失败不改变正文或整理进度。 */
 @Injectable()
@@ -126,9 +126,8 @@ export class RetrievalIndexService {
           runtimeEpoch: row.entry.runtimeEpoch,
           conversationId: row.entry.conversationId,
         };
-        await tx.insert(tasks).values({
+        await tables.tasks.bind(tx, ownerId).insert({
           id: taskId,
-          ownerId,
           requestKey: `memory_index:${id}`,
           fingerprint: fingerprint({ space, versionId: row.version.id }),
           kind: 'memory_index',
@@ -287,41 +286,32 @@ export class RetrievalIndexService {
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       const requestKey = `index_retry:${indexId}:${command.requestId}`;
       const hash = fingerprint(command);
-      const [replay] = await tx
-        .select()
-        .from(tasks)
-        .where(and(eq(tasks.ownerId, ownerId), eq(tasks.requestKey, requestKey)));
+      const replay = await tables.tasks
+        .bind(tx, ownerId)
+        .findOne({ where: { requestKey: requestKey } });
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return { taskId: replay.id };
       }
-      const [previous] = await tx
-        .select()
-        .from(tasks)
-        .where(and(eq(tasks.ownerId, ownerId), eq(tasks.id, row.index.taskId)));
+      const previous = await tables.tasks
+        .bind(tx, ownerId)
+        .findOne({ where: { id: row.index.taskId } });
       if (
         !previous ||
         previous.input.kind !== 'memory_index' ||
         !['failed', 'blocked', 'cancelled', 'succeeded'].includes(previous.status)
       )
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
-      const [call] = await tx
-        .select()
-        .from(modelCalls)
-        .where(
-          and(
-            eq(modelCalls.ownerId, ownerId),
-            eq(modelCalls.requestId, previous.input.modelRequestId),
-          ),
-        );
+      const call = await tables.modelCalls
+        .bind(tx, ownerId)
+        .findOne({ where: { requestId: previous.input.modelRequestId } });
       if (call && ['running', 'unknown'].includes(call.status))
         throw new ApiException(API_CODES.MODEL_USAGE_UNKNOWN);
       if (row.index.space !== embeddingSpace(current.config.tasks.embedding, this.config))
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       const taskId = randomUUID();
-      await tx.insert(tasks).values({
+      await tables.tasks.bind(tx, ownerId).insert({
         id: taskId,
-        ownerId,
         requestKey,
         fingerprint: hash,
         kind: 'memory_index',
@@ -333,15 +323,15 @@ export class RetrievalIndexService {
         scope: previous.scope,
         totalSteps: 2,
       });
-      await tx
-        .update(memoryVectorIndexes)
-        .set({
+      await tables.memoryVectorIndexes.bind(tx, ownerId).updateWhere({
+        where: { id: indexId },
+        set: {
           taskId,
           status: 'pending',
           indexedAt: null,
           configVersion: call?.status === 'succeeded' ? row.index.configVersion : current.version,
-        })
-        .where(eq(memoryVectorIndexes.id, indexId));
+        },
+      });
       return { taskId };
     });
   }
@@ -360,19 +350,15 @@ export class RetrievalIndexService {
     const space = embeddingSpace(configuration.config.tasks.embedding, this.config);
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanion(ownerId, companionId, runtimeEpoch, tx);
-      const rows = await tx
-        .select()
-        .from(memoryVectorIndexes)
-        .where(
-          and(
-            eq(memoryVectorIndexes.ownerId, ownerId),
-            eq(memoryVectorIndexes.companionId, companionId),
-            eq(memoryVectorIndexes.runtimeEpoch, runtimeEpoch),
-            afterId ? gt(memoryVectorIndexes.id, afterId) : undefined,
-          ),
-        )
-        .orderBy(asc(memoryVectorIndexes.id))
-        .limit(51);
+      const rows = await tables.memoryVectorIndexes.bind(tx, ownerId).findMany({
+        where: and(
+          eq(memoryVectorIndexes.companionId, companionId),
+          eq(memoryVectorIndexes.runtimeEpoch, runtimeEpoch),
+          afterId ? gt(memoryVectorIndexes.id, afterId) : undefined,
+        ),
+        orderBy: [asc(memoryVectorIndexes.id)],
+        limit: 51,
+      });
       return {
         space,
         items: rows.slice(0, 50).map((row) => ({

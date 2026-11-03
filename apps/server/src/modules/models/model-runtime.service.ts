@@ -1,21 +1,21 @@
-import {
-  API_CODES,
-  MODEL_TASK_ROLES,
-  modelDiagnosticValueSchema,
-  modelResultSchema,
-  modelCallContextSchema,
-  modelProbeSchema,
-} from '@memory-weave/contracts';
 import type {
   DailyModelBudget,
   ModelAttempt,
-  ModelCallContext,
   ModelCall,
+  ModelCallContext,
   ModelConfigurationVersion,
   ModelProbe,
   ModelResult,
   ModelTaskConfig,
   ModelUsage,
+} from '@memory-weave/contracts';
+import {
+  API_CODES,
+  MODEL_TASK_ROLES,
+  modelCallContextSchema,
+  modelDiagnosticValueSchema,
+  modelProbeSchema,
+  modelResultSchema,
 } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq, lte } from 'drizzle-orm';
@@ -24,22 +24,23 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { modelAttempts, modelCalls, modelUsageWindows } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
-import { fingerprint } from '../shared/http';
-import type {
-  ModelTaskDefinition,
-  ModelTaskScope,
-  ModelDispatchGuard,
-  ModelTextSink,
-} from './model-task';
 import {
   requireCompanion,
-  requireConversation,
   requireCompanionMember,
+  requireConversation,
 } from '../conversations/conversation-access';
+import { fingerprint } from '../shared/http';
+import type { ModelAdapterResponse } from './model-adapter';
 import { ModelConfigurationService } from './model-configuration.service';
 import { ModelProvidersService } from './model-providers.service';
-import type { ModelAdapterResponse } from './model-adapter';
+import type {
+  ModelDispatchGuard,
+  ModelTaskDefinition,
+  ModelTaskScope,
+  ModelTextSink,
+} from './model-task';
 import { ModelProviderError } from './openai-compatible.adapter';
 
 type AttemptRow = typeof modelAttempts.$inferSelect;
@@ -395,14 +396,12 @@ export class ModelRuntimeService {
     allowRetry = true,
   ): Promise<AttemptRow | null> {
     return this.configuration.locked(async (ownerId, tx, current) => {
-      const [saved] = await tx
-        .select()
-        .from(modelAttempts)
-        .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.id, attempt.id)));
-      const [call] = await tx
-        .select()
-        .from(modelCalls)
-        .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.id, attempt.callId)));
+      const saved = await tables.modelAttempts
+        .bind(tx, ownerId)
+        .findOne({ where: { id: attempt.id } });
+      const call = await tables.modelCalls
+        .bind(tx, ownerId)
+        .findOne({ where: { id: attempt.callId } });
       if (!saved || !call) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
       if (
         saved.usageSource === 'reported' ||
@@ -464,9 +463,9 @@ export class ModelRuntimeService {
         errorCode = scopeError;
       }
       const finishedAt = new Date();
-      await tx
-        .update(modelAttempts)
-        .set({
+      await tables.modelAttempts.bind(tx, ownerId).updateWhere({
+        where: { id: saved.id },
+        set: {
           status,
           errorCode,
           usageSource: usage ? 'reported' : 'reserved',
@@ -477,8 +476,8 @@ export class ModelRuntimeService {
           actualModel: response?.actualModel?.slice(0, 160) ?? null,
           responseFingerprint: response?.responseId ? fingerprint(response.responseId) : null,
           finishedAt,
-        })
-        .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.id, saved.id)));
+        },
+      });
       let next: AttemptRow | null = null;
       if (
         allowRetry &&
@@ -510,10 +509,10 @@ export class ModelRuntimeService {
           errorCode = error.code;
         }
       }
-      await tx
-        .update(modelCalls)
-        .set({ status, errorCode, result, finishedAt: next ? null : finishedAt })
-        .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.id, saved.callId)));
+      await tables.modelCalls.bind(tx, ownerId).updateWhere({
+        where: { id: saved.callId },
+        set: { status, errorCode, result, finishedAt: next ? null : finishedAt },
+      });
       return next;
     });
   }
@@ -599,16 +598,9 @@ async function reserveAttempt(
       .insert(modelUsageWindows)
       .values({ ownerId, day, scope })
       .onDuplicateKeyUpdate({ set: { scope } });
-    const [window] = await tx
-      .select()
-      .from(modelUsageWindows)
-      .where(
-        and(
-          eq(modelUsageWindows.ownerId, ownerId),
-          eq(modelUsageWindows.day, day),
-          eq(modelUsageWindows.scope, scope),
-        ),
-      );
+    const window = await tables.modelUsageWindows
+      .bind(tx, ownerId)
+      .findOne({ where: { day: day, scope: scope } });
     if (!window) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
     if (
       window.requests + 1 > limit.requests ||
@@ -619,14 +611,14 @@ async function reserveAttempt(
     windows.push(window);
   }
   for (const window of windows) {
-    await tx
-      .update(modelUsageWindows)
-      .set({
+    await tables.modelUsageWindows.bind(tx, ownerId).updateWhere({
+      where: { id: window.id },
+      set: {
         requests: window.requests + 1,
         tokens: window.tokens + tokens,
         costMicros: window.costMicros + cost,
-      })
-      .where(eq(modelUsageWindows.id, window.id));
+      },
+    });
   }
   const attempt: AttemptRow = {
     id: randomUUID(),
@@ -681,21 +673,14 @@ async function adjustUsage(
   costDelta: number,
 ): Promise<void> {
   for (const scope of ['global', role]) {
-    const [window] = await tx
-      .select()
-      .from(modelUsageWindows)
-      .where(
-        and(
-          eq(modelUsageWindows.ownerId, ownerId),
-          eq(modelUsageWindows.day, day),
-          eq(modelUsageWindows.scope, scope),
-        ),
-      );
+    const window = await tables.modelUsageWindows
+      .bind(tx, ownerId)
+      .findOne({ where: { day: day, scope: scope } });
     if (!window) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-    await tx
-      .update(modelUsageWindows)
-      .set({ tokens: window.tokens + tokenDelta, costMicros: window.costMicros + costDelta })
-      .where(eq(modelUsageWindows.id, window.id));
+    await tables.modelUsageWindows.bind(tx, ownerId).updateWhere({
+      where: { id: window.id },
+      set: { tokens: window.tokens + tokenDelta, costMicros: window.costMicros + costDelta },
+    });
   }
 }
 
@@ -760,17 +745,10 @@ async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise
       errorCode: API_CODES.MODEL_USAGE_UNKNOWN,
       finishedAt: new Date(),
     };
-    await tx.update(modelAttempts).set(state).where(eq(modelAttempts.id, row.id));
-    await tx
-      .update(modelCalls)
-      .set(state)
-      .where(
-        and(
-          eq(modelCalls.ownerId, ownerId),
-          eq(modelCalls.id, row.callId),
-          eq(modelCalls.status, 'running'),
-        ),
-      );
+    await tables.modelAttempts.bind(tx, ownerId).updateWhere({ where: { id: row.id }, set: state });
+    await tables.modelCalls
+      .bind(tx, ownerId)
+      .updateWhere({ where: { id: row.callId, status: 'running' }, set: state });
   }
 }
 
@@ -780,10 +758,7 @@ async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise
  * 只映射本部署的可展示字段，排序保持真实尝试次序。
  */
 async function readCall(ownerId: string, tx: DatabaseTransaction, id: string): Promise<ModelCall> {
-  const [call] = await tx
-    .select()
-    .from(modelCalls)
-    .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.id, id)));
+  const call = await tables.modelCalls.bind(tx, ownerId).findOne({ where: { id: id } });
   if (!call) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   let invalidated = Boolean(call.invalidatedAt);
   try {

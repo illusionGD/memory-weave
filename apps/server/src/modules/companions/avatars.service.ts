@@ -1,12 +1,13 @@
+import type { AvatarState, ChangeAvatar } from '@memory-weave/contracts';
+import { API_CODES, AVATAR_MAX_BYTES, AVATAR_MEDIA_TYPES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
+import { and, eq } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import sharp from 'sharp';
-import { and, eq } from 'drizzle-orm';
-import { API_CODES, AVATAR_MAX_BYTES, AVATAR_MEDIA_TYPES } from '@memory-weave/contracts';
-import type { AvatarState, ChangeAvatar } from '@memory-weave/contracts';
-import { DatabaseService } from '../../database/database.service';
 import type { DatabaseTransaction } from '../../database/database.service';
+import { DatabaseService } from '../../database/database.service';
 import { companions } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { AvatarFiles, publicAvatar } from './avatar-files';
 
@@ -102,10 +103,10 @@ export class AvatarsService {
           if (row.avatarVersion === 2147483647)
             throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
           await this.files.save(ownerId, id, avatar, bytes);
-          await tx
-            .update(companions)
-            .set({ avatar, avatarVersion: row.avatarVersion + 1 })
-            .where(eq(companions.id, id));
+          await tables.companions.bind(tx, ownerId).updateWhere({
+            where: { id: id },
+            set: { avatar, avatarVersion: row.avatarVersion + 1 },
+          });
           return { avatar: publicAvatar(id, avatar), avatarVersion: row.avatarVersion + 1 };
         },
         { isolationLevel: 'read committed' },
@@ -128,10 +129,10 @@ export class AvatarsService {
             throw new ApiException(API_CODES.VERSION_CONFLICT);
           if (row.avatarVersion === 2147483647)
             throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
-          await tx
-            .update(companions)
-            .set({ avatar: null, avatarVersion: row.avatarVersion + 1 })
-            .where(eq(companions.id, id));
+          await tables.companions.bind(tx, ownerId).updateWhere({
+            where: { id: id },
+            set: { avatar: null, avatarVersion: row.avatarVersion + 1 },
+          });
           return { avatar: null, avatarVersion: row.avatarVersion + 1 };
         },
         { isolationLevel: 'read committed' },

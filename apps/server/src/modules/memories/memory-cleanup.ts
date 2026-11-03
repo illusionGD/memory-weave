@@ -1,16 +1,17 @@
-import { alias } from 'drizzle-orm/mysql-core';
 import { and, eq, inArray, isNotNull, isNull, lte, ne, notInArray, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/mysql-core';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   lifecycleMessageTargets,
   memoryBatches,
+  memoryDependencies,
   memoryEntries,
   memoryEvidence,
   memoryVersions,
-  memoryDependencies,
   messages,
   processingRanges,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import type { CleanupPage, LifecycleRecord } from '../lifecycle/lifecycle-cleanup';
 import { lifecycleConversationScope } from '../lifecycle/lifecycle-scope';
 
@@ -70,12 +71,10 @@ export async function cleanupMemoryPage(
       .limit(limit);
     if (rows.length) {
       const ids = rows.map((row) => row.id);
-      await tx
-        .update(memoryEntries)
-        .set({ status: 'invalidated' })
-        .where(
-          and(eq(memoryEntries.ownerId, ownerId), inArray(memoryEntries.currentVersionId, ids)),
-        );
+      await tables.memoryEntries.bind(tx, ownerId).updateWhere({
+        where: inArray(memoryEntries.currentVersionId, ids),
+        set: { status: 'invalidated' },
+      });
       await tx
         .update(memoryVersions)
         .set({ document: null, reason: null, fingerprint: 'deleted', invalidatedAt: new Date() })
@@ -115,15 +114,13 @@ export async function cleanupMemoryPage(
       )
       .limit(limit);
     if (rows.length)
-      await tx
-        .update(processingRanges)
-        .set({ status: 'pending', batchId: null })
-        .where(
-          inArray(
-            processingRanges.id,
-            rows.map((row) => row.id),
-          ),
-        );
+      await tables.processingRanges.bind(tx, ownerId).updateWhere({
+        where: inArray(
+          processingRanges.id,
+          rows.map((row) => row.id),
+        ),
+        set: { status: 'pending', batchId: null },
+      });
     return { done: rows.length === 0, changed: rows.length };
   }
   if (stage === 'memory_evidence') {
@@ -138,11 +135,11 @@ export async function cleanupMemoryPage(
           isNotNull(memoryVersions.invalidatedAt),
         ),
       );
-    const rows = await tx
-      .select({ id: memoryEvidence.id })
-      .from(memoryEvidence)
-      .where(and(eq(memoryEvidence.ownerId, ownerId), inArray(memoryEvidence.versionId, invalid)))
-      .limit(limit);
+    const rows = await tables.memoryEvidence.bind(tx, ownerId).findMany({
+      where: inArray(memoryEvidence.versionId, invalid),
+      fields: { id: memoryEvidence.id },
+      limit: limit,
+    });
     if (rows.length)
       await tx.delete(memoryEvidence).where(
         inArray(
@@ -152,31 +149,26 @@ export async function cleanupMemoryPage(
       );
     return { done: rows.length === 0, changed: rows.length };
   }
-  const rows = await tx
-    .select({ id: memoryBatches.id })
-    .from(memoryBatches)
-    .where(
-      and(
-        eq(memoryBatches.ownerId, ownerId),
-        isNotNull(memoryBatches.input),
-        content
-          ? lifecycleConversationScope(memoryBatches.conversationId, operation)
-          : and(
-              eq(memoryBatches.companionId, operation.companionId!),
-              lte(memoryBatches.runtimeEpoch, operation.previousEpoch!),
-            ),
-      ),
-    )
-    .limit(limit);
+  const rows = await tables.memoryBatches.bind(tx, ownerId).findMany({
+    where: and(
+      isNotNull(memoryBatches.input),
+      content
+        ? lifecycleConversationScope(memoryBatches.conversationId, operation)
+        : and(
+            eq(memoryBatches.companionId, operation.companionId!),
+            lte(memoryBatches.runtimeEpoch, operation.previousEpoch!),
+          ),
+    ),
+    fields: { id: memoryBatches.id },
+    limit: limit,
+  });
   if (rows.length)
-    await tx
-      .update(memoryBatches)
-      .set({ input: null, outcomes: null, completedAt: new Date() })
-      .where(
-        inArray(
-          memoryBatches.id,
-          rows.map((row) => row.id),
-        ),
-      );
+    await tables.memoryBatches.bind(tx, ownerId).updateWhere({
+      where: inArray(
+        memoryBatches.id,
+        rows.map((row) => row.id),
+      ),
+      set: { input: null, outcomes: null, completedAt: new Date() },
+    });
   return { done: rows.length === 0, changed: rows.length };
 }

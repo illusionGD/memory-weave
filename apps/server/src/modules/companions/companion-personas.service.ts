@@ -1,14 +1,13 @@
-import { requireCompanion } from '../conversations/conversation-access';
-import { API_CODES, personaDocumentSchema } from '@memory-weave/contracts';
 import type {
   CompanionCreation,
   CompanionPersonaState,
+  InitializePersona,
   ModelConfigurationVersion,
   PersonaDocument,
   PersonaVersion,
   RevisePersonaLocks,
-  InitializePersona,
 } from '@memory-weave/contracts';
+import { API_CODES, personaDocumentSchema } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -16,27 +15,29 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseService } from '../../database/database.service';
 import {
   companions,
+  modelAttempts,
+  modelCalls,
   personaFoundations,
   personaVersions,
   tasks,
-  modelCalls,
-  modelAttempts,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
-import { fingerprint } from '../shared/http';
+import { requireCompanion } from '../conversations/conversation-access';
 import { ModelConfigurationService } from '../models/model-configuration.service';
 import { ModelRuntimeService } from '../models/model-runtime.service';
+import { fingerprint } from '../shared/http';
 import { TaskStore } from '../tasks/task-store';
-import { TasksService } from '../tasks/tasks.service';
 import type { TaskLease } from '../tasks/task-types';
+import { TasksService } from '../tasks/tasks.service';
 import { CompanionsService } from './companions.service';
-import { PersonaTemplatesService } from './persona-templates.service';
-import { toPersonaVersion } from './persona-version';
 import {
   initialPersonaDefinition,
   initialPersonaOutputSchema,
   PERSONA_DEFINITION_VERSION,
 } from './persona-definition';
+import { PersonaTemplatesService } from './persona-templates.service';
+import { toPersonaVersion } from './persona-version';
 
 /** 原稿先落盘，模型结果经校验后与任务完成状态一起采用。 */
 @Injectable()
@@ -103,9 +104,8 @@ export class CompanionPersonasService {
         initialProfile: profileText,
       });
       const taskId = randomUUID();
-      await tx.insert(tasks).values({
+      await tables.tasks.bind(tx, ownerId).insert({
         id: taskId,
-        ownerId,
         requestKey: `persona_initialization:${input.requestId.toLowerCase()}`,
         fingerprint: hash,
         kind: 'persona_initialization',
@@ -122,8 +122,7 @@ export class CompanionPersonasService {
         },
         totalSteps: 1,
       });
-      await tx.insert(personaFoundations).values({
-        ownerId,
+      await tables.personaFoundations.bind(tx, ownerId).insert({
         companionId: companion.id,
         runtimeEpoch: companion.runtimeEpoch,
         requestId: input.requestId,
@@ -215,9 +214,8 @@ export class CompanionPersonasService {
         }
       }
       const taskId = randomUUID();
-      await tx.insert(tasks).values({
+      await tables.tasks.bind(tx, ownerId).insert({
         id: taskId,
-        ownerId,
         requestKey,
         fingerprint: hash,
         kind: 'persona_initialization',
@@ -236,8 +234,7 @@ export class CompanionPersonasService {
           .set({ taskId })
           .where(eq(personaFoundations.id, foundation.id));
       else
-        await tx.insert(personaFoundations).values({
-          ownerId,
+        await tables.personaFoundations.bind(tx, ownerId).insert({
           companionId: id,
           runtimeEpoch: input.runtimeEpoch,
           requestId: input.requestId,
@@ -258,16 +255,9 @@ export class CompanionPersonasService {
   get(id: string): Promise<CompanionPersonaState> {
     return this.store.locked(async (ownerId, tx) => {
       const companion = await this.instances.readInTransaction(tx, ownerId, id);
-      const [foundation] = await tx
-        .select()
-        .from(personaFoundations)
-        .where(
-          and(
-            eq(personaFoundations.ownerId, ownerId),
-            eq(personaFoundations.companionId, id),
-            eq(personaFoundations.runtimeEpoch, companion.runtimeEpoch),
-          ),
-        );
+      const foundation = await tables.personaFoundations
+        .bind(tx, ownerId)
+        .findOne({ where: { companionId: id, runtimeEpoch: companion.runtimeEpoch } });
       const [initial] = foundation?.initialPersonaVersionId
         ? await tx
             .select()
@@ -299,17 +289,9 @@ export class CompanionPersonasService {
   version(id: string, runtimeEpoch: number, version: number): Promise<PersonaVersion> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireCompanion(ownerId, id, runtimeEpoch, db);
-      const [row] = await db
-        .select()
-        .from(personaVersions)
-        .where(
-          and(
-            eq(personaVersions.ownerId, ownerId),
-            eq(personaVersions.companionId, id),
-            eq(personaVersions.runtimeEpoch, runtimeEpoch),
-            eq(personaVersions.version, version),
-          ),
-        );
+      const row = await tables.personaVersions
+        .bind(db, ownerId)
+        .findOne({ where: { companionId: id, runtimeEpoch: runtimeEpoch, version: version } });
       if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return toPersonaVersion(row);
     });
@@ -324,16 +306,9 @@ export class CompanionPersonasService {
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanion(ownerId, id, input.runtimeEpoch, tx);
       const hash = fingerprint(input);
-      const [replay] = await tx
-        .select()
-        .from(personaVersions)
-        .where(
-          and(
-            eq(personaVersions.ownerId, ownerId),
-            eq(personaVersions.companionId, id),
-            eq(personaVersions.commandId, input.requestId),
-          ),
-        );
+      const replay = await tables.personaVersions
+        .bind(tx, ownerId)
+        .findOne({ where: { companionId: id, commandId: input.requestId } });
       if (replay) {
         if (replay.commandFingerprint !== hash)
           throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
@@ -372,10 +347,10 @@ export class CompanionPersonasService {
         createdAt: new Date(),
       };
       await tx.insert(personaVersions).values(row);
-      await tx
-        .update(companions)
-        .set({ currentPersonaVersionId: row.id, version: companion.version + 1 })
-        .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)));
+      await tables.companions.bind(tx, ownerId).updateWhere({
+        where: { id: id },
+        set: { currentPersonaVersionId: row.id, version: companion.version + 1 },
+      });
       return toPersonaVersion(row);
     });
   }
@@ -484,9 +459,8 @@ export class CompanionPersonasService {
       if (!parent || parent.version >= 2_147_483_647 || companion.version >= 2_147_483_647)
         throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
       const personaId = randomUUID();
-      await tx.insert(personaVersions).values({
+      await tables.personaVersions.bind(tx, ownerId).insert({
         id: personaId,
-        ownerId,
         companionId: id,
         runtimeEpoch: companion.runtimeEpoch,
         version: parent.version + 1,

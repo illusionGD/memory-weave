@@ -16,6 +16,8 @@ description: 维护 F02 实例、人格版本、共享会话、原文来源、�
 - `packages/contracts`：严格输入和稳定响应，字段中文 JSDoc 随声明文件导出。
 - `scripts/verify-f02.mjs`：使用 HTTP 创建验收数据；明确告知永久写入，不清空已有数据。
 
+普通单表操作优先使用 `database/tables.ts` 中的类型化入口，按当前 `db` / `tx` 和 owner 绑定；复杂联表、幂等 upsert 与生命周期历史清理按需保留显式 SQL 或模块 Repository。不得把事务连接存在可变单例中，不得放开版本表日常改写或自动回读。字段/投影/能力约束和选择依据见 [CRUD 维护说明](../../../docs/features/crud-repositories.md)。
+
 所有领域查询限制当前 owner。管理者可管理所属实例；伴侣视角查询还必须校验当前代次、成员及可见区间。不能把管理者能力当成伴侣获得其他私聊的授权。
 
 HTTP 响应统一为 `{ code, data, message }`，数字常用码通过 contracts 的 `API_CODES` 引用；`ApiException` 也允许业务自定义码和文案。不存在与不可见均用 `RESOURCE_NOT_FOUND`；幂等、版本、代次和权限冲突分别分类，不能依赖提示文字。领域 schema 仅描述 data；HTTP 验收脚本复用公共外层校验。HTTP 追踪编号不替代创建/发布/接收命令的幂等键，详见 [公共 API 约定](../../../docs/api-conventions.md)。

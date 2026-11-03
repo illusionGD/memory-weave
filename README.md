@@ -19,6 +19,7 @@
 - [F10 记忆浏览、时间线、图谱与隔离验收](docs/features/f10-memory-explorer.md)
 - [Naive UI 双端组件与验收](docs/features/naive-ui.md)
 - [Redis 登录会话、重启保持与故障验收](docs/features/redis-auth.md)
+- [后端基础 CRUD、类型提示与 Repository 约定](docs/features/crud-repositories.md)
 - [聊天端与管理后台：启动、部署与验收](docs/features/frontend-split.md)
 - [各终端共用的 HTTP 响应与错误约定](docs/api-conventions.md)
 

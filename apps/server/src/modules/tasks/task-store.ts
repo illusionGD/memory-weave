@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
-import { DatabaseService } from '../../database/database.service';
 import type { DatabaseTransaction } from '../../database/database.service';
+import { DatabaseService } from '../../database/database.service';
 import { taskSchedulerHeads } from '../../database/schema';
+import { tables } from '../../database/tables';
 
 /** 只负责短调度事务；不同服务进程共享同一部署互斥，不持有外部调用。 */
 @Injectable()
@@ -53,9 +54,8 @@ export async function lockTaskScheduler(ownerId: string, tx: DatabaseTransaction
  * 每次语句重新读取数据库当前时间，不能以事务起始时间批准迟到提交。
  */
 export async function taskDatabaseTime(ownerId: string, tx: DatabaseTransaction): Promise<Date> {
-  const [clock] = await tx
-    .select({ milliseconds: sql<string>`UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000` })
-    .from(taskSchedulerHeads)
-    .where(eq(taskSchedulerHeads.ownerId, ownerId));
+  const clock = await tables.taskSchedulerHeads.bind(tx, ownerId).findOne({
+    fields: { milliseconds: sql<string>`UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000` },
+  });
   return new Date(Number(clock!.milliseconds));
 }

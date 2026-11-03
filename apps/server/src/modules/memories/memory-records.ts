@@ -1,27 +1,28 @@
-import { registerSearchDocument } from '../retrieval/retrieval-lexical';
-import { and, asc, eq, gt, isNull, or, ne, isNotNull, sql } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
-import { API_CODES } from '@memory-weave/contracts';
 import type {
+  MemoryDetail,
+  MemoryEvidencePage,
   MemoryItem,
   MemoryList,
   MemoryQuery,
-  MemoryDetail,
-  MemoryEvidencePage,
 } from '@memory-weave/contracts';
+import { API_CODES } from '@memory-weave/contracts';
+import { and, asc, eq, gt, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
-  memoryEntries,
-  memoryVersions,
-  memoryEvidence,
   memoryBatches,
   memoryDependencies,
+  memoryEntries,
+  memoryEvidence,
   memoryOriginalSources,
-  visibilityGrants,
+  memoryVersions,
   messages,
+  visibilityGrants,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { requireCompanionMember } from '../conversations/conversation-access';
+import { registerSearchDocument } from '../retrieval/retrieval-lexical';
 import { fingerprint } from '../shared/http';
 import type { MemoryOutput } from './memory-definition';
 
@@ -223,37 +224,28 @@ export async function memoryRecordDetail(
   query: MemoryQuery,
   tx: DatabaseTransaction,
 ): Promise<MemoryDetail> {
-  const [entry] = await tx
-    .select()
-    .from(memoryEntries)
-    .where(
-      and(
-        eq(memoryEntries.ownerId, ownerId),
-        eq(memoryEntries.companionId, companionId),
-        eq(memoryEntries.runtimeEpoch, query.runtimeEpoch),
-        eq(memoryEntries.conversationId, query.conversationId),
-        eq(memoryEntries.id, id),
-      ),
-    );
+  const entry = await tables.memoryEntries.bind(tx, ownerId).findOne({
+    where: {
+      companionId: companionId,
+      runtimeEpoch: query.runtimeEpoch,
+      conversationId: query.conversationId,
+      id: id,
+    },
+  });
   if (!entry) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-  const [current] = await tx
-    .select()
-    .from(memoryVersions)
-    .where(eq(memoryVersions.id, entry.currentVersionId));
+  const current = await tables.memoryVersions
+    .bind(tx, ownerId)
+    .findOne({ where: { id: entry.currentVersionId } });
   if (!current) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
   await assertVersionSources(ownerId, entry, current, tx);
-  const versions = await tx
-    .select()
-    .from(memoryVersions)
-    .where(
-      and(
-        eq(memoryVersions.ownerId, ownerId),
-        eq(memoryVersions.memoryId, id),
-        query.afterId ? gt(memoryVersions.id, query.afterId) : undefined,
-      ),
-    )
-    .orderBy(asc(memoryVersions.id))
-    .limit(query.limit + 1);
+  const versions = await tables.memoryVersions.bind(tx, ownerId).findMany({
+    where: and(
+      eq(memoryVersions.memoryId, id),
+      query.afterId ? gt(memoryVersions.id, query.afterId) : undefined,
+    ),
+    orderBy: [asc(memoryVersions.id)],
+    limit: query.limit + 1,
+  });
   return {
     current: toMemoryItem(entry, current),
     versions: await Promise.all(
@@ -388,9 +380,8 @@ export async function adoptMemories(
         ? ('disputed' as const)
         : ('active' as const);
     if (!entry)
-      await tx.insert(memoryEntries).values({
+      await tables.memoryEntries.bind(tx, ownerId).insert({
         id: entryId,
-        ownerId,
         companionId: batch.companionId,
         runtimeEpoch: batch.runtimeEpoch,
         conversationId: batch.conversationId,
@@ -399,9 +390,8 @@ export async function adoptMemories(
         status,
       });
     if (!duplicate) {
-      await tx.insert(memoryVersions).values({
+      await tables.memoryVersions.bind(tx, ownerId).insert({
         id: versionId,
-        ownerId,
         memoryId: entryId,
         version,
         batchId: batch.id,
@@ -425,10 +415,10 @@ export async function adoptMemories(
         tx,
       );
       if (entry)
-        await tx
-          .update(memoryEntries)
-          .set({ currentVersionId: versionId, version, status })
-          .where(eq(memoryEntries.id, entry.id));
+        await tables.memoryEntries.bind(tx, ownerId).updateWhere({
+          where: { id: entry.id },
+          set: { currentVersionId: versionId, version, status },
+        });
     }
     // 新正文保守依赖本批全部上下文及旧版本；重复内容只补新证据，避免产生依赖环。
     const dependencies = [

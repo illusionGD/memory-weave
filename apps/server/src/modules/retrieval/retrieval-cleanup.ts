@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, isNotNull, lte, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
@@ -15,6 +15,7 @@ import {
   memoryVersions,
   messages,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import type { CleanupPage, LifecycleRecord } from '../lifecycle/lifecycle-cleanup';
 import { lifecycleConversationScope } from '../lifecycle/lifecycle-scope';
 
@@ -104,10 +105,10 @@ export async function propagateRecallDeletion(
     .limit(limit);
   if (invalid.length) {
     const ids = invalid.map((row) => row.id);
-    await tx
-      .update(memoryEntries)
-      .set({ status: 'invalidated' })
-      .where(and(eq(memoryEntries.ownerId, ownerId), inArray(memoryEntries.currentVersionId, ids)));
+    await tables.memoryEntries.bind(tx, ownerId).updateWhere({
+      where: inArray(memoryEntries.currentVersionId, ids),
+      set: { status: 'invalidated' },
+    });
     await tx
       .update(memoryVersions)
       .set({ document: null, reason: null, fingerprint: 'deleted', invalidatedAt: new Date() })
@@ -185,8 +186,12 @@ export async function cleanupSearchPage(
     .limit(limit);
   if (rows.length) {
     const ids = rows.map((row) => row.id);
-    await tx.delete(memorySearchTerms).where(inArray(memorySearchTerms.versionId, ids));
-    await tx.delete(memorySearchDocuments).where(inArray(memorySearchDocuments.versionId, ids));
+    await tables.memorySearchTerms
+      .bind(tx, ownerId)
+      .deleteWhere(inArray(memorySearchTerms.versionId, ids));
+    await tables.memorySearchDocuments
+      .bind(tx, ownerId)
+      .deleteWhere(inArray(memorySearchDocuments.versionId, ids));
   }
   return { done: rows.length === 0, changed: rows.length };
 }

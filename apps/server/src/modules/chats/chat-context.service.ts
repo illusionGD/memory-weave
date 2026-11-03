@@ -1,17 +1,17 @@
-import { API_CODES, recallResultSchema } from '@memory-weave/contracts';
 import type { ChatContext, ModelConfigurationVersion, RecallResult } from '@memory-weave/contracts';
+import { API_CODES, recallResultSchema } from '@memory-weave/contracts';
 import { Injectable } from '@nestjs/common';
-import { isNull, and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatRuns,
   conversationMembers,
   messages,
   owners,
-  personaVersions,
   personaFoundations,
   readReceipts,
 } from '../../database/schema';
+import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import {
   assertVisible,
@@ -19,9 +19,9 @@ import {
   requireCompanionMember,
 } from '../conversations/conversation-access';
 import { modelInputReservation } from '../models/model-runtime.service';
-import { chatDefinition, chatDefinitionV1 } from './chat-definition';
 import { validateRecallSnapshot } from '../retrieval/retrieval-snapshot';
 import type { TaskLease } from '../tasks/task-types';
+import { chatDefinition, chatDefinitionV1 } from './chat-definition';
 
 /** 选取有界的当前会话原文，固定来源后才能派发模型；不依赖记忆整理。 */
 @Injectable()
@@ -58,17 +58,13 @@ export class ChatContextService {
     const context = run.context;
     if (context?.recall) await validateRecallSnapshot(ownerId, scope, context.recall, tx);
     if (recall) await validateRecallSnapshot(ownerId, scope, recall, tx);
-    const [persona] = await tx
-      .select()
-      .from(personaVersions)
-      .where(
-        and(
-          eq(personaVersions.ownerId, ownerId),
-          eq(personaVersions.companionId, companion.id),
-          eq(personaVersions.runtimeEpoch, scope.runtimeEpoch!),
-          eq(personaVersions.id, context?.personaVersionId ?? companion.currentPersonaVersionId),
-        ),
-      );
+    const persona = await tables.personaVersions.bind(tx, ownerId).findOne({
+      where: {
+        companionId: companion.id,
+        runtimeEpoch: scope.runtimeEpoch!,
+        id: context?.personaVersionId ?? companion.currentPersonaVersionId,
+      },
+    });
     if (!persona) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     const [foundation] = !persona.document
       ? await tx
@@ -99,19 +95,11 @@ export class ChatContextService {
           )
           .orderBy(asc(messages.sequence))
       : (
-          await tx
-            .select()
-            .from(messages)
-            .where(
-              and(
-                eq(messages.ownerId, ownerId),
-                eq(messages.conversationId, scope.conversationId!),
-                eq(messages.state, 'published'),
-                isNull(messages.deletedAt),
-              ),
-            )
-            .orderBy(desc(messages.sequence))
-            .limit(run.configuration.historyMessages)
+          await tables.messages.bind(tx, ownerId).findMany({
+            where: { conversationId: scope.conversationId!, state: 'published', deletedAt: null },
+            orderBy: [desc(messages.sequence)],
+            limit: run.configuration.historyMessages,
+          })
         ).reverse();
     for (const row of rows) {
       if (row.deletedAt || row.sequence === null || row.state !== 'published')
