@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import type { SQL } from 'drizzle-orm';
 import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
@@ -57,6 +58,7 @@ export interface CleanupPage {
 }
 /** 领域模块接入同一协议；外部索引/文件阶段不得持数据库事务访问网络。 */
 export type LifecycleCleanupPage = (
+  database: DatabaseService,
   ownerId: string,
   tx: DatabaseTransaction,
   operation: LifecycleRecord,
@@ -68,7 +70,13 @@ export type LifecycleCleanupPage = (
  *
  * 当前模块的分批清理；所有派生数据只按明确作用域处理。
  */
-export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, operation, limit) => {
+export const cleanupLifecyclePage: LifecycleCleanupPage = async (
+  database: DatabaseService,
+  ownerId,
+  tx,
+  operation,
+  limit,
+) => {
   const content = operation.kind === 'delete_messages';
   /** 生成当前清理操作的查询范围条件。 */
   const scope = (value: unknown): SQL =>
@@ -78,7 +86,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
           operation,
         )
       : sql`JSON_UNQUOTE(JSON_EXTRACT(${value}, '$.companionId')) = ${operation.companionId} AND CAST(JSON_UNQUOTE(JSON_EXTRACT(${value}, '$.runtimeEpoch')) AS UNSIGNED) <= ${operation.previousEpoch}`;
-  const targetIds = tx.sql
+  const targetIds = tx
     .select({ id: lifecycleMessageTargets.messageId })
     .from(lifecycleMessageTargets)
     .where(
@@ -88,10 +96,11 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       ),
     );
   const stage = LIFECYCLE_STAGES[operation.stage];
-  if (stage === 'search_terms') return cleanupSearchPage(ownerId, tx, operation, limit);
+  if (stage === 'search_terms') return cleanupSearchPage(database, ownerId, tx, operation, limit);
   if (stage === 'recall_propagation') {
-    const memory = await propagateRecallDeletion(ownerId, tx, operation, limit);
+    const memory = await propagateRecallDeletion(database, ownerId, tx, operation, limit);
     const originals = await cleanupLifecyclePage(
+      database,
       ownerId,
       tx,
       { ...operation, stage: LIFECYCLE_STAGES.indexOf('propagation') },
@@ -102,13 +111,14 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       changed: memory.changed + originals.changed,
     };
   }
-  if (stage?.startsWith('memory_')) return cleanupMemoryPage(ownerId, tx, operation, stage, limit);
+  if (stage?.startsWith('memory_'))
+    return cleanupMemoryPage(database, ownerId, tx, operation, stage, limit);
   const now = new Date();
   if (stage === 'propagation') {
     if (!content) return { done: true, changed: 0 };
     const source = alias(lifecycleMessageTargets, 'source_target');
     const known = alias(lifecycleMessageTargets, 'known_target');
-    const refs = await tx.sql
+    const refs = await tx
       .selectDistinct({ messageId: messages.id, contentVersion: messages.contentVersion })
       .from(source)
       .innerJoin(
@@ -133,7 +143,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       )
       .limit(limit);
     if (refs.length)
-      await tx.sql.insert(lifecycleMessageTargets).values(
+      await tx.insert(lifecycleMessageTargets).values(
         refs.map((ref) => ({
           ...ref,
           ownerId,
@@ -141,7 +151,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
           kind: 'derived' as const,
         })),
       );
-    const replies = await tx.sql
+    const replies = await tx
       .selectDistinct({ messageId: messages.id, contentVersion: messages.contentVersion })
       .from(source)
       .innerJoin(
@@ -172,7 +182,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       )
       .limit(limit);
     if (replies.length)
-      await tx.sql.insert(lifecycleMessageTargets).values(
+      await tx.insert(lifecycleMessageTargets).values(
         replies.map((ref) => ({
           ...ref,
           ownerId,
@@ -183,16 +193,20 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
     return { done: refs.length + replies.length === 0, changed: refs.length + replies.length };
   }
   if (stage === 'outbox') {
-    const rows = await tx.taskOutbox.findMany({
-      where: content
-        ? and(
-            inArray(taskOutbox.sourceId, targetIds),
-            sql`JSON_LENGTH(JSON_EXTRACT(${taskOutbox.payload}, '$.recipients')) > 0`,
-          )
-        : sql`JSON_CONTAINS(${taskOutbox.payload}, JSON_OBJECT('companionId', ${operation.companionId}, 'runtimeEpoch', ${operation.previousEpoch}), '$.recipients')`,
-      orderBy: [asc(taskOutbox.id)],
-      limit: limit,
-    });
+    const rows = await database.taskOutbox.findMany(
+      ownerId,
+      {
+        where: content
+          ? and(
+              inArray(taskOutbox.sourceId, targetIds),
+              sql`JSON_LENGTH(JSON_EXTRACT(${taskOutbox.payload}, '$.recipients')) > 0`,
+            )
+          : sql`JSON_CONTAINS(${taskOutbox.payload}, JSON_OBJECT('companionId', ${operation.companionId}, 'runtimeEpoch', ${operation.previousEpoch}), '$.recipients')`,
+        orderBy: [asc(taskOutbox.id)],
+        limit,
+      },
+      tx,
+    );
     for (const row of rows) {
       const recipients = content
         ? []
@@ -201,34 +215,45 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
               item.companionId !== operation.companionId ||
               item.runtimeEpoch > operation.previousEpoch!,
           );
-      await tx.taskOutbox.updateWhere({
-        where: { id: row.id },
-        set: {
+      await database.taskOutbox.update(
+        ownerId,
+        row.id,
+        {
           payload: { ...row.payload, recipients },
           ...(recipients.length ? {} : { status: 'blocked' as const, reason: 'lifecycle_changed' }),
         },
-      });
+        tx,
+      );
     }
     return { done: rows.length < limit, changed: rows.length };
   }
   if (stage === 'tasks') {
-    const rows = await tx.tasks.findMany({
-      where: and(
-        scope(tasks.scope),
-        sql`JSON_UNQUOTE(JSON_EXTRACT(${tasks.input}, '$.kind')) <> 'redacted'`,
-      ),
-      orderBy: [asc(tasks.id)],
-      limit: limit,
-    });
+    const rows = await database.tasks.findMany(
+      ownerId,
+      {
+        where: and(
+          scope(tasks.scope),
+          sql`JSON_UNQUOTE(JSON_EXTRACT(${tasks.input}, '$.kind')) <> 'redacted'`,
+        ),
+        orderBy: [asc(tasks.id)],
+        limit,
+      },
+      tx,
+    );
     for (const row of rows) {
       if (row.status === 'running')
-        await tx.taskAttempts.updateWhere({
-          where: { taskId: row.id, status: 'running' },
-          set: { status: 'cancelled', reason: 'lifecycle_changed', finishedAt: now },
-        });
-      await tx.tasks.updateWhere({
-        where: { id: row.id },
-        set: {
+        await database.taskAttempts.updateWhere(
+          ownerId,
+          {
+            where: { taskId: row.id, status: 'running' },
+            set: { status: 'cancelled', reason: 'lifecycle_changed', finishedAt: now },
+          },
+          tx,
+        );
+      await database.tasks.update(
+        ownerId,
+        row.id,
+        {
           input: { kind: 'redacted' },
           status: ['succeeded', 'failed', 'cancelled'].includes(row.status)
             ? row.status
@@ -238,33 +263,42 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
           leaseExpiresAt: null,
           updatedAt: now,
         },
-      });
+        tx,
+      );
     }
     return { done: rows.length < limit, changed: rows.length };
   }
   if (stage === 'calls') {
-    const rows = await tx.modelCalls.findMany({
-      where: and(scope(modelCalls.context), isNull(modelCalls.invalidatedAt)),
-      fields: { id: modelCalls.id },
-      orderBy: [asc(modelCalls.id)],
-      limit: limit,
-    });
+    const rows = await database.modelCalls.findMany(
+      ownerId,
+      {
+        where: and(scope(modelCalls.context), isNull(modelCalls.invalidatedAt)),
+        fields: { id: modelCalls.id },
+        orderBy: [asc(modelCalls.id)],
+        limit,
+      },
+      tx,
+    );
     if (rows.length)
-      await tx.modelCalls.updateWhere({
-        where: inArray(
-          modelCalls.id,
-          rows.map((row) => row.id),
-        ),
-        set: {
-          result: null,
-          invalidatedAt: now,
-          status: sql`CASE WHEN ${modelCalls.status} = 'running' THEN 'cancelled' ELSE ${modelCalls.status} END`,
+      await database.modelCalls.updateWhere(
+        ownerId,
+        {
+          where: inArray(
+            modelCalls.id,
+            rows.map((row) => row.id),
+          ),
+          set: {
+            result: null,
+            invalidatedAt: now,
+            status: sql`CASE WHEN ${modelCalls.status} = 'running' THEN 'cancelled' ELSE ${modelCalls.status} END`,
+          },
         },
-      });
+        tx,
+      );
     return { done: rows.length < limit, changed: rows.length };
   }
   if (stage === 'contexts') {
-    const rows = await tx.sql
+    const rows = await tx
       .select({ id: chatRuns.id })
       .from(chatRuns)
       .innerJoin(chatThreads, eq(chatThreads.conversationId, chatRuns.conversationId))
@@ -283,13 +317,17 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       .orderBy(asc(chatRuns.id))
       .limit(limit);
     if (rows.length)
-      await tx.chatRuns.updateWhere({
-        where: inArray(
-          chatRuns.id,
-          rows.map((row) => row.id),
-        ),
-        set: { context: null, interruptedAt: now },
-      });
+      await database.chatRuns.updateWhere(
+        ownerId,
+        {
+          where: inArray(
+            chatRuns.id,
+            rows.map((row) => row.id),
+          ),
+          set: { context: null, interruptedAt: now },
+        },
+        tx,
+      );
     return { done: rows.length < limit, changed: rows.length };
   }
   if (
@@ -312,7 +350,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
             : stage === 'foundations'
               ? personaFoundations
               : personaVersions;
-    const rows = await tx.sql
+    const rows = await tx
       .select({ id: table.id })
       .from(table)
       .where(
@@ -334,17 +372,20 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       .limit(limit);
     if (rows.length) {
       if (stage === 'persona_links')
-        await tx.sql
+        await tx
           .update(personaVersions)
           .set({ parentVersionId: null })
           .where(
-            inArray(
-              personaVersions.id,
-              rows.map((row) => row.id),
+            and(
+              eq(personaVersions.ownerId, ownerId),
+              inArray(
+                personaVersions.id,
+                rows.map((row) => row.id),
+              ),
             ),
           );
       else
-        await tx.sql.delete(table).where(
+        await tx.delete(table).where(
           inArray(
             table.id,
             rows.map((row) => row.id),
@@ -355,7 +396,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
   }
   if (stage === 'drafts' || stage === 'messages') {
     if ((stage === 'drafts') === content) return { done: true, changed: 0 };
-    const memberships = tx.sql
+    const memberships = tx
       .select({ id: conversationMembers.id })
       .from(conversationMembers)
       .where(
@@ -365,25 +406,33 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
           lte(conversationMembers.runtimeEpoch, operation.previousEpoch!),
         ),
       );
-    const rows = await tx.messages.findMany({
-      where: and(
-        isNull(messages.deletedAt),
-        content
-          ? inArray(messages.id, targetIds)
-          : and(eq(messages.state, 'draft'), inArray(messages.speakerMembershipId, memberships)),
-      ),
-      fields: { id: messages.id },
-      orderBy: [asc(messages.id)],
-      limit: limit,
-    });
-    if (rows.length)
-      await tx.messages.updateWhere({
-        where: inArray(
-          messages.id,
-          rows.map((row) => row.id),
+    const rows = await database.messages.findMany(
+      ownerId,
+      {
+        where: and(
+          isNull(messages.deletedAt),
+          content
+            ? inArray(messages.id, targetIds)
+            : and(eq(messages.state, 'draft'), inArray(messages.speakerMembershipId, memberships)),
         ),
-        set: { text: '', deletedAt: now },
-      });
+        fields: { id: messages.id },
+        orderBy: [asc(messages.id)],
+        limit,
+      },
+      tx,
+    );
+    if (rows.length)
+      await database.messages.updateWhere(
+        ownerId,
+        {
+          where: inArray(
+            messages.id,
+            rows.map((row) => row.id),
+          ),
+          set: { text: '', deletedAt: now },
+        },
+        tx,
+      );
     return { done: rows.length < limit, changed: rows.length };
   }
   throw new Error('未注册的生命周期阶段');

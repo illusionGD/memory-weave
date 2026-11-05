@@ -9,7 +9,7 @@ const app = await createApplication(loadServerConfig(process.env));
 await app.listen(0, '127.0.0.1');
 if (process.env.TASK_TEST_MODE === 'checkpoint') {
   const tasks = app.get(TasksService);
-  const lease = await asOwner(app, () => tasks.claim());
+  const lease = await asOwner(app, (ownerId) => tasks.claim(ownerId));
   if (!lease) throw new Error('没有可领取的测试任务。');
   await asOwner(app, () => tasks.checkpoint(lease, { completedSteps: 1, stage: 'steps' }));
   process.stdout.write(`${JSON.stringify({ taskId: lease.task.id, checkpoint: 1 })}\n`);

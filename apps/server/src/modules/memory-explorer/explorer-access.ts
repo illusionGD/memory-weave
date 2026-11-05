@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { MemoryExplorerScope } from '@memory-weave/contracts';
@@ -11,14 +12,16 @@ import { requireCompanion, requireCompanionMember } from '../conversations/conve
  * 查询范围始终以实例为中心；跨会话只允许本用户与本实例之间的私聊。
  */
 export async function explorerScope(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   query: MemoryExplorerScope,
   tx: DatabaseTransaction,
 ): Promise<SQL> {
-  await requireCompanion(ownerId, companionId, query.runtimeEpoch, tx);
+  await requireCompanion(database, ownerId, companionId, query.runtimeEpoch, tx);
   if (query.conversationId)
     await requireCompanionMember(
+      database,
       ownerId,
       companionId,
       query.runtimeEpoch,
@@ -31,7 +34,7 @@ export async function explorerScope(
     eq(memoryEntries.runtimeEpoch, query.runtimeEpoch),
     eq(conversations.ownerId, ownerId),
     isNull(conversations.lifecycleOperationId),
-    sql`EXISTS (${tx.sql
+    sql`EXISTS (${tx
       .select({ id: conversationMembers.id })
       .from(conversationMembers)
       .where(

@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
   uuidSchema,
@@ -27,16 +28,18 @@ export class LifecycleController {
    */
   @Post()
   create(
+    @CurrentOwner() ownerId: string,
     @Body(new ZodValidationPipe(lifecycleCommandSchema)) input: LifecycleCommand,
   ): Promise<LifecycleOperation> {
-    return this.service.create(input);
+    return this.service.create(ownerId, input);
   }
   /** 分页查询生命周期清理记录。 */
   @Get()
   list(
+    @CurrentOwner() ownerId: string,
     @Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery,
   ): Promise<LifecycleList> {
-    return this.service.list(query);
+    return this.service.list(ownerId, query);
   }
   /**
    * 恢复中断的生命周期清理操作。
@@ -45,14 +48,18 @@ export class LifecycleController {
    */
   @Post(':id/retry')
   retry(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(retryLifecycleSchema)) input: RetryLifecycle,
   ): Promise<LifecycleOperation> {
-    return this.service.retry(id, input);
+    return this.service.retry(ownerId, id, input);
   }
   /** 查询指定生命周期操作的详情。 */
   @Get(':id')
-  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<LifecycleOperation> {
-    return this.service.get(id);
+  get(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<LifecycleOperation> {
+    return this.service.get(ownerId, id);
   }
 }

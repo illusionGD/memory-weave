@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull, ne, isNotNull } from 'drizzle-orm';
 import { retrievalConfigurationSchema } from '@memory-weave/contracts';
@@ -30,6 +31,7 @@ import type { ModelDispatchGuard } from '../models/model-task';
 export class RetrievalService {
   /** 初始化记忆检索和新原文补读服务。 */
   constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
     @Inject(RetrievalVector) private readonly vectors: RetrievalVector,
@@ -42,58 +44,63 @@ export class RetrievalService {
    * 取得授权范围内的新原文，超过预算时明确标记覆盖不足。
    */
   async recall(
+    ownerId: string,
     companionId: string,
     query: RecallQuery,
     guard?: ModelDispatchGuard,
   ): Promise<RecallResult> {
     const limits = this.config.retrievalConfiguration ?? retrievalConfigurationSchema.parse({});
-    const configuration = await this.configuration.get();
+    const configuration = await this.configuration.get(ownerId);
     const embedding = configuration.config.tasks.embedding;
     const space = embeddingSpace(embedding, this.config);
-    const available = await this.store.locked(async (ownerId, tx) => {
+    const available = await this.store.locked(ownerId, async (tx) => {
       if (guard) await guard(ownerId, tx);
       const scope = await recallConversationScope(
+        this.database,
         ownerId,
         companionId,
         query.runtimeEpoch,
         query.conversationId,
         tx,
       );
-      const rows = await tx.sql
-        .select({ id: conversations.id })
-        .from(conversations)
-        .where(
-          and(
+      const rows = await this.database.conversations.findMany(
+        ownerId,
+        {
+          where: and(
             eq(conversations.ownerId, ownerId),
             isNull(conversations.lifecycleOperationId),
             scope,
           ),
-        )
-        .limit(201);
-      const [blocked] = await tx.sql
-        .select({ id: conversations.id })
-        .from(conversations)
-        .where(
-          and(
+          fields: { id: conversations.id },
+          limit: 201,
+        },
+        tx,
+      );
+      const blocked = await this.database.conversations.findOne(
+        ownerId,
+        {
+          where: and(
             eq(conversations.ownerId, ownerId),
             isNotNull(conversations.lifecycleOperationId),
             scope,
           ),
-        )
-        .limit(1);
-      const [indexed] = await tx.sql
-        .select({ id: memoryVectorIndexes.id })
-        .from(memoryVectorIndexes)
-        .where(
-          and(
-            eq(memoryVectorIndexes.ownerId, ownerId),
-            eq(memoryVectorIndexes.companionId, companionId),
-            eq(memoryVectorIndexes.runtimeEpoch, query.runtimeEpoch),
-            eq(memoryVectorIndexes.space, space),
-            eq(memoryVectorIndexes.status, 'indexed'),
-          ),
-        )
-        .limit(1);
+          fields: { id: conversations.id },
+        },
+        tx,
+      );
+      const indexed = await this.database.memoryVectorIndexes.findOne(
+        ownerId,
+        {
+          where: {
+            companionId,
+            runtimeEpoch: query.runtimeEpoch,
+            space,
+            status: 'indexed',
+          },
+          fields: { id: memoryVectorIndexes.id },
+        },
+        tx,
+      );
       return {
         ownerId,
         conversations: rows.slice(0, 200).map((row) => row.id),
@@ -116,6 +123,7 @@ export class RetrievalService {
       if (available.indexed)
         try {
           const call = await this.models.execute(
+            ownerId,
             {
               requestId: query.requestId,
               expectedConfigVersion: configuration.version,
@@ -131,6 +139,7 @@ export class RetrievalService {
             async (ownerId, tx) => {
               if (guard) await guard(ownerId, tx);
               await recallConversationScope(
+                this.database,
                 ownerId,
                 companionId,
                 query.runtimeEpoch,
@@ -168,16 +177,17 @@ export class RetrievalService {
           vector = 'unavailable';
         }
     }
-    return this.store.locked(async (ownerId, tx) => {
+    return this.store.locked(ownerId, async (tx) => {
       if (guard) await guard(ownerId, tx);
       const scope = await recallConversationScope(
+        this.database,
         ownerId,
         companionId,
         query.runtimeEpoch,
         query.conversationId,
         tx,
       );
-      const rows = await tx.sql
+      const rows = await tx
         .select({ message: messages, speaker: conversationMembers.kind })
         .from(processingRanges)
         .innerJoin(
@@ -208,6 +218,7 @@ export class RetrievalService {
       let complete = rows.length <= limits.pendingMessages;
       for (const { message, speaker } of rows.slice(0, limits.pendingMessages)) {
         const member = await requireCompanionMember(
+          this.database,
           ownerId,
           companionId,
           query.runtimeEpoch,
@@ -235,6 +246,7 @@ export class RetrievalService {
         });
       }
       const candidates = await recallCandidates(
+        this.database,
         ownerId,
         companionId,
         query,

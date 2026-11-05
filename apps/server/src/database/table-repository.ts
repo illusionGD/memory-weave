@@ -1,81 +1,113 @@
 import { and, count, eq, getTableColumns, is, isNull, SQL } from 'drizzle-orm';
 import type {
+  MySqlColumn,
   MySqlInsertValue,
   MySqlTable,
   MySqlUpdateSetSource,
   SelectedFields,
 } from 'drizzle-orm/mysql-core';
 import { MySqlTransaction } from 'drizzle-orm/mysql-core';
+import { API_CODES } from '@memory-weave/contracts';
+import { ApiException, databaseOperation } from '../http/api-exception';
+import type { Database, DatabaseTransaction, QueryDatabase } from './database.service';
+import type { SelectResultFields } from 'drizzle-orm/query-builders/select.types';
 import type { ResultSetHeader } from 'mysql2';
-import type {
-  Fields,
-  SelectedRow,
-  FindManyOptions,
-  FindOneOptions,
-  InsertValues,
-  QueryConnection,
-  ScopeKey,
-  UpdateOptions,
-  Where,
-} from './crud-types';
+
+/** 可作为部署归属的字符串字段。 */
+export type ScopeKey<T extends MySqlTable> = keyof T['$inferSelect'] & string;
+/** 类型化等值条件或 Drizzle 表达式；归属条件由显式 ownerId 参数追加。 */
+export type Where<T extends MySqlTable, K extends ScopeKey<T>> =
+  Partial<Omit<T['$inferSelect'], K>> | SQL;
+/** 插入时自动附加归属，调用方不能覆盖该字段。 */
+export type InsertValues<T extends MySqlTable, K extends ScopeKey<T>> = Omit<
+  MySqlInsertValue<T>,
+  K
+> & {
+  [P in K]?: never;
+};
+/** 可用字段名数组，也可使用带别名的 Drizzle 投影。 */
+export type Fields<T extends MySqlTable> =
+  SelectedFields | readonly (keyof T['$inferSelect'] & string)[];
+/** 按实际字段投影推导查询结果。 */
+export type SelectedRow<
+  T extends MySqlTable,
+  F extends Fields<T>,
+> = F extends readonly (keyof T['$inferSelect'])[]
+  ? Pick<T['$inferSelect'], F[number]>
+  : F extends SelectedFields
+    ? { -readonly [P in keyof SelectResultFields<F>]: SelectResultFields<F>[P] }
+    : never;
+/** 查询一行的筛选与投影。 */
+export interface FindOneOptions<T extends MySqlTable, K extends ScopeKey<T>, F extends Fields<T>> {
+  /** 不传条件时只限定当前归属。 */
+  where?: Where<T, K>;
+  /** 按实际选取的列与别名推导返回类型。 */
+  fields?: F;
+  /** 原生排序表达式，用于稳定地选择第一条记录。 */
+  orderBy?: readonly (SQL | MySqlColumn)[];
+  /** 请求行锁时必须显式传入当前事务。 */
+  lock?: 'update' | 'share';
+}
+
+/** 有界列表查询；不提供偏移分页，调用方继续使用原有游标条件。 */
+export interface FindManyOptions<
+  T extends MySqlTable,
+  K extends ScopeKey<T>,
+  F extends Fields<T>,
+> extends FindOneOptions<T, K, F> {
+  /** 必须显式给出需要的条数，避免默认读取整表。 */
+  limit: number;
+}
+
+/** 更新只接受当前表可写字段，并禁止改变记录归属。 */
+export type UpdateValues<T extends MySqlTable, K extends ScopeKey<T>> = Omit<
+  MySqlUpdateSetSource<T>,
+  K
+> & { [P in K]?: never };
+/** 更新必须明确给出筛选和修改内容。 */
+export interface UpdateOptions<T extends MySqlTable, K extends ScopeKey<T>> {
+  /** 原子更新条件，可包含预期版本或租约状态。 */
+  where: Where<T, K>;
+  /** 同一条 UPDATE 中提交的字段或 SQL 表达式。 */
+  set: UpdateValues<T, K>;
+}
 
 /** 表的日常访问能力；业务清理另行显式授权。 */
 export type TableAccess = 'read' | 'append' | 'write' | 'cleanup';
 
-/** 在指定连接和归属内执行一次表操作，根入口可在此检查就绪状态。 */
-export type TableExecutor<C extends QueryConnection> = <R>(
-  operation: (db: C, ownerId: string) => Promise<R>,
-) => Promise<R>;
-
-/** 定义表的访问能力，供数据库入口组合普通连接或事务连接。 */
-export function defineTable<T extends MySqlTable, K extends ScopeKey<T>, A extends TableAccess>(
-  table: T,
-  options: { scope: K; access: A },
-) {
-  /** 创建保留字段推导和操作能力的表访问对象。 */
-  function connect<C extends QueryConnection>(execute: TableExecutor<C>) {
-    const repo = new TableRepository(table, options.scope, execute, options.access);
-    return repo as Pick<
-      TableRepository<T, K, C>,
-      | 'findOne'
-      | 'findMany'
-      | 'exists'
-      | 'count'
-      | (A extends 'read' ? never : 'insert' | 'insertMany')
-      | (A extends 'write' | 'cleanup' ? 'updateWhere' : never)
-      | (A extends 'cleanup' ? 'deleteWhere' : never)
-    >;
-  }
-  return { connect };
-}
-
 /** 使用同一数据库连接执行表的基础读写操作。 */
-class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends QueryConnection> {
+export class TableRepository<T extends MySqlTable, K extends ScopeKey<T>> {
   private readonly columns;
 
-  /** 保存表定义、访问能力和取得当前连接的执行器。 */
+  /** 保存表、连接与写入能力；不保存当前用户，也不创建事务代理。 */
   constructor(
     private readonly table: T,
     private readonly scope: K,
-    private readonly execute: TableExecutor<C>,
+    private readonly connection: Database,
     private readonly access: TableAccess,
+    private readonly transactions: WeakSet<DatabaseTransaction>,
   ) {
     this.columns = getTableColumns(table);
   }
 
   /** 查询一条记录，缺失时返回 null，并按投影推导类型。 */
   async findOne<const F extends Fields<T> = T['_']['columns']>(
-    options: FindOneOptions<T, K, F, C> = {},
+    ownerId: string,
+    options: FindOneOptions<T, K, F> = {},
+    db: QueryDatabase = this.connection,
   ): Promise<SelectedRow<T, F> | null> {
-    const rows = await this.findMany({ ...options, limit: 1 });
+    const rows = await this.findMany(ownerId, { ...options, limit: 1 }, db);
     return rows[0] ?? null;
   }
 
   /** 按筛选、排序和条数读取列表，不额外统计或回读。 */
   async findMany<const F extends Fields<T> = T['_']['columns']>(
-    options: FindManyOptions<T, K, F, C>,
+    ownerId: string,
+    options: FindManyOptions<T, K, F>,
+    db: QueryDatabase = this.connection,
   ): Promise<SelectedRow<T, F>[]> {
-    return this.execute(async (db, ownerId) => {
+    this.assertConnection(ownerId, db);
+    return databaseOperation(async () => {
       if (!Number.isSafeInteger(options.limit) || options.limit < 1)
         throw new TypeError('查询条数必须是正整数。');
       const query = db
@@ -94,6 +126,32 @@ class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends Que
     });
   }
 
+  /** 按主键读取同一用户的记录，缺失返回 null。 */
+  findById(
+    ownerId: string,
+    id: string,
+    db: QueryDatabase = this.connection,
+  ): Promise<T['$inferSelect'] | null> {
+    return this.findOne(ownerId, { where: eq(this.columns.id!, id) }, db);
+  }
+
+  /** 根据主键更新业务字段，归属仍由独立参数强制限定。 */
+  update(
+    ownerId: string,
+    id: string,
+    set: UpdateOptions<T, K>['set'],
+    db: QueryDatabase = this.connection,
+  ) {
+    return this.updateWhere(ownerId, { where: eq(this.columns.id!, id), set }, db);
+  }
+
+  /** 拒绝缺失身份和已结束的事务，不从其他请求推断用户。 */
+  private assertConnection(ownerId: string, db: QueryDatabase): void {
+    if (!ownerId) throw new ApiException(API_CODES.AUTH_REQUIRED);
+    if (is(db, MySqlTransaction) && !this.transactions.has(db as DatabaseTransaction))
+      throw new TypeError('事务已结束或不属于当前数据库。');
+  }
+
   /** 将字段名投影转换为查询列，拒绝空投影及不存在的字段。 */
   private selectFields(fields?: Fields<T>): SelectedFields {
     if (!fields) return this.columns;
@@ -108,17 +166,26 @@ class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends Que
   }
 
   /** 插入一条记录，附加固定归属，不额外查询或覆盖已有行。 */
-  async insert(values: InsertValues<T, K>): Promise<ResultSetHeader> {
-    return this.insertMany([values]);
+  async insert(
+    ownerId: string,
+    values: InsertValues<T, K>,
+    db: QueryDatabase = this.connection,
+  ): Promise<ResultSetHeader> {
+    return this.insertMany(ownerId, [values], db);
   }
 
   /** 用一条插入语句保存一批记录，保留数据库默认值和约束。 */
-  async insertMany(values: readonly InsertValues<T, K>[]): Promise<ResultSetHeader> {
-    return this.execute(async (db, ownerId) => {
+  async insertMany(
+    ownerId: string,
+    values: readonly InsertValues<T, K>[],
+    db: QueryDatabase = this.connection,
+  ): Promise<ResultSetHeader> {
+    this.assertConnection(ownerId, db);
+    return databaseOperation(async () => {
       this.assertAccess('insert');
       if (!values.length) throw new TypeError('批量插入不能为空。');
       const scoped = values.map((value) => {
-        if (Object.hasOwn(value, this.scope)) throw new TypeError('不能指定或修改绑定的归属字段。');
+        if (Object.hasOwn(value, this.scope)) throw new TypeError('不能指定或修改记录的归属字段。');
         return { ...value, [this.scope]: ownerId } as MySqlInsertValue<T>;
       });
       const [result] = await db.insert(this.table).values(scoped);
@@ -127,8 +194,13 @@ class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends Que
   }
 
   /** 判断范围内是否存在匹配记录，只读取一条标识。 */
-  async exists(where?: Where<T, K>): Promise<boolean> {
-    return this.execute(async (db, ownerId) => {
+  async exists(
+    ownerId: string,
+    where?: Where<T, K>,
+    db: QueryDatabase = this.connection,
+  ): Promise<boolean> {
+    this.assertConnection(ownerId, db);
+    return databaseOperation(async () => {
       const rows = await db
         .select({ present: this.columns[this.scope]! })
         .from(this.table)
@@ -139,8 +211,13 @@ class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends Que
   }
 
   /** 由数据库统计匹配记录数量，不载入记录正文。 */
-  async count(where?: Where<T, K>): Promise<number> {
-    return this.execute(async (db, ownerId) => {
+  async count(
+    ownerId: string,
+    where?: Where<T, K>,
+    db: QueryDatabase = this.connection,
+  ): Promise<number> {
+    this.assertConnection(ownerId, db);
+    return databaseOperation(async () => {
       const [row] = await db
         .select({ total: count() })
         .from(this.table)
@@ -150,8 +227,13 @@ class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends Que
   }
 
   /** 按明确条件原子更新，返回驱动的受影响行数供领域判断。 */
-  async updateWhere(options: UpdateOptions<T, K>): Promise<ResultSetHeader> {
-    return this.execute(async (db, ownerId) => {
+  async updateWhere(
+    ownerId: string,
+    options: UpdateOptions<T, K>,
+    db: QueryDatabase = this.connection,
+  ): Promise<ResultSetHeader> {
+    this.assertConnection(ownerId, db);
+    return databaseOperation(async () => {
       this.assertAccess('update');
       this.assertWriteWhere(options.where);
       if (!Object.keys(options.set).length || Object.hasOwn(options.set, this.scope))
@@ -168,8 +250,13 @@ class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends Que
   }
 
   /** 仅供显式清理入口物理删除明确条件下的记录。 */
-  async deleteWhere(where: Where<T, K>): Promise<ResultSetHeader> {
-    return this.execute(async (db, ownerId) => {
+  async deleteWhere(
+    ownerId: string,
+    where: Where<T, K>,
+    db: QueryDatabase = this.connection,
+  ): Promise<ResultSetHeader> {
+    this.assertConnection(ownerId, db);
+    return databaseOperation(async () => {
       this.assertAccess('delete');
       this.assertWriteWhere(where);
       const [result] = await db.delete(this.table).where(this.condition(where, ownerId));

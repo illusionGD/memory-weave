@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import type {
   TaskConfiguration,
   TaskConfigurationVersion,
@@ -5,7 +6,7 @@ import type {
 } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { desc } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { taskConfigurationVersions } from '../../database/schema';
@@ -30,15 +31,18 @@ export const defaultTaskConfiguration: Readonly<TaskConfiguration> = {
 @Injectable()
 export class TaskConfigurationService {
   /** 初始化任务配置管理服务。 */
-  constructor(@Inject(TaskStore) private readonly store: TaskStore) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(TaskStore) private readonly store: TaskStore,
+  ) {}
 
   /**
    * 读取当前生效的任务调度配置。
    *
    * 读取生效配置，首次使用时持久登记默认版本。
    */
-  get(): Promise<TaskConfigurationVersion> {
-    return this.store.locked((ownerId, tx) => this.current(ownerId, tx));
+  get(ownerId: string): Promise<TaskConfigurationVersion> {
+    return this.store.locked(ownerId, (tx) => this.current(ownerId, tx));
   }
 
   /**
@@ -46,10 +50,14 @@ export class TaskConfigurationService {
    *
    * 历史只读，回滚应将旧配置发布为新版本。
    */
-  getVersion(version: number): Promise<TaskConfigurationVersion> {
-    return this.store.locked(async (ownerId, tx) => {
+  getVersion(ownerId: string, version: number): Promise<TaskConfigurationVersion> {
+    return this.store.locked(ownerId, async (tx) => {
       await this.current(ownerId, tx);
-      const row = await tx.taskConfigurationVersions.findOne({ where: { version: version } });
+      const row = await this.database.taskConfigurationVersions.findOne(
+        ownerId,
+        { where: { version } },
+        tx,
+      );
       if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return view(row);
     });
@@ -60,13 +68,17 @@ export class TaskConfigurationService {
    *
    * 同一短事务核对版本与幂等键，非法修改保留原配置。
    */
-  update(input: UpdateTaskConfiguration): Promise<TaskConfigurationVersion> {
-    return this.store.locked(async (ownerId, tx, now) => {
+  update(ownerId: string, input: UpdateTaskConfiguration): Promise<TaskConfigurationVersion> {
+    return this.store.locked(ownerId, async (tx, now) => {
       const current = await this.current(ownerId, tx);
       const hash = fingerprint({ expectedVersion: input.expectedVersion, config: input.config });
-      const existing = await tx.taskConfigurationVersions.findOne({
-        where: { requestId: input.requestId },
-      });
+      const existing = await this.database.taskConfigurationVersions.findOne(
+        ownerId,
+        {
+          where: { requestId: input.requestId },
+        },
+        tx,
+      );
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return view(existing);
@@ -92,7 +104,7 @@ export class TaskConfigurationService {
         fingerprint: hash,
         createdAt: now,
       };
-      await tx.sql.insert(taskConfigurationVersions).values(row);
+      await tx.insert(taskConfigurationVersions).values(row);
       return view(row);
     });
   }
@@ -103,12 +115,11 @@ export class TaskConfigurationService {
    * 必须在 TaskStore 事务中调用，确保本次决策只读取一个完整版本。
    */
   async current(ownerId: string, tx: DatabaseTransaction): Promise<TaskConfigurationVersion> {
-    const [row] = await tx.sql
-      .select()
-      .from(taskConfigurationVersions)
-      .where(eq(taskConfigurationVersions.ownerId, ownerId))
-      .orderBy(desc(taskConfigurationVersions.version))
-      .limit(1);
+    const row = await this.database.taskConfigurationVersions.findOne(
+      ownerId,
+      { orderBy: [desc(taskConfigurationVersions.version)] },
+      tx,
+    );
     if (row) return view(row);
     const initial = {
       id: randomUUID(),
@@ -120,7 +131,7 @@ export class TaskConfigurationService {
       fingerprint: 'default',
       createdAt: new Date(),
     };
-    await tx.sql.insert(taskConfigurationVersions).values(initial);
+    await tx.insert(taskConfigurationVersions).values(initial);
     return view(initial);
   }
 }

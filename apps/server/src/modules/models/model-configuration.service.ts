@@ -28,8 +28,8 @@ export class ModelConfigurationService {
   ) {}
 
   /** 读取当前生效的模型配置版本。 */
-  get(): Promise<ModelConfigurationVersion> {
-    return this.locked(async (_ownerId, _tx, current) => current);
+  get(ownerId: string): Promise<ModelConfigurationVersion> {
+    return this.locked(ownerId, async (_tx, current) => current);
   }
 
   /**
@@ -37,8 +37,10 @@ export class ModelConfigurationService {
    *
    * 读取不可变历史，用于比较或作为新版本回滚的输入。
    */
-  async getVersion(version: number): Promise<ModelConfigurationVersion> {
-    const row = await this.database.modelConfigurationVersions.findOne({ where: { version } });
+  async getVersion(ownerId: string, version: number): Promise<ModelConfigurationVersion> {
+    const row = await this.database.modelConfigurationVersions.findOne(ownerId, {
+      where: { version },
+    });
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return toVersion(row);
   }
@@ -48,17 +50,21 @@ export class ModelConfigurationService {
    *
    * 发布配置前检查版本与各字段关系；计量记录不在配置表中。
    */
-  update(input: UpdateModelConfiguration): Promise<ModelConfigurationVersion> {
+  update(ownerId: string, input: UpdateModelConfiguration): Promise<ModelConfigurationVersion> {
     if (this.deploymentConfig.modelDeployment?.file)
       throw new ApiException(
         API_CODES.CONFLICT,
         '模型配置由 JSON 文件管理，请修改文件并重启服务。',
       );
     const hash = fingerprint({ ...input, requestId: input.requestId.toLowerCase() });
-    return this.locked(async (ownerId, tx, current) => {
-      const replay = await tx.modelConfigurationVersions.findOne({
-        where: { requestId: input.requestId },
-      });
+    return this.locked(ownerId, async (tx, current) => {
+      const replay = await this.database.modelConfigurationVersions.findOne(
+        ownerId,
+        {
+          where: { requestId: input.requestId },
+        },
+        tx,
+      );
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return toVersion(replay);
@@ -79,19 +85,23 @@ export class ModelConfigurationService {
         fingerprint: hash,
         createdAt: new Date(),
       };
-      await tx.sql.insert(modelConfigurationVersions).values(row);
-      await tx.modelConfigurationHeads.updateWhere({
-        where: eq(modelConfigurationHeads.ownerId, ownerId),
-        set: { activeVersion: row.version },
-      });
+      await tx.insert(modelConfigurationVersions).values(row);
+      await this.database.modelConfigurationHeads.updateWhere(
+        ownerId,
+        {
+          where: eq(modelConfigurationHeads.ownerId, ownerId),
+          set: { activeVersion: row.version },
+        },
+        tx,
+      );
       return toVersion(row);
     });
   }
 
   /** 在开始接收请求前采用本次启动的文件；相同指纹不追加历史。 */
-  async synchronizeFile(): Promise<void> {
+  async synchronizeFile(ownerId: string): Promise<void> {
     if (!this.deploymentConfig.modelDeployment?.file) return;
-    await this.locked(async () => undefined, true);
+    await this.locked(ownerId, async () => undefined, true);
   }
 
   /**
@@ -100,22 +110,17 @@ export class ModelConfigurationService {
    * @returns 当前配置版本下完成的操作结果。
    */
   async locked<T>(
-    operation: (
-      ownerId: string,
-      tx: DatabaseTransaction,
-      current: ModelConfigurationVersion,
-    ) => Promise<T>,
+    ownerId: string,
+    operation: (tx: DatabaseTransaction, current: ModelConfigurationVersion) => Promise<T>,
     synchronizeFile = false,
   ): Promise<T> {
     return this.database.transaction(
       async (tx) => {
-        const ownerId = tx.ownerId;
-
-        await tx.sql
+        await tx
           .insert(modelConfigurationHeads)
           .values({ ownerId, activeVersion: 0 })
           .onDuplicateKeyUpdate({ set: { ownerId } });
-        const [head] = await tx.sql
+        const [head] = await tx
           .select()
           .from(modelConfigurationHeads)
           .where(eq(modelConfigurationHeads.ownerId, ownerId))
@@ -136,16 +141,24 @@ export class ModelConfigurationService {
             fingerprint: file?.fingerprint ?? 'default',
             createdAt: new Date(),
           };
-          await tx.sql.insert(modelConfigurationVersions).values(row);
-          await tx.modelConfigurationHeads.updateWhere({
-            where: eq(modelConfigurationHeads.ownerId, ownerId),
-            set: { activeVersion: 1 },
-          });
-          return operation(ownerId, tx, toVersion(row));
+          await tx.insert(modelConfigurationVersions).values(row);
+          await this.database.modelConfigurationHeads.updateWhere(
+            ownerId,
+            {
+              where: eq(modelConfigurationHeads.ownerId, ownerId),
+              set: { activeVersion: 1 },
+            },
+            tx,
+          );
+          return operation(tx, toVersion(row));
         }
-        const row = await tx.modelConfigurationVersions.findOne({
-          where: { version: head.activeVersion },
-        });
+        const row = await this.database.modelConfigurationVersions.findOne(
+          ownerId,
+          {
+            where: { version: head.activeVersion },
+          },
+          tx,
+        );
         if (!row) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
         if (file && row.fingerprint !== file.fingerprint) {
           if (!synchronizeFile)
@@ -164,14 +177,18 @@ export class ModelConfigurationService {
             fingerprint: file.fingerprint,
             createdAt: new Date(),
           };
-          await tx.modelConfigurationVersions.insert(next);
-          await tx.modelConfigurationHeads.updateWhere({
-            where: { activeVersion: row.version },
-            set: { activeVersion: next.version },
-          });
-          return operation(ownerId, tx, toVersion({ ...next, ownerId }));
+          await this.database.modelConfigurationVersions.insert(ownerId, next, tx);
+          await this.database.modelConfigurationHeads.updateWhere(
+            ownerId,
+            {
+              where: { activeVersion: row.version },
+              set: { activeVersion: next.version },
+            },
+            tx,
+          );
+          return operation(tx, toVersion({ ...next, ownerId }));
         }
-        return operation(ownerId, tx, toVersion(row));
+        return operation(tx, toVersion(row));
       },
       { isolationLevel: 'read committed' },
     );

@@ -13,7 +13,6 @@ import { TasksService } from './tasks.service';
 import { TaskOutboxService } from './task-outbox.service';
 import { TaskConfigurationService, defaultTaskConfiguration } from './task-configuration.service';
 import type { TaskLease } from './task-types';
-import { IdentityContext } from '../../database/identity-context';
 import { DeploymentIdentity } from '../auth/deployment-identity';
 import { CompanionPersonasService } from '../companions/companion-personas.service';
 
@@ -27,7 +26,6 @@ export class TaskWorkerService implements OnModuleDestroy {
 
   /** 初始化后台任务执行器。 */
   constructor(
-    @Inject(IdentityContext) private readonly identity: IdentityContext,
     @Inject(DeploymentIdentity) private readonly deployment: DeploymentIdentity,
     @Inject(RetrievalIndexService) private readonly indexes: RetrievalIndexService,
     @Inject(MemoryExecutionService) private readonly memoryExecution: MemoryExecutionService,
@@ -77,7 +75,7 @@ export class TaskWorkerService implements OnModuleDestroy {
     while (!signal.aborted) {
       try {
         const ownerId = await this.deployment.ownerId();
-        pollMs = await this.identity.run(ownerId, () => this.poll(signal));
+        pollMs = await this.poll(ownerId, signal);
       } catch {
         // 不打印连接串、任务正文或外部错误；持续失败会保留持久任务等待恢复。
         console.warn(JSON.stringify({ event: 'tasks.poll.unavailable' }));
@@ -90,16 +88,16 @@ export class TaskWorkerService implements OnModuleDestroy {
     }
   }
 
-  /** 在单次调度的身份上下文中领取任务，任务执行另建独立上下文。 */
-  private async poll(signal: AbortSignal): Promise<number> {
-    const current = await this.configuration.get();
+  /** 按指定用户调度并领取任务，执行时使用租约记录中的归属。 */
+  private async poll(ownerId: string, signal: AbortSignal): Promise<number> {
+    const current = await this.configuration.get(ownerId);
 
     if (current.config.enabled) {
-      await this.outbox.dispatch();
-      await this.memories.schedule();
+      await this.outbox.dispatch(ownerId);
+      await this.memories.schedule(ownerId);
       if (!this.indexing)
         this.indexing = this.indexes
-          .schedule()
+          .schedule(ownerId)
           .catch(() => {
             console.warn(JSON.stringify({ event: 'indexes.poll.unavailable' }));
           })
@@ -107,9 +105,9 @@ export class TaskWorkerService implements OnModuleDestroy {
             this.indexing = null;
           });
       while (!signal.aborted && this.active.size < current.config.maxConcurrent + 2) {
-        const lease = await this.tasks.claim();
+        const lease = await this.tasks.claim(ownerId);
         if (!lease) break;
-        const execution = this.identity.run(lease.ownerId, () => this.execute(lease));
+        const execution = this.execute(lease);
         this.active.add(execution);
         void execution.then(
           () => this.active.delete(execution),
@@ -122,13 +120,14 @@ export class TaskWorkerService implements OnModuleDestroy {
 
   /** 分派并执行已领取的后台任务。 */
   private async execute(lease: TaskLease): Promise<void> {
+    const ownerId = lease.ownerId;
     let heartbeatPending: Promise<void> | null = null;
     let leaseLost = false;
     const heartbeat = setInterval(
       () => {
         if (heartbeatPending || leaseLost) return;
-        heartbeatPending = this.identity
-          .run(lease.ownerId, () => this.tasks.heartbeat(lease))
+        heartbeatPending = this.tasks
+          .heartbeat(lease)
           .catch(() => {
             leaseLost = true;
           })
@@ -161,14 +160,14 @@ export class TaskWorkerService implements OnModuleDestroy {
       } else if (lease.input.kind === 'persona_initialization') {
         await this.personas.execute(lease);
       } else if (lease.input.kind === 'model_probe') {
-        let call = await this.models.probe(lease.input.probe, (ownerId, tx) =>
+        let call = await this.models.probe(ownerId, lease.input.probe, (ownerId, tx) =>
           this.tasks.guardDispatch(ownerId, tx, lease),
         );
         // 恢复时可能读到另一进程已发出的调用；只查询同一结果，不换键重发。
         while (call.status === 'running' && !leaseLost) {
           await delay(lease.config.pollMs);
           await this.tasks.heartbeat(lease);
-          call = await this.models.get(call.id);
+          call = await this.models.get(ownerId, call.id);
         }
         if (leaseLost) return;
         await this.tasks.checkpoint(lease, {

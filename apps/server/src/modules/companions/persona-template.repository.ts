@@ -13,26 +13,28 @@ export class PersonaTemplateRepository {
 
   /** 读取最新版本或指定历史版本，不将缺失结果转换成业务异常。 */
   async getVersion(
+    ownerId: string,
     id: string,
     version?: number,
     connection?: QueryDatabase,
   ): Promise<typeof personaTemplateVersions.$inferSelect | null> {
-    const db = connection ?? (await this.database.current());
+    const db = connection ?? this.database.sql;
     const [row] = await this.versions(db, version)
-      .where(and(eq(personaTemplates.ownerId, db.ownerId), eq(personaTemplates.id, id)))
+      .where(and(eq(personaTemplates.ownerId, ownerId), eq(personaTemplates.id, id)))
       .limit(1);
     return row?.value ?? null;
   }
 
   /** 按模板 ID 游标读取当前版本，多取一条供调用方判断后续页。 */
   async listCurrent(
+    ownerId: string,
     query: IdPaginationQuery,
   ): Promise<(typeof personaTemplateVersions.$inferSelect)[]> {
-    const db = await this.database.current();
+    const db = this.database.sql;
     const rows = await this.versions(db)
       .where(
         and(
-          eq(personaTemplates.ownerId, db.ownerId),
+          eq(personaTemplates.ownerId, ownerId),
           query.afterId ? gt(personaTemplates.id, query.afterId) : undefined,
         ),
       )
@@ -43,7 +45,7 @@ export class PersonaTemplateRepository {
 
   /** 组合模板身份与精确版本，避免列表和详情分别维护关联规则。 */
   private versions(db: QueryDatabase, version?: number) {
-    return db.sql
+    return db
       .select({ value: personaTemplateVersions })
       .from(personaTemplates)
       .innerJoin(

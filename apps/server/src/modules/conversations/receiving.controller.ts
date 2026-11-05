@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
   uuidSchema,
@@ -30,11 +31,12 @@ export class ReceivingController {
    */
   @Get('conversations/:id/messages')
   listMessages(
+    @CurrentOwner() ownerId: string,
     @Param('companionId', new ZodValidationPipe(uuidSchema)) companionId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Query(new ZodValidationPipe(companionSequenceQuerySchema)) query: CompanionSequenceQuery,
   ): Promise<MessageListResponse> {
-    return this.receiving.listMessages(companionId, id, query);
+    return this.receiving.listMessages(ownerId, companionId, id, query);
   }
 
   /**
@@ -44,11 +46,12 @@ export class ReceivingController {
    */
   @Get('sources/:messageId')
   source(
+    @CurrentOwner() ownerId: string,
     @Param('companionId', new ZodValidationPipe(uuidSchema)) companionId: string,
     @Param('messageId', new ZodValidationPipe(uuidSchema)) messageId: string,
     @Query(new ZodValidationPipe(sourceLookupQuerySchema)) query: SourceLookupQuery,
   ): Promise<PublishedMessage> {
-    return this.receiving.source(companionId, messageId, query);
+    return this.receiving.source(ownerId, companionId, messageId, query);
   }
 
   /**
@@ -58,11 +61,12 @@ export class ReceivingController {
    */
   @Get('conversations/:id/progress')
   progress(
+    @CurrentOwner() ownerId: string,
     @Param('companionId', new ZodValidationPipe(uuidSchema)) companionId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Query(new ZodValidationPipe(companionSequenceQuerySchema)) query: CompanionSequenceQuery,
   ): Promise<ConversationProgressResponse> {
-    return this.receiving.progress(companionId, id, query);
+    return this.receiving.progress(ownerId, companionId, id, query);
   }
 
   /**
@@ -72,10 +76,11 @@ export class ReceivingController {
    */
   @Post('conversations/:id/receive')
   receive(
+    @CurrentOwner() ownerId: string,
     @Param('companionId', new ZodValidationPipe(uuidSchema)) companionId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(receiveMessagesRequestSchema)) body: ReceiveMessagesRequest,
   ): Promise<ReceiveMessagesResponse> {
-    return this.receiving.receive(companionId, id, body);
+    return this.receiving.receive(ownerId, companionId, id, body);
   }
 }

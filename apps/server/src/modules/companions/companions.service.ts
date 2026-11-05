@@ -6,7 +6,7 @@ import type {
 } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { idCursorPage } from '../../database/cursor-pagination';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
@@ -33,15 +33,10 @@ export class CompanionsService {
    *
    * 将初始文本直接保存到独立快照和当前版本，不调用模型。
    */
-  async create(input: CreateCompanionRequest): Promise<CompanionDetail> {
-    return this.database.transaction(
-      async (tx) => {
-        const ownerId = tx.ownerId;
-
-        return this.createInTransaction(ownerId, tx, input);
-      },
-      { isolationLevel: 'read committed' },
-    );
+  async create(ownerId: string, input: CreateCompanionRequest): Promise<CompanionDetail> {
+    return this.database.transaction(async (tx) => this.createInTransaction(ownerId, tx, input), {
+      isolationLevel: 'read committed',
+    });
   }
 
   /**
@@ -54,7 +49,7 @@ export class CompanionsService {
     tx: DatabaseTransaction,
     input: CreateCompanionRequest,
   ): Promise<CompanionDetail> {
-    await lockTaskScheduler(ownerId, tx);
+    await lockTaskScheduler(this.database, ownerId, tx);
     const id = randomUUID();
     const personaId = randomUUID();
     const createdAt = new Date();
@@ -62,7 +57,7 @@ export class CompanionsService {
       name: input.name,
       initialProfile: input.initialProfile,
     });
-    await tx.sql
+    await tx
       .insert(companions)
       .values({
         id,
@@ -83,32 +78,36 @@ export class CompanionsService {
         createdAt,
       })
       .onDuplicateKeyUpdate({ set: { id: sql`${companions.id}` } });
-    const [stored] = await tx.sql
-      .select({ id: companions.id, fingerprint: companions.fingerprint })
-      .from(companions)
-      .where(and(eq(companions.ownerId, ownerId), eq(companions.requestId, input.requestId)))
-      .limit(1)
-      .for('update');
+    const stored = await this.database.companions.findOne(
+      ownerId,
+      {
+        where: { requestId: input.requestId },
+        fields: { id: companions.id, fingerprint: companions.fingerprint },
+        lock: 'update',
+      },
+      tx,
+    );
     if (!stored) throw new ApiException(API_CODES.CONFLICT);
     // 唯一键等待并发创建提交后，当前事务再读取已保存结果，避免生成第二份人格。
     if (stored.id !== id) {
       if (stored.fingerprint !== requestFingerprint)
         throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-      return this.readInTransaction(tx, stored.id);
+      return this.readInTransaction(ownerId, tx, stored.id);
     }
-    await tx.personaVersions.insert({
-      id: personaId,
-      companionId: id,
-      runtimeEpoch: 1,
-      version: 1,
-      profileText: input.initialProfile,
-      createdAt,
-    });
-    await tx.companions.updateWhere({
-      where: { id: id },
-      set: { currentPersonaVersionId: personaId },
-    });
-    return this.readInTransaction(tx, id);
+    await this.database.personaVersions.insert(
+      ownerId,
+      {
+        id: personaId,
+        companionId: id,
+        runtimeEpoch: 1,
+        version: 1,
+        profileText: input.initialProfile,
+        createdAt,
+      },
+      tx,
+    );
+    await this.database.companions.update(ownerId, id, { currentPersonaVersionId: personaId }, tx);
+    return this.readInTransaction(ownerId, tx, id);
   }
 
   /**
@@ -116,9 +115,9 @@ export class CompanionsService {
    *
    * 按当前部署归属查找实例，不能跨管理者查询。
    */
-  async get(id: string): Promise<CompanionDetail> {
-    const db = await this.database.current();
-    return this.readInTransaction(db, id);
+  async get(ownerId: string, id: string): Promise<CompanionDetail> {
+    const db = this.database.sql;
+    return this.readInTransaction(ownerId, db, id);
   }
 
   /**
@@ -126,8 +125,8 @@ export class CompanionsService {
    *
    * 按稳定 UUID 查询多一条，以判断下一页是否实际存在。
    */
-  async list(query: IdPaginationQuery): Promise<CompanionListResponse> {
-    const rows = await this.repository.list(query);
+  async list(ownerId: string, query: IdPaginationQuery): Promise<CompanionListResponse> {
+    const rows = await this.repository.list(ownerId, query);
     const page = idCursorPage(rows, query.limit, (row) => row.companion.id);
     return {
       items: page.items.map((row) => this.toDetail(row)),
@@ -141,10 +140,11 @@ export class CompanionsService {
    * 限定管理者及实例关系，当前人格必须属于同一实例。
    */
   async readInTransaction(
+    ownerId: string,
     db: Database | DatabaseTransaction,
     id: string,
   ): Promise<CompanionDetail> {
-    const row = await this.repository.get(id, db);
+    const row = await this.repository.get(ownerId, id, db);
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return this.toDetail(row);
   }

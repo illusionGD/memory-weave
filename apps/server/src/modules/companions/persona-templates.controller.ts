@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
   uuidSchema,
@@ -27,9 +28,10 @@ export class PersonaTemplatesController {
   /** 保存人设模板的首个版本。 */
   @Post()
   create(
+    @CurrentOwner() ownerId: string,
     @Body(new ZodValidationPipe(createPersonaTemplateSchema)) body: CreatePersonaTemplate,
   ): Promise<PersonaTemplate> {
-    return this.templates.create(body);
+    return this.templates.create(ownerId, body);
   }
 
   /**
@@ -39,32 +41,38 @@ export class PersonaTemplatesController {
    */
   @Post(':id/versions')
   update(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(updatePersonaTemplateSchema)) body: UpdatePersonaTemplate,
   ): Promise<PersonaTemplate> {
-    return this.templates.update(id, body);
+    return this.templates.update(ownerId, id, body);
   }
 
   /** 分页查询人设模板的最新版本。 */
   @Get()
   list(
+    @CurrentOwner() ownerId: string,
     @Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery,
   ): Promise<PersonaTemplateList> {
-    return this.templates.list(query);
+    return this.templates.list(ownerId, query);
   }
 
   /** 查询人设模板的指定版本。 */
   @Get(':id/versions/:version')
   version(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Param('version', new ZodValidationPipe(runtimeEpochQuerySchema)) version: number,
   ): Promise<PersonaTemplate> {
-    return this.templates.get(id, version);
+    return this.templates.get(ownerId, id, version);
   }
 
   /** 查询人设模板的最新版本。 */
   @Get(':id')
-  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<PersonaTemplate> {
-    return this.templates.get(id);
+  get(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<PersonaTemplate> {
+    return this.templates.get(ownerId, id);
   }
 }

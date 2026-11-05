@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import {
   Body,
   Controller,
@@ -24,20 +25,28 @@ export class AvatarsController {
   /** 接收并保存伴侣头像上传请求。 */
   @Put()
   upload(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Query(new ZodValidationPipe(changeAvatarSchema)) query: ChangeAvatar,
     @Headers('content-type') mime: string,
     @Body() body: unknown,
   ): Promise<AvatarState> {
-    return this.service.upload(id.toLowerCase(), query, mime?.split(';')[0]?.trim() ?? '', body);
+    return this.service.upload(
+      ownerId,
+      id.toLowerCase(),
+      query,
+      mime?.split(';')[0]?.trim() ?? '',
+      body,
+    );
   }
   /** 清除自定义头像并恢复默认头像。 */
   @Delete()
   clear(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(changeAvatarSchema)) body: ChangeAvatar,
   ): Promise<AvatarState> {
-    return this.service.clear(id.toLowerCase(), body);
+    return this.service.clear(ownerId, id.toLowerCase(), body);
   }
   /**
    * 返回伴侣当前头像的二进制图片。
@@ -46,11 +55,12 @@ export class AvatarsController {
    */
   @Get(':assetId')
   async read(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Param('assetId', new ZodValidationPipe(uuidSchema)) assetId: string,
     @Res() response: Response,
   ): Promise<void> {
-    const bytes = await this.service.read(id.toLowerCase(), assetId);
+    const bytes = await this.service.read(ownerId, id.toLowerCase(), assetId);
     response
       .set({
         'Content-Type': 'image/webp',

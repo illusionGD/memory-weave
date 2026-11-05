@@ -5,7 +5,7 @@ description: 维护 F08 批量记忆整理、来源版本、独立处理范围�
 
 # F08 记忆整理
 
-2026-11-05 用户明确允许开发阶段删除旧数据并简化旧版本分支。本次已改为 `0000_development_baseline`，下文原迁移编号/旧协议兼容要求仅为历史背景，不适用于此次已授权重建。当前以 [数据库访问说明](../../../docs/features/crud-repositories.md) 为准：普通查询直接用表入口，身份由请求/任务上下文提供，事务采用回调；禁止重新引入 withOwner 或旧协议解释。后续常规结构变更仍追加迁移，新的重建按用户授权范围执行。
+2026-11-05 用户明确允许开发阶段删除旧数据并简化旧版本分支。本次已改为 `0000_development_baseline`，下文原迁移编号/旧协议兼容要求仅为历史背景，不适用于此次已授权重建。当前以 [数据库访问说明](../../../docs/features/crud-repositories.md) 为准：普通查询显式传 ownerId，身份来自认证请求或可信任务租约；事务采用回调，原生 tx 作为操作最后一个参数；禁止重新引入 withOwner 或旧协议解释。后续常规结构变更仍追加迁移，新的重建按用户授权范围执行。
 
 先读 [功能说明](../../../docs/features/f08-memory-organization.md)、架构 §7、plan/progress 及 coding/tdd/data-foundation/durable-tasks/model-runtime/lifecycle。沿用 plan §7 已确认的 HTTP、worker、模型协议、浏览器和进程恢复边界。
 

@@ -31,18 +31,16 @@ export class PersonaTemplatesService {
    *
    * 幂等保存模板首版，不调用模型。
    */
-  async create(input: CreatePersonaTemplate): Promise<PersonaTemplate> {
+  async create(ownerId: string, input: CreatePersonaTemplate): Promise<PersonaTemplate> {
     return this.database.transaction(
       async (tx) => {
-        const ownerId = tx.ownerId;
-
         const id = randomUUID();
         const hash = fingerprint(input);
-        await tx.sql
+        await tx
           .insert(personaTemplates)
           .values({ id, ownerId, version: 1, requestId: input.requestId, fingerprint: hash })
           .onDuplicateKeyUpdate({ set: { id: sql`${personaTemplates.id}` } });
-        const [head] = await tx.sql
+        const [head] = await tx
           .select()
           .from(personaTemplates)
           .where(
@@ -55,23 +53,27 @@ export class PersonaTemplatesService {
         if (!head || head.fingerprint !== hash)
           throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         if (head.id === id)
-          await tx.personaTemplateVersions.insert({
-            ...input,
-            id: randomUUID(),
-            templateId: id,
-            version: 1,
-            fingerprint: hash,
-          });
-        return this.read(tx, head.id, 1);
+          await this.database.personaTemplateVersions.insert(
+            ownerId,
+            {
+              ...input,
+              id: randomUUID(),
+              templateId: id,
+              version: 1,
+              fingerprint: hash,
+            },
+            tx,
+          );
+        return this.read(ownerId, tx, head.id, 1);
       },
       { isolationLevel: 'read committed' },
     );
   }
 
   /** 查询模板的最新版本或指定历史版本。 */
-  async get(id: string, version?: number): Promise<PersonaTemplate> {
-    const db = await this.database.current();
-    return this.read(db, id, version);
+  async get(ownerId: string, id: string, version?: number): Promise<PersonaTemplate> {
+    const db = this.database.sql;
+    return this.read(ownerId, db, id, version);
   }
 
   /**
@@ -79,21 +81,27 @@ export class PersonaTemplatesService {
    *
    * 旧命令重放原版本；新的编辑必须基于最新版本。
    */
-  async update(id: string, input: UpdatePersonaTemplate): Promise<PersonaTemplate> {
+  async update(
+    ownerId: string,
+    id: string,
+    input: UpdatePersonaTemplate,
+  ): Promise<PersonaTemplate> {
     return this.database.transaction(
       async (tx) => {
-        const ownerId = tx.ownerId;
-
-        const [head] = await tx.sql
-          .select()
-          .from(personaTemplates)
-          .where(and(eq(personaTemplates.ownerId, ownerId), eq(personaTemplates.id, id)))
-          .for('update');
+        const head = await this.database.personaTemplates.findOne(
+          ownerId,
+          { where: { id }, lock: 'update' },
+          tx,
+        );
         if (!head) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
         const hash = fingerprint(input);
-        const replay = await tx.personaTemplateVersions.findOne({
-          where: { templateId: id, requestId: input.requestId },
-        });
+        const replay = await this.database.personaTemplateVersions.findOne(
+          ownerId,
+          {
+            where: { templateId: id, requestId: input.requestId },
+          },
+          tx,
+        );
         if (replay) {
           if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
           return toTemplate(replay);
@@ -112,8 +120,12 @@ export class PersonaTemplatesService {
           lockedFeatures: input.lockedFeatures,
           createdAt: new Date(),
         };
-        await tx.personaTemplateVersions.insert(row);
-        await tx.personaTemplates.updateWhere({ where: { id }, set: { version: row.version } });
+        await this.database.personaTemplateVersions.insert(ownerId, row, tx);
+        await this.database.personaTemplates.updateWhere(
+          ownerId,
+          { where: { id }, set: { version: row.version } },
+          tx,
+        );
         return toTemplate({ ...row, ownerId });
       },
       { isolationLevel: 'read committed' },
@@ -121,19 +133,20 @@ export class PersonaTemplatesService {
   }
 
   /** 分页查询人设模板列表。 */
-  async list(query: IdPaginationQuery): Promise<PersonaTemplateList> {
-    const rows = await this.repository.listCurrent(query);
+  async list(ownerId: string, query: IdPaginationQuery): Promise<PersonaTemplateList> {
+    const rows = await this.repository.listCurrent(ownerId, query);
     const page = idCursorPage(rows, query.limit, (row) => row.templateId);
     return { items: page.items.map(toTemplate), nextAfterId: page.nextAfterId };
   }
 
   /** 读取指定的人设模板版本。 */
   private async read(
+    ownerId: string,
     db: Database | DatabaseTransaction,
     id: string,
     version?: number,
   ): Promise<PersonaTemplate> {
-    const row = await this.repository.getVersion(id, version, db);
+    const row = await this.repository.getVersion(ownerId, id, version, db);
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return toTemplate(row);
   }

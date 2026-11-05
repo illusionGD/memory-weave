@@ -18,12 +18,10 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseService } from '../../database/database.service';
 import {
-  companions,
   modelAttempts,
   modelCalls,
   personaFoundations,
   personaVersions,
-  tasks,
 } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { requireCompanion } from '../conversations/conversation-access';
@@ -61,42 +59,34 @@ export class CompanionPersonasService {
    *
    * 创建命令只保存原稿和任务，不在 HTTP 请求中等待模型。
    */
-  async create(input: CompanionCreation): Promise<CompanionPersonaState> {
+  async create(ownerId: string, input: CompanionCreation): Promise<CompanionPersonaState> {
     const hash = fingerprint(input);
-    const replayId = await this.store.locked(async (ownerId, tx) => {
-      const [row] = await tx.sql
-        .select()
-        .from(personaFoundations)
-        .where(
-          and(
-            eq(personaFoundations.ownerId, ownerId),
-            eq(personaFoundations.requestId, input.requestId),
-          ),
-        );
+    const replayId = await this.store.locked(ownerId, async (tx) => {
+      const row = await this.database.personaFoundations.findOne(
+        ownerId,
+        { where: { requestId: input.requestId } },
+        tx,
+      );
       if (row && row.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
       return row?.companionId;
     });
-    if (replayId) return this.get(replayId);
+    if (replayId) return this.get(ownerId, replayId);
     const template =
       input.source.kind === 'template'
-        ? await this.templates.get(input.source.template.id, input.source.template.version)
+        ? await this.templates.get(ownerId, input.source.template.id, input.source.template.version)
         : null;
     const profileText =
       input.source.kind === 'text' ? input.source.profileText : template!.initialProfile;
     const explicitLocks =
       input.source.kind === 'text' ? input.source.lockedFeatures : template!.lockedFeatures;
-    const configuration = await this.activateDefinition();
-    const companionId = await this.store.locked(async (ownerId, tx) => {
+    const configuration = await this.activateDefinition(ownerId);
+    const companionId = await this.store.locked(ownerId, async (tx) => {
       // 配置读取在调度锁之外；并发重复命令仍在这里重查。
-      const [replay] = await tx.sql
-        .select()
-        .from(personaFoundations)
-        .where(
-          and(
-            eq(personaFoundations.ownerId, ownerId),
-            eq(personaFoundations.requestId, input.requestId),
-          ),
-        );
+      const replay = await this.database.personaFoundations.findOne(
+        ownerId,
+        { where: { requestId: input.requestId } },
+        tx,
+      );
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return replay.companionId;
@@ -107,37 +97,45 @@ export class CompanionPersonasService {
         initialProfile: profileText,
       });
       const taskId = randomUUID();
-      await tx.tasks.insert({
-        id: taskId,
-        requestKey: `persona_initialization:${input.requestId.toLowerCase()}`,
-        fingerprint: hash,
-        kind: 'persona_initialization',
-        input: {
+      await this.database.tasks.insert(
+        ownerId,
+        {
+          id: taskId,
+          requestKey: `persona_initialization:${input.requestId.toLowerCase()}`,
+          fingerprint: hash,
           kind: 'persona_initialization',
-          profileText,
-          expectedPersonaVersionId: companion.currentPersonaVersionId,
-          configVersion: configuration.version,
+          input: {
+            kind: 'persona_initialization',
+            profileText,
+            expectedPersonaVersionId: companion.currentPersonaVersionId,
+            configVersion: configuration.version,
+          },
+          scope: {
+            companionId: companion.id,
+            runtimeEpoch: companion.runtimeEpoch,
+            conversationId: null,
+          },
+          totalSteps: 1,
         },
-        scope: {
+        tx,
+      );
+      await this.database.personaFoundations.insert(
+        ownerId,
+        {
           companionId: companion.id,
           runtimeEpoch: companion.runtimeEpoch,
-          conversationId: null,
+          requestId: input.requestId,
+          fingerprint: hash,
+          nameOverride: input.name ?? null,
+          template: template ? { id: template.id, version: template.version } : null,
+          explicitLocks,
+          taskId,
         },
-        totalSteps: 1,
-      });
-      await tx.personaFoundations.insert({
-        companionId: companion.id,
-        runtimeEpoch: companion.runtimeEpoch,
-        requestId: input.requestId,
-        fingerprint: hash,
-        nameOverride: input.name ?? null,
-        template: template ? { id: template.id, version: template.version } : null,
-        explicitLocks,
-        taskId,
-      });
+        tx,
+      );
       return companion.id;
     });
-    return this.get(companionId);
+    return this.get(ownerId, companionId);
   }
 
   /**
@@ -145,30 +143,28 @@ export class CompanionPersonasService {
    *
    * 旧实例不自动收费；管理者主动开始或重试才创建新的调用身份。
    */
-  async initialize(id: string, input: InitializePersona): Promise<CompanionPersonaState> {
+  async initialize(
+    ownerId: string,
+    id: string,
+    input: InitializePersona,
+  ): Promise<CompanionPersonaState> {
     const requestKey = `persona_initialize:${id}:${input.requestId.toLowerCase()}`;
     const hash = fingerprint(input);
-    const replay = await this.store.locked(async (ownerId, tx) => {
-      const [row] = await tx.sql
-        .select()
-        .from(tasks)
-        .where(and(eq(tasks.ownerId, ownerId), eq(tasks.requestKey, requestKey)));
+    const replay = await this.store.locked(ownerId, async (tx) => {
+      const row = await this.database.tasks.findOne(ownerId, { where: { requestKey } }, tx);
       if (row && row.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
       return Boolean(row);
     });
-    if (replay) return this.get(id);
-    const config = await this.activateDefinition();
-    await this.store.locked(async (ownerId, tx) => {
-      const [existing] = await tx.sql
-        .select()
-        .from(tasks)
-        .where(and(eq(tasks.ownerId, ownerId), eq(tasks.requestKey, requestKey)));
+    if (replay) return this.get(ownerId, id);
+    const config = await this.activateDefinition(ownerId);
+    await this.store.locked(ownerId, async (tx) => {
+      const existing = await this.database.tasks.findOne(ownerId, { where: { requestKey } }, tx);
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return;
       }
-      const companion = await this.instances.readInTransaction(tx, id);
-      await requireCompanion(ownerId, id, input.runtimeEpoch, tx);
+      const companion = await this.instances.readInTransaction(ownerId, tx, id);
+      await requireCompanion(this.database, ownerId, id, input.runtimeEpoch, tx);
       if (
         companion.runtimeEpoch !== input.runtimeEpoch ||
         companion.currentPersonaVersion.version !== input.expectedPersonaVersion
@@ -176,16 +172,11 @@ export class CompanionPersonasService {
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       if (companion.currentPersonaVersion.document)
         throw new ApiException(API_CODES.CONFLICT, '初始整理已经完成，不能重新生成初始人生。');
-      const [foundation] = await tx.sql
-        .select()
-        .from(personaFoundations)
-        .where(
-          and(
-            eq(personaFoundations.ownerId, ownerId),
-            eq(personaFoundations.companionId, id),
-            eq(personaFoundations.runtimeEpoch, input.runtimeEpoch),
-          ),
-        );
+      const foundation = await this.database.personaFoundations.findOne(
+        ownerId,
+        { where: { companionId: id, runtimeEpoch: input.runtimeEpoch } },
+        tx,
+      );
       if (foundation?.taskId) {
         const previous = await this.jobs.getInTransaction(ownerId, foundation.taskId, tx);
         if (!['failed', 'cancelled'].includes(previous.status))
@@ -194,21 +185,20 @@ export class CompanionPersonasService {
             '当前任务仍可继续或需要核对，请勿重复发起。',
           );
         if (previous.modelCallId) {
-          const [call] = await tx.sql
-            .select({ status: modelCalls.status })
-            .from(modelCalls)
-            .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.id, previous.modelCallId)));
-          const unknownAttempts = await tx.sql
-            .select({ id: modelAttempts.id })
-            .from(modelAttempts)
-            .where(
-              and(
-                eq(modelAttempts.ownerId, ownerId),
-                eq(modelAttempts.callId, previous.modelCallId),
-                eq(modelAttempts.status, 'unknown'),
-              ),
-            )
-            .limit(1);
+          const call = await this.database.modelCalls.findOne(
+            ownerId,
+            { where: { id: previous.modelCallId }, fields: { status: modelCalls.status } },
+            tx,
+          );
+          const unknownAttempts = await this.database.modelAttempts.findMany(
+            ownerId,
+            {
+              where: { callId: previous.modelCallId, status: 'unknown' },
+              fields: { id: modelAttempts.id },
+              limit: 1,
+            },
+            tx,
+          );
           if (call?.status === 'unknown' || unknownAttempts.length > 0)
             throw new ApiException(
               API_CODES.MODEL_USAGE_UNKNOWN,
@@ -217,37 +207,42 @@ export class CompanionPersonasService {
         }
       }
       const taskId = randomUUID();
-      await tx.tasks.insert({
-        id: taskId,
-        requestKey,
-        fingerprint: hash,
-        kind: 'persona_initialization',
-        input: {
-          kind: 'persona_initialization',
-          profileText: companion.initialSnapshot.profileText,
-          expectedPersonaVersionId: companion.currentPersonaVersionId,
-          configVersion: config.version,
-        },
-        scope: { companionId: id, runtimeEpoch: input.runtimeEpoch, conversationId: null },
-        totalSteps: 1,
-      });
-      if (foundation)
-        await tx.sql
-          .update(personaFoundations)
-          .set({ taskId })
-          .where(eq(personaFoundations.id, foundation.id));
-      else
-        await tx.personaFoundations.insert({
-          companionId: id,
-          runtimeEpoch: input.runtimeEpoch,
-          requestId: input.requestId,
+      await this.database.tasks.insert(
+        ownerId,
+        {
+          id: taskId,
+          requestKey,
           fingerprint: hash,
-          nameOverride: companion.name,
-          explicitLocks: [],
-          taskId,
-        });
+          kind: 'persona_initialization',
+          input: {
+            kind: 'persona_initialization',
+            profileText: companion.initialSnapshot.profileText,
+            expectedPersonaVersionId: companion.currentPersonaVersionId,
+            configVersion: config.version,
+          },
+          scope: { companionId: id, runtimeEpoch: input.runtimeEpoch, conversationId: null },
+          totalSteps: 1,
+        },
+        tx,
+      );
+      if (foundation)
+        await this.database.personaFoundations.update(ownerId, foundation.id, { taskId }, tx);
+      else
+        await this.database.personaFoundations.insert(
+          ownerId,
+          {
+            companionId: id,
+            runtimeEpoch: input.runtimeEpoch,
+            requestId: input.requestId,
+            fingerprint: hash,
+            nameOverride: companion.name,
+            explicitLocks: [],
+            taskId,
+          },
+          tx,
+        );
     });
-    return this.get(id);
+    return this.get(ownerId, id);
   }
 
   /**
@@ -255,14 +250,18 @@ export class CompanionPersonasService {
    *
    * 一致读取当前版本、初始基线和任务，不把刷新误当成重新生成。
    */
-  get(id: string): Promise<CompanionPersonaState> {
-    return this.store.locked(async (ownerId, tx) => {
-      const companion = await this.instances.readInTransaction(tx, id);
-      const foundation = await tx.personaFoundations.findOne({
-        where: { companionId: id, runtimeEpoch: companion.runtimeEpoch },
-      });
+  get(ownerId: string, id: string): Promise<CompanionPersonaState> {
+    return this.store.locked(ownerId, async (tx) => {
+      const companion = await this.instances.readInTransaction(ownerId, tx, id);
+      const foundation = await this.database.personaFoundations.findOne(
+        ownerId,
+        {
+          where: { companionId: id, runtimeEpoch: companion.runtimeEpoch },
+        },
+        tx,
+      );
       const [initial] = foundation?.initialPersonaVersionId
-        ? await tx.sql
+        ? await tx
             .select()
             .from(personaVersions)
             .where(
@@ -289,14 +288,22 @@ export class CompanionPersonasService {
    *
    * 精确查询所属实例、代次与版本，不能仅凭版本标识跨实例读取。
    */
-  async version(id: string, runtimeEpoch: number, version: number): Promise<PersonaVersion> {
-    const db = await this.database.current();
-    const ownerId = db.ownerId;
+  async version(
+    ownerId: string,
+    id: string,
+    runtimeEpoch: number,
+    version: number,
+  ): Promise<PersonaVersion> {
+    const db = this.database.sql;
 
-    await requireCompanion(ownerId, id, runtimeEpoch, db);
-    const row = await db.personaVersions.findOne({
-      where: { companionId: id, runtimeEpoch: runtimeEpoch, version: version },
-    });
+    await requireCompanion(this.database, ownerId, id, runtimeEpoch, db);
+    const row = await this.database.personaVersions.findOne(
+      ownerId,
+      {
+        where: { companionId: id, runtimeEpoch, version },
+      },
+      db,
+    );
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return toPersonaVersion(row);
   }
@@ -306,19 +313,23 @@ export class CompanionPersonasService {
    *
    * 管理者显式修改约束时追加版本；不改原稿、初始人格或其他人格内容。
    */
-  reviseLocks(id: string, input: RevisePersonaLocks): Promise<PersonaVersion> {
-    return this.store.locked(async (ownerId, tx) => {
-      await requireCompanion(ownerId, id, input.runtimeEpoch, tx);
+  reviseLocks(ownerId: string, id: string, input: RevisePersonaLocks): Promise<PersonaVersion> {
+    return this.store.locked(ownerId, async (tx) => {
+      await requireCompanion(this.database, ownerId, id, input.runtimeEpoch, tx);
       const hash = fingerprint(input);
-      const replay = await tx.personaVersions.findOne({
-        where: { companionId: id, commandId: input.requestId },
-      });
+      const replay = await this.database.personaVersions.findOne(
+        ownerId,
+        {
+          where: { companionId: id, commandId: input.requestId },
+        },
+        tx,
+      );
       if (replay) {
         if (replay.commandFingerprint !== hash)
           throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return toPersonaVersion(replay);
       }
-      const companion = await this.instances.readInTransaction(tx, id);
+      const companion = await this.instances.readInTransaction(ownerId, tx, id);
       const parent = companion.currentPersonaVersion;
       if (
         companion.runtimeEpoch !== input.runtimeEpoch ||
@@ -350,21 +361,25 @@ export class CompanionPersonasService {
         commandFingerprint: hash,
         createdAt: new Date(),
       };
-      await tx.sql.insert(personaVersions).values(row);
-      await tx.companions.updateWhere({
-        where: { id: id },
-        set: { currentPersonaVersionId: row.id, version: companion.version + 1 },
-      });
+      await tx.insert(personaVersions).values(row);
+      await this.database.companions.update(
+        ownerId,
+        id,
+        { currentPersonaVersionId: row.id, version: companion.version + 1 },
+        tx,
+      );
       return toPersonaVersion(row);
     });
   }
 
   /** 执行初始人格整理并保存生成结果。 */
   async execute(lease: TaskLease): Promise<void> {
+    const ownerId = lease.ownerId;
     if (lease.input.kind !== 'persona_initialization')
       throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     const input = lease.input;
     let call = await this.models.execute(
+      ownerId,
       {
         requestId: lease.task.id,
         expectedConfigVersion: input.configVersion,
@@ -380,7 +395,7 @@ export class CompanionPersonasService {
     while (call.status === 'running') {
       await delay(lease.config.pollMs);
       await this.jobs.heartbeat(lease);
-      call = await this.models.get(call.id);
+      call = await this.models.get(ownerId, call.id);
     }
     await this.jobs.checkpoint(lease, {
       completedSteps: call.status === 'succeeded' ? 1 : 0,
@@ -407,12 +422,12 @@ export class CompanionPersonasService {
     const result = output.data;
     await this.jobs.complete(lease, async (ownerId, tx) => {
       const id = lease.task.scope.companionId!;
-      const [companion] = await tx.sql
-        .select()
-        .from(companions)
-        .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)))
-        .for('update');
-      const [foundation] = await tx.sql
+      const companion = await this.database.companions.findOne(
+        ownerId,
+        { where: { id }, lock: 'update' },
+        tx,
+      );
+      const [foundation] = await tx
         .select()
         .from(personaFoundations)
         .where(
@@ -449,39 +464,42 @@ export class CompanionPersonasService {
         knowledge: result.knowledge,
         locks,
       });
-      const [parent] = await tx.sql
-        .select()
-        .from(personaVersions)
-        .where(
-          and(
-            eq(personaVersions.ownerId, ownerId),
-            eq(personaVersions.companionId, id),
-            eq(personaVersions.id, input.expectedPersonaVersionId),
-          ),
-        );
+      const parent = await this.database.personaVersions.findOne(
+        ownerId,
+        { where: { companionId: id, id: input.expectedPersonaVersionId } },
+        tx,
+      );
       if (!parent || parent.version >= 2_147_483_647 || companion.version >= 2_147_483_647)
         throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
       const personaId = randomUUID();
-      await tx.personaVersions.insert({
-        id: personaId,
-        companionId: id,
-        runtimeEpoch: companion.runtimeEpoch,
-        version: parent.version + 1,
-        profileText: input.profileText,
-        document,
-        origin: 'initialization',
-        parentVersionId: parent.id,
-        modelCallId: call.id,
-        mode: call.providerId === 'test' ? 'test' : 'model',
-      });
-      await tx.sql
-        .update(companions)
-        .set({ name, currentPersonaVersionId: personaId, version: companion.version + 1 })
-        .where(eq(companions.id, id));
-      await tx.sql
-        .update(personaFoundations)
-        .set({ initialPersonaVersionId: personaId })
-        .where(eq(personaFoundations.id, foundation.id));
+      await this.database.personaVersions.insert(
+        ownerId,
+        {
+          id: personaId,
+          companionId: id,
+          runtimeEpoch: companion.runtimeEpoch,
+          version: parent.version + 1,
+          profileText: input.profileText,
+          document,
+          origin: 'initialization',
+          parentVersionId: parent.id,
+          modelCallId: call.id,
+          mode: call.providerId === 'test' ? 'test' : 'model',
+        },
+        tx,
+      );
+      await this.database.companions.update(
+        ownerId,
+        id,
+        { name, currentPersonaVersionId: personaId, version: companion.version + 1 },
+        tx,
+      );
+      await this.database.personaFoundations.update(
+        ownerId,
+        foundation.id,
+        { initialPersonaVersionId: personaId },
+        tx,
+      );
     });
   }
 
@@ -490,9 +508,9 @@ export class CompanionPersonasService {
    *
    * 仅在显式创建时替换旧诊断占位定义；保留模型、价格、限额和历史配置。
    */
-  private async activateDefinition(): Promise<ModelConfigurationVersion> {
+  private async activateDefinition(ownerId: string): Promise<ModelConfigurationVersion> {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const current = await this.configuration.get();
+      const current = await this.configuration.get(ownerId);
       const persona = current.config.tasks.persona;
       if (
         persona.promptVersion === PERSONA_DEFINITION_VERSION &&
@@ -510,7 +528,7 @@ export class CompanionPersonasService {
           '人格整理定义与当前模型配置不匹配，请检查 persona 配置。',
         );
       try {
-        return await this.configuration.update({
+        return await this.configuration.update(ownerId, {
           requestId: randomUUID(),
           expectedVersion: current.version,
           config: {

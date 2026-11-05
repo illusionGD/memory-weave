@@ -5,7 +5,7 @@ description: 维护 F02 实例、人格版本、共享会话、原文来源、�
 
 # F02 数据基础
 
-2026-11-05 用户明确允许开发阶段删除旧数据并简化旧版本分支。本次已改为 `0000_development_baseline`，下文原迁移编号/旧协议兼容要求仅为历史背景，不适用于此次已授权重建。当前以 [数据库访问说明](../../../docs/features/crud-repositories.md) 为准：普通查询直接用表入口，身份由请求/任务上下文提供，事务采用回调；禁止重新引入 withOwner 或旧协议解释。后续常规结构变更仍追加迁移，新的重建按用户授权范围执行。
+2026-11-05 用户明确允许开发阶段删除旧数据并简化旧版本分支。本次已改为 `0000_development_baseline`，下文原迁移编号/旧协议兼容要求仅为历史背景，不适用于此次已授权重建。当前以 [数据库访问说明](../../../docs/features/crud-repositories.md) 为准：普通查询显式传 ownerId，身份来自认证请求或可信任务租约；事务采用回调，原生 tx 作为操作最后一个参数；禁止重新引入 withOwner 或旧协议解释。后续常规结构变更仍追加迁移，新的重建按用户授权范围执行。
 
 先读 [功能说明](../../../docs/features/f02-data-foundation.md)、[架构](../../../docs/architecture.md) 和 [进度](../../../docs/progress.md)。遵循 coding、tdd 和现有 frontend/server 约束。
 
@@ -18,7 +18,7 @@ description: 维护 F02 实例、人格版本、共享会话、原文来源、�
 - `packages/contracts`：严格输入和稳定响应，字段中文 JSDoc 随声明文件导出。
 - `scripts/verify-f02.mjs`：使用 HTTP 创建验收数据；明确告知永久写入，不清空已有数据。
 
-普通单表操作通过 `DatabaseService` 的 `database.表.操作` 访问；事务通过 `database.transaction` 获取独立 `tx`，统一用 `tx.表.操作`，由入口自动处理归属，业务不再逐表 `bind`。复杂 SQL 使用已带归属的上下文 `db.sql` / `tx.sql`，显式限定 owner，事务内不要使用外层服务的普通表入口；复杂联表、幂等 upsert 与生命周期历史清理按需保留显式 SQL 或模块 Repository。不得把事务连接存在可变单例中，不得放开版本表日常改写或自动回读。字段/投影/能力约束和选择依据见 [CRUD 维护说明](../../../docs/features/crud-repositories.md)。
+普通单表操作使用 `database.表.操作(ownerId, ...)`；表入口在启动时创建并复用，不保存可变用户或事务。事务通过 `database.transaction` 获取原生 `tx`，以最后一个参数传给表操作；复杂 SQL 直接用 `database.sql` 或原生 `tx`，显式限定 owner。禁止恢复 IdentityContext、withOwner、bind/connect 和上下文代理。复杂联表、幂等 upsert 与生命周期历史清理按需保留 SQL 或模块 Repository；保留历史表日常只追加及运行时写入保护。字段/投影类型与用法见 [CRUD 维护说明](../../../docs/features/crud-repositories.md)。
 
 所有领域查询限制当前 owner。管理者可管理所属实例；伴侣视角查询还必须校验当前代次、成员及可见区间。不能把管理者能力当成伴侣获得其他私聊的授权。
 

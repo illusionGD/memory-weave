@@ -415,7 +415,7 @@ describe('私聊的公开 HTTP 与事件边界', () => {
       .expect(404);
   });
 
-  it('事件流按发布游标重连，查询不会冒充送达，显式回执只作用于确切消息', async () => {
+  it('事件流按游标重连、回执只作用于确切消息，退出登录后关闭已有流', async () => {
     const agent = await login();
     const companion = (
       await agent
@@ -515,6 +515,30 @@ describe('私聊的公开 HTTP 与事件边界', () => {
     await agent.post(`/api/chats/${chat.id}/deliveries`).send(ack).expect(201);
     history = (await agent.get(`/api/chats/${chat.id}/messages`).expect(200)).body.data;
     expect(history.items[0].deliveredAt).toBe(timestamp);
+
+    const controller = new AbortController();
+    try {
+      const response = await fetch(`${address}/api/chats/${chat.id}/events?afterSequence=2`, {
+        headers: { cookie },
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(3000)]),
+      });
+      expect(response.status).toBe(200);
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let text = decoder.decode((await reader.read()).value);
+      expect(text).toContain('event: state');
+      await agent.post('/api/auth/logout').expect(200);
+      while (true) {
+        const item = await reader.read();
+        if (item.done) break;
+        text += decoder.decode(item.value, { stream: true });
+      }
+      expect(text).toContain('event: error');
+      expect(text).toContain('"code":401');
+      expect(text).not.toContain('event: message');
+    } finally {
+      controller.abort();
+    }
   });
 
   it('另一服务进程收到补充后，旧流即使迟到也不能发布，新轮带上已说出的部分', async () => {

@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import type { Conversation, ConversationMember, Message } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { and, asc, eq, gte, isNull, lte, or } from 'drizzle-orm';
@@ -26,7 +27,7 @@ export async function requireConversation(
   db: QueryDatabase,
   lock = false,
 ): Promise<typeof conversations.$inferSelect> {
-  const query = db.sql
+  const query = db
     .select()
     .from(conversations)
     .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, conversationId)))
@@ -43,12 +44,13 @@ export async function requireConversation(
  * 校验实例归属及预期代次，不将过时代次替换为当前值。
  */
 export async function requireCompanion(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   runtimeEpoch: number,
   db: QueryDatabase,
 ): Promise<typeof companions.$inferSelect> {
-  const row = await db.companions.findOne({ where: { id: companionId } });
+  const row = await database.companions.findById(ownerId, companionId, db);
   if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   if (row.deletedAt) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   if (row.runtimeEpoch !== runtimeEpoch) throw new ApiException(API_CODES.RUNTIME_EPOCH_MISMATCH);
@@ -62,22 +64,27 @@ export async function requireCompanion(
  * 校验当前实例及其绑定相同代次的会话成员身份。
  */
 export async function requireCompanionMember(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   runtimeEpoch: number,
   conversationId: string,
   db: QueryDatabase,
 ): Promise<typeof conversationMembers.$inferSelect> {
-  await requireCompanion(ownerId, companionId, runtimeEpoch, db);
+  await requireCompanion(database, ownerId, companionId, runtimeEpoch, db);
   await requireConversation(ownerId, conversationId, db);
-  const member = await db.conversationMembers.findOne({
-    where: {
-      conversationId: conversationId,
-      companionId: companionId,
-      runtimeEpoch: runtimeEpoch,
-      kind: 'companion',
+  const member = await database.conversationMembers.findOne(
+    ownerId,
+    {
+      where: {
+        conversationId,
+        companionId,
+        runtimeEpoch,
+        kind: 'companion',
+      },
     },
-  });
+    db,
+  );
   if (!member) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   return member;
 }
@@ -88,7 +95,7 @@ export async function assertVisible(
   sequence: number,
   db: QueryDatabase,
 ): Promise<void> {
-  const grants = await db.sql
+  const grants = await db
     .select()
     .from(visibilityGrants)
     .where(
@@ -162,26 +169,28 @@ export function toMember(row: typeof conversationMembers.$inferSelect): Conversa
  * 映射单份原文及来源，读取此方法不登记实际取得或整理状态。
  */
 export async function toMessage(
+  ownerId: string,
+  database: DatabaseService,
   row: typeof messages.$inferSelect,
   db: QueryDatabase,
 ): Promise<Message> {
-  const [speakerRow] = await db.sql
-    .select()
-    .from(conversationMembers)
-    .where(
-      and(
+  const speakerRow = await database.conversationMembers.findOne(
+    ownerId,
+    {
+      where: and(
         eq(conversationMembers.ownerId, row.ownerId),
         eq(conversationMembers.id, row.speakerMembershipId),
         eq(conversationMembers.conversationId, row.conversationId),
       ),
-    )
-    .limit(1);
+    },
+    db,
+  );
   if (!speakerRow) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
   const member = toMember(speakerRow);
   // 尚未发布的内容属于实例私有状态，限制生效后立即停止读取。
   if (row.state === 'draft' && !row.deletedAt && member.kind === 'companion')
-    await requireCompanion(row.ownerId, member.companionId, member.runtimeEpoch, db);
-  const sourceRows = await db.sql
+    await requireCompanion(database, row.ownerId, member.companionId, member.runtimeEpoch, db);
+  const sourceRows = await db
     .select()
     .from(messageSources)
     .where(and(eq(messageSources.ownerId, row.ownerId), eq(messageSources.messageId, row.id)))

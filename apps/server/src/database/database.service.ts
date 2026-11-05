@@ -11,43 +11,72 @@ import { SERVER_CONFIG } from '../config';
 import type { RuntimeConfig } from '../config';
 import { querySchemaStatus } from './migrations';
 import * as schema from './schema';
-import { DatabaseContext } from './database-context';
-import { DatabaseTables } from './tables';
+import { TableRepository } from './table-repository';
+import type { TableAccess } from './table-repository';
+import type { MySqlTable } from 'drizzle-orm/mysql-core';
 import type { MySqlTransactionConfig } from 'drizzle-orm/mysql-core';
-import { IdentityContext } from './identity-context';
-import type { ExecutionIdentity } from './identity-context';
 import { ApiException, databaseOperation } from '../http/api-exception';
 
 /** 原始 Drizzle 查询连接，供基础实现和显式 SQL 使用。 */
-export type SqlDatabase = MySql2Database<typeof schema>;
+export type Database = MySql2Database<typeof schema>;
 
 /** 事务回调使用同一连接，适用于发布序号与幂等结果的原子提交。 */
-export type SqlTransaction = Parameters<Parameters<SqlDatabase['transaction']>[0]>[0];
+export type DatabaseTransaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
-/** 已带持久归属的普通数据库入口。 */
-export type Database = DatabaseContext<SqlDatabase>;
-/** 已带持久归属且使用独立连接的事务入口。 */
-export type DatabaseTransaction = DatabaseContext<SqlTransaction>;
-/** 业务查询接受普通上下文或当前事务。 */
+/** 业务查询接受普通连接或当前事务。 */
 export type QueryDatabase = Database | DatabaseTransaction;
 
 /** 为业务提供当前部署归属、结构状态和脱敏后的数据库错误。 */
 @Injectable()
-export class DatabaseService extends DatabaseTables<SqlDatabase> implements OnApplicationShutdown {
+export class DatabaseService implements OnApplicationShutdown {
   private readonly pool: Pool;
-  private readonly sql: SqlDatabase;
+  readonly sql: Database;
   private shutdown: Promise<void> | undefined;
-  private readonly contexts = new WeakMap<ExecutionIdentity, Promise<Database>>();
+  private readonly transactions = new WeakSet<DatabaseTransaction>();
+  readonly modelConfigurationHeads;
+  readonly modelConfigurationVersions;
+  readonly modelCalls;
+  readonly modelAttempts;
+  readonly modelUsageWindows;
+  readonly owners;
+  readonly companions;
+  readonly personaVersions;
+  readonly personaTemplates;
+  readonly personaTemplateVersions;
+  readonly personaFoundations;
+  readonly conversations;
+  readonly conversationMembers;
+  readonly visibilityGrants;
+  readonly messages;
+  readonly messageSources;
+  readonly readReceipts;
+  readonly processingRanges;
+  readonly receiveBatches;
+  readonly tasks;
+  readonly taskConfigurationVersions;
+  readonly taskAttempts;
+  readonly taskSchedulerHeads;
+  readonly taskOutbox;
+  readonly chatThreads;
+  readonly chatRuns;
+  readonly chatDeliveries;
+  readonly lifecycleOperations;
+  readonly lifecycleMessageTargets;
+  readonly chatRunSources;
+  readonly memoryBatches;
+  readonly memoryEntries;
+  readonly memoryVersions;
+  readonly memoryEvidence;
+  readonly memoryDependencies;
+  readonly memorySearchDocuments;
+  readonly memorySearchTerms;
+  readonly memoryVectorIndexes;
+  readonly chatMemorySources;
+  readonly memoryOriginalSources;
+  readonly lifecycleMemoryTargets;
 
   /** 初始化数据库连接与查询服务。 */
-  constructor(
-    @Inject(SERVER_CONFIG) config: RuntimeConfig,
-    @Inject(IdentityContext) readonly identity = new IdentityContext(),
-  ) {
-    super(async (operation) => {
-      const database = await this.current();
-      return databaseOperation(() => operation(database.sql, database.ownerId));
-    });
+  constructor(@Inject(SERVER_CONFIG) config: RuntimeConfig) {
     this.pool = createPool({
       ...mysqlConnectionOptions(config.databaseUrl),
       connectionLimit: 4,
@@ -56,6 +85,50 @@ export class DatabaseService extends DatabaseTables<SqlDatabase> implements OnAp
       queueLimit: 32,
     });
     this.sql = drizzle(this.pool, { schema, mode: 'default' });
+    /** 创建可复用的表入口，归属在每次操作时显式传入。 */
+    const repository = <T extends MySqlTable>(table: T, access: TableAccess = 'write') =>
+      new TableRepository(table, 'ownerId', this.sql, access, this.transactions);
+    this.modelConfigurationHeads = repository(schema.modelConfigurationHeads);
+    this.modelConfigurationVersions = repository(schema.modelConfigurationVersions, 'append');
+    this.modelCalls = repository(schema.modelCalls);
+    this.modelAttempts = repository(schema.modelAttempts);
+    this.modelUsageWindows = repository(schema.modelUsageWindows);
+    this.owners = new TableRepository(schema.owners, 'id', this.sql, 'write', this.transactions);
+    this.companions = repository(schema.companions);
+    this.personaVersions = repository(schema.personaVersions, 'append');
+    this.personaTemplates = repository(schema.personaTemplates);
+    this.personaTemplateVersions = repository(schema.personaTemplateVersions, 'append');
+    this.personaFoundations = repository(schema.personaFoundations);
+    this.conversations = repository(schema.conversations);
+    this.conversationMembers = repository(schema.conversationMembers);
+    this.visibilityGrants = repository(schema.visibilityGrants);
+    this.messages = repository(schema.messages);
+    this.messageSources = repository(schema.messageSources, 'append');
+    this.readReceipts = repository(schema.readReceipts, 'append');
+    this.processingRanges = repository(schema.processingRanges);
+    this.receiveBatches = repository(schema.receiveBatches, 'append');
+    this.tasks = repository(schema.tasks);
+    this.taskConfigurationVersions = repository(schema.taskConfigurationVersions, 'append');
+    this.taskAttempts = repository(schema.taskAttempts);
+    this.taskSchedulerHeads = repository(schema.taskSchedulerHeads);
+    this.taskOutbox = repository(schema.taskOutbox);
+    this.chatThreads = repository(schema.chatThreads);
+    this.chatRuns = repository(schema.chatRuns);
+    this.chatDeliveries = repository(schema.chatDeliveries);
+    this.lifecycleOperations = repository(schema.lifecycleOperations);
+    this.lifecycleMessageTargets = repository(schema.lifecycleMessageTargets, 'append');
+    this.chatRunSources = repository(schema.chatRunSources, 'append');
+    this.memoryBatches = repository(schema.memoryBatches);
+    this.memoryEntries = repository(schema.memoryEntries);
+    this.memoryVersions = repository(schema.memoryVersions, 'append');
+    this.memoryEvidence = repository(schema.memoryEvidence, 'append');
+    this.memoryDependencies = repository(schema.memoryDependencies, 'append');
+    this.memorySearchDocuments = repository(schema.memorySearchDocuments, 'cleanup');
+    this.memorySearchTerms = repository(schema.memorySearchTerms, 'cleanup');
+    this.memoryVectorIndexes = repository(schema.memoryVectorIndexes);
+    this.chatMemorySources = repository(schema.chatMemorySources, 'append');
+    this.memoryOriginalSources = repository(schema.memoryOriginalSources, 'append');
+    this.lifecycleMemoryTargets = repository(schema.lifecycleMemoryTargets, 'append');
   }
 
   /**
@@ -68,23 +141,6 @@ export class DatabaseService extends DatabaseTables<SqlDatabase> implements OnAp
     version: string | null;
   }> {
     return querySchemaStatus(this.pool);
-  }
-
-  /** 取得本次执行已校验的数据库入口，多个查询共用一次结构检查。 */
-  async current(): Promise<Database> {
-    const identity = this.identity.require();
-    let current = this.contexts.get(identity);
-    if (!current) {
-      current = databaseOperation(async () => {
-        const status = await this.getSchemaStatus();
-        if (status.status !== 'ready') throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-        return new DatabaseContext(this.sql, identity.ownerId, (operation, options) =>
-          this.executeTransaction(identity.ownerId, operation, options),
-        );
-      });
-      this.contexts.set(identity, current);
-    }
-    return current;
   }
 
   /** 为部署身份适配器读取持久身份，普通业务不得用它代替认证。 */
@@ -102,17 +158,8 @@ export class DatabaseService extends DatabaseTables<SqlDatabase> implements OnAp
     });
   }
 
-  /** 在当前身份下执行独立事务，成功提交，异常回滚。 */
-  async transaction<R>(
-    operation: (tx: DatabaseTransaction) => Promise<R>,
-    options?: MySqlTransactionConfig,
-  ): Promise<R> {
-    return (await this.current()).transaction(operation, options);
-  }
-
-  /** 独占一条连接执行事务，回滚失败时保留原异常并丢弃不确定的连接。 */
-  private executeTransaction<R>(
-    ownerId: string,
+  /** 在独立连接执行事务，回调返回则提交，抛出异常则回滚。 */
+  transaction<R>(
     operation: (tx: DatabaseTransaction) => Promise<R>,
     options?: MySqlTransactionConfig,
   ): Promise<R> {
@@ -123,14 +170,14 @@ export class DatabaseService extends DatabaseTables<SqlDatabase> implements OnAp
       try {
         const sql = drizzle(connection, { schema, mode: 'default' });
         return await sql.transaction(async (transaction) => {
-          const tx = new DatabaseContext(transaction, ownerId);
+          this.transactions.add(transaction);
           try {
-            return await operation(tx);
+            return await operation(transaction);
           } catch (error) {
             failure = { error };
             throw error;
           } finally {
-            tx.finish();
+            this.transactions.delete(transaction);
           }
         }, options);
       } catch (error) {

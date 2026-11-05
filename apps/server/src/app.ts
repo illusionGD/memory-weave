@@ -41,7 +41,6 @@ import { SystemController } from './modules/system/system.controller';
 import { SystemService } from './modules/system/system.service';
 import { attachWebAssets } from './web-assets';
 import { DatabaseService } from './database/database.service';
-import { IdentityContext } from './database/identity-context';
 import { DeploymentIdentity } from './modules/auth/deployment-identity';
 import { CompanionsController } from './modules/companions/companions.controller';
 import { CompanionsService } from './modules/companions/companions.service';
@@ -61,7 +60,6 @@ import { ModelsController } from './modules/models/models.controller';
 import { ModelConfigurationService } from './modules/models/model-configuration.service';
 import { ModelRuntimeService } from './modules/models/model-runtime.service';
 import { ModelProvidersService } from './modules/models/model-providers.service';
-
 import { TaskWorkerService } from './modules/tasks/task-worker.service';
 import { TaskOutboxService } from './modules/tasks/task-outbox.service';
 import { TaskStore } from './modules/tasks/task-store';
@@ -117,7 +115,6 @@ class ApplicationModule {
         ChatEventsService,
         ChatContextService,
         DatabaseService,
-        IdentityContext,
         DeploymentIdentity,
         CompanionsService,
         CompanionRepository,
@@ -193,19 +190,13 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
   app.use(express.json({ limit: '16kb' }));
   app.use(handleBodyError);
   app.use(cookieParser());
-  // 每个请求先建立独立容器，鉴权守卫仅在校验会话后填入身份。
-  app.use((_request: express.Request, _response: express.Response, next: express.NextFunction) =>
-    app.get(IdentityContext).run(null, next),
-  );
   try {
     if (config.adminDistDir) await attachWebAssets(app, config.adminDistDir, '/admin');
     if (config.webDistDir) await attachWebAssets(app, config.webDistDir);
     await app.init();
     if (config.modelDeployment?.file) {
       const ownerId = await app.get(DeploymentIdentity).ownerId();
-      await app
-        .get(IdentityContext)
-        .run(ownerId, () => app.get(ModelConfigurationService).synchronizeFile());
+      await app.get(ModelConfigurationService).synchronizeFile(ownerId);
     }
   } catch (error) {
     await app.close();

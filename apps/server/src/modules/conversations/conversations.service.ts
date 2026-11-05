@@ -53,16 +53,10 @@ export class ConversationsService {
    *
    * 一次建立初始成员和独立可见授权，不开放邀请及成员变更。
    */
-  async create(input: CreateConversationRequest): Promise<ConversationDetail> {
-    return this.database.transaction(
-      async (tx) => {
-        const ownerId = tx.ownerId;
-        return this.createInTransaction(ownerId, tx, input);
-      },
-      {
-        isolationLevel: 'read committed',
-      },
-    );
+  async create(ownerId: string, input: CreateConversationRequest): Promise<ConversationDetail> {
+    return this.database.transaction(async (tx) => this.createInTransaction(ownerId, tx, input), {
+      isolationLevel: 'read committed',
+    });
   }
 
   /**
@@ -75,9 +69,9 @@ export class ConversationsService {
     tx: DatabaseTransaction,
     input: CreateConversationRequest,
   ): Promise<ConversationDetail> {
-    await lockTaskScheduler(ownerId, tx);
+    await lockTaskScheduler(this.database, ownerId, tx);
     for (const member of input.companions)
-      await requireCompanion(ownerId, member.companionId, member.runtimeEpoch, tx);
+      await requireCompanion(this.database, ownerId, member.companionId, member.runtimeEpoch, tx);
     const requestFingerprint = fingerprint({
       ...input,
       requestId: undefined,
@@ -87,7 +81,7 @@ export class ConversationsService {
       })),
     });
     const id = randomUUID();
-    await tx.sql
+    await tx
       .insert(conversations)
       .values({
         id,
@@ -98,12 +92,11 @@ export class ConversationsService {
         fingerprint: requestFingerprint,
       })
       .onDuplicateKeyUpdate({ set: { id: sql`${conversations.id}` } });
-    const [inserted] = await tx.sql
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.ownerId, ownerId), eq(conversations.requestId, input.requestId)))
-      .limit(1)
-      .for('update');
+    const inserted = await this.database.conversations.findOne(
+      ownerId,
+      { where: { requestId: input.requestId }, lock: 'update' },
+      tx,
+    );
     if (!inserted) throw new ApiException(API_CODES.CONFLICT);
     if (inserted.id !== id) {
       if (inserted.fingerprint !== requestFingerprint)
@@ -127,8 +120,8 @@ export class ConversationsService {
         kind: 'user',
         userId: ownerId,
       });
-    await tx.sql.insert(conversationMembers).values(members);
-    await tx.sql.insert(visibilityGrants).values(
+    await tx.insert(conversationMembers).values(members);
+    await tx.insert(visibilityGrants).values(
       members.map((member) => ({
         ownerId,
         membershipId: member.id,
@@ -145,9 +138,9 @@ export class ConversationsService {
    *
    * 管理者按归属查询会话及成员，不改变任何接收状态。
    */
-  async get(id: string): Promise<ConversationDetail> {
-    const db = await this.database.current();
-    const ownerId = db.ownerId;
+  async get(ownerId: string, id: string): Promise<ConversationDetail> {
+    const db = this.database.sql;
+
     return this.detail(ownerId, id, db);
   }
 
@@ -156,14 +149,18 @@ export class ConversationsService {
    *
    * 按稳定标识分页查询部署内会话，避免一次加载全部历史。
    */
-  async list(input: IdPaginationQuery): Promise<ConversationListResponse> {
-    const db = await this.database.current();
+  async list(ownerId: string, input: IdPaginationQuery): Promise<ConversationListResponse> {
+    const db = this.database.sql;
 
-    const rows = await db.conversations.findMany({
-      where: input.afterId ? gt(conversations.id, input.afterId) : undefined,
-      orderBy: [asc(conversations.id)],
-      limit: input.limit + 1,
-    });
+    const rows = await this.database.conversations.findMany(
+      ownerId,
+      {
+        where: input.afterId ? gt(conversations.id, input.afterId) : undefined,
+        orderBy: [asc(conversations.id)],
+        limit: input.limit + 1,
+      },
+      db,
+    );
     const page = idCursorPage(rows, input.limit, (row) => row.id);
     return {
       items: page.items.map(toConversation),
@@ -176,12 +173,10 @@ export class ConversationsService {
    *
    * 只保存单份草稿；验证真实成员及来源后再允许进入共享存储。
    */
-  async save(conversationId: string, input: SaveMessageRequest): Promise<Message> {
+  async save(ownerId: string, conversationId: string, input: SaveMessageRequest): Promise<Message> {
     return this.database.transaction(
       async (tx) => {
-        const ownerId = tx.ownerId;
-
-        await lockTaskScheduler(ownerId, tx);
+        await lockTaskScheduler(this.database, ownerId, tx);
         await this.assertUnmanaged(ownerId, tx, conversationId);
         return this.saveInTransaction(ownerId, tx, conversationId, input);
       },
@@ -232,45 +227,53 @@ export class ConversationsService {
       input.sources,
       tx,
     );
-    const existing = await tx.messages.findOne({
-      where: { conversationId: conversationId, requestId: input.requestId },
-    });
+    const existing = await this.database.messages.findOne(
+      ownerId,
+      {
+        where: { conversationId, requestId: input.requestId },
+      },
+      tx,
+    );
     if (existing) {
       if (existing.fingerprint !== requestFingerprint)
         throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-      return toMessage(existing, tx);
+      return toMessage(ownerId, this.database, existing, tx);
     }
     if (conversation.version !== input.expectedConversationVersion)
       throw new ApiException(API_CODES.VERSION_CONFLICT);
     const receivedAt = new Date();
     const messageId = randomUUID();
-    await tx.messages.insert({
-      id: messageId,
-      conversationId,
-      speakerMembershipId: member.id,
-      requestId: input.requestId,
-      fingerprint: requestFingerprint,
-      text: input.text,
-      receivedAt,
-      occurredAt: input.occurredAt ? new Date(input.occurredAt) : null,
-      validFrom: input.validFrom ? new Date(input.validFrom) : null,
-      validUntil: input.validUntil ? new Date(input.validUntil) : null,
-      epistemicKind: input.epistemicKind,
-      reality: input.reality,
-      sourceKind:
-        member.kind === 'user'
-          ? 'user_input'
-          : generated
-            ? 'model_output'
-            : 'admin_companion_input',
-      replyToMessageId: input.replyToMessageId ?? null,
-      chatRunId: chat?.runId ?? null,
-      chatPosition: chat?.position ?? null,
-    });
-    const row = await tx.messages.findOne({ where: { id: messageId } });
+    await this.database.messages.insert(
+      ownerId,
+      {
+        id: messageId,
+        conversationId,
+        speakerMembershipId: member.id,
+        requestId: input.requestId,
+        fingerprint: requestFingerprint,
+        text: input.text,
+        receivedAt,
+        occurredAt: input.occurredAt ? new Date(input.occurredAt) : null,
+        validFrom: input.validFrom ? new Date(input.validFrom) : null,
+        validUntil: input.validUntil ? new Date(input.validUntil) : null,
+        epistemicKind: input.epistemicKind,
+        reality: input.reality,
+        sourceKind:
+          member.kind === 'user'
+            ? 'user_input'
+            : generated
+              ? 'model_output'
+              : 'admin_companion_input',
+        replyToMessageId: input.replyToMessageId ?? null,
+        chatRunId: chat?.runId ?? null,
+        chatPosition: chat?.position ?? null,
+      },
+      tx,
+    );
+    const row = await this.database.messages.findById(ownerId, messageId, tx);
     if (!row) throw new ApiException(API_CODES.CONFLICT);
     if (input.sources.length > 0)
-      await tx.sql.insert(messageSources).values(
+      await tx.insert(messageSources).values(
         input.sources.map((source) => ({
           ownerId,
           messageId: row.id,
@@ -279,7 +282,7 @@ export class ConversationsService {
           relation: source.relation,
         })),
       );
-    return toMessage(row, tx);
+    return toMessage(ownerId, this.database, row, tx);
   }
 
   /**
@@ -287,29 +290,31 @@ export class ConversationsService {
    *
    * 管理查询可查看草稿，但不会使草稿正式发布或登记接收。
    */
-  async getMessage(conversationId: string, messageId: string): Promise<Message> {
-    const db = await this.database.current();
-    const ownerId = db.ownerId;
+  async getMessage(ownerId: string, conversationId: string, messageId: string): Promise<Message> {
+    const db = this.database.sql;
 
     await requireConversation(ownerId, conversationId, db);
-    const row = await db.messages.findOne({
-      where: { conversationId: conversationId, id: messageId },
-    });
+    const row = await this.database.messages.findOne(
+      ownerId,
+      {
+        where: { conversationId, id: messageId },
+      },
+      db,
+    );
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-    return toMessage(row, db);
+    return toMessage(ownerId, this.database, row, db);
   }
 
   /** 发布消息并登记可见伴侣的待整理范围。 */
   async publish(
+    ownerId: string,
     conversationId: string,
     messageId: string,
     input: PublishMessageRequest,
   ): Promise<Message> {
     return this.database.transaction(
       async (tx) => {
-        const ownerId = tx.ownerId;
-
-        await lockTaskScheduler(ownerId, tx);
+        await lockTaskScheduler(this.database, ownerId, tx);
         await this.assertUnmanaged(ownerId, tx, conversationId);
         return this.publishInTransaction(ownerId, tx, conversationId, messageId, input);
       },
@@ -330,11 +335,15 @@ export class ConversationsService {
     input: PublishMessageRequest,
   ): Promise<Message> {
     const conversation = await requireConversation(ownerId, conversationId, tx, true);
-    const row = await tx.messages.findOne({
-      where: { conversationId: conversationId, id: messageId },
-    });
+    const row = await this.database.messages.findOne(
+      ownerId,
+      {
+        where: { conversationId, id: messageId },
+      },
+      tx,
+    );
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-    const original = await toMessage(row, tx);
+    const original = await toMessage(ownerId, this.database, row, tx);
     const member = await this.speaker(ownerId, conversationId, original.speaker, tx);
     await this.validateReferences(
       ownerId,
@@ -374,9 +383,10 @@ export class ConversationsService {
     const sequence = conversation.lastSequence + 1;
     await assertVisible(member, sequence, tx);
     const publishedAt = new Date();
-    await tx.messages.updateWhere({
-      where: { id: messageId },
-      set: {
+    await this.database.messages.update(
+      ownerId,
+      messageId,
+      {
         state: 'published',
         sequence,
         publishedAt,
@@ -384,14 +394,17 @@ export class ConversationsService {
         publishRequestId: input.requestId,
         publishFingerprint: requestFingerprint,
       },
-    });
-    const published = await tx.messages.findOne({ where: { id: messageId } });
+      tx,
+    );
+    const published = await this.database.messages.findById(ownerId, messageId, tx);
     if (!published) throw new ApiException(API_CODES.CONFLICT);
-    await tx.conversations.updateWhere({
-      where: { id: conversationId },
-      set: { lastSequence: sequence, version: conversation.version + 1 },
-    });
-    const recipients = await tx.sql
+    await this.database.conversations.update(
+      ownerId,
+      conversationId,
+      { lastSequence: sequence, version: conversation.version + 1 },
+      tx,
+    );
+    const recipients = await tx
       .select({ member: conversationMembers })
       .from(conversationMembers)
       .innerJoin(
@@ -425,25 +438,29 @@ export class ConversationsService {
         runtimeEpoch: recipient.runtimeEpoch,
         permissionVersion: recipient.permissionVersion,
       });
-      await tx.processingRanges.insert({
-        companionId: recipient.companionId,
-        runtimeEpoch: recipient.runtimeEpoch,
-        conversationId,
-        messageId,
-        contentVersion: row.contentVersion,
-        startSequence: sequence,
-        endSequence: sequence,
-        createdAt: publishedAt,
-      });
+      await this.database.processingRanges.insert(
+        ownerId,
+        {
+          companionId: recipient.companionId,
+          runtimeEpoch: recipient.runtimeEpoch,
+          conversationId,
+          messageId,
+          contentVersion: row.contentVersion,
+          startSequence: sequence,
+          endSequence: sequence,
+          createdAt: publishedAt,
+        },
+        tx,
+      );
     }
-    await stageMessageOutbox(ownerId, tx, {
+    await stageMessageOutbox(this.database, ownerId, tx, {
       conversationId,
       messageId,
       contentVersion: row.contentVersion,
       sequence,
       recipients: outboxRecipients,
     });
-    return toMessage(published, tx);
+    return toMessage(ownerId, this.database, published, tx);
   }
 
   /**
@@ -452,24 +469,30 @@ export class ConversationsService {
    * 管理历史只返回正式发布消息，按服务端序号分页。
    */
   async listMessages(
+    ownerId: string,
     conversationId: string,
     input: SequencePaginationQuery,
   ): Promise<MessageListResponse> {
-    const db = await this.database.current();
-    const ownerId = db.ownerId;
+    const db = this.database.sql;
 
     await requireConversation(ownerId, conversationId, db);
-    const rows = await db.messages.findMany({
-      where: and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.state, 'published'),
-        gt(messages.sequence, input.afterSequence),
-      ),
-      orderBy: [asc(messages.sequence)],
-      limit: input.limit + 1,
-    });
+    const rows = await this.database.messages.findMany(
+      ownerId,
+      {
+        where: and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.state, 'published'),
+          gt(messages.sequence, input.afterSequence),
+        ),
+        orderBy: [asc(messages.sequence)],
+        limit: input.limit + 1,
+      },
+      db,
+    );
     const selected = rows.slice(0, input.limit);
-    const mapped = await Promise.all(selected.map((row) => toMessage(row, db)));
+    const mapped = await Promise.all(
+      selected.map((row) => toMessage(ownerId, this.database, row, db)),
+    );
     return {
       items: mapped.filter((row) => row.state === 'published'),
       nextAfterSequence: rows.length > input.limit ? (selected.at(-1)?.sequence ?? null) : null,
@@ -487,10 +510,14 @@ export class ConversationsService {
     conversationId: string,
   ): Promise<void> {
     await requireConversation(ownerId, conversationId, tx, true);
-    const chat = await tx.chatThreads.findOne({
-      where: { conversationId: conversationId },
-      fields: { id: chatThreads.conversationId },
-    });
+    const chat = await this.database.chatThreads.findOne(
+      ownerId,
+      {
+        where: { conversationId },
+        fields: { id: chatThreads.conversationId },
+      },
+      tx,
+    );
     if (chat) throw new ApiException(API_CODES.CHAT_MANAGED_CONVERSATION);
   }
 
@@ -507,6 +534,7 @@ export class ConversationsService {
   ): Promise<typeof conversationMembers.$inferSelect> {
     if (input.kind === 'companion') {
       const member = await requireCompanionMember(
+        this.database,
         ownerId,
         input.companionId,
         input.runtimeEpoch,
@@ -516,9 +544,13 @@ export class ConversationsService {
       if (member.leftSequence !== null) throw new ApiException(API_CODES.MEMBER_LEFT);
       return member;
     }
-    const member = await db.conversationMembers.findOne({
-      where: { conversationId: conversationId, kind: 'user', userId: ownerId },
-    });
+    const member = await this.database.conversationMembers.findOne(
+      ownerId,
+      {
+        where: { conversationId, kind: 'user', userId: ownerId },
+      },
+      db,
+    );
     if (!member || member.leftSequence !== null)
       throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return member;
@@ -540,17 +572,21 @@ export class ConversationsService {
     const refs: { messageId: string; contentVersion?: number }[] = [...sources];
     if (replyToMessageId) refs.push({ messageId: replyToMessageId });
     for (const reference of refs) {
-      const row = await db.messages.findOne({
-        where: and(
-          eq(messages.conversationId, conversationId),
-          eq(messages.id, reference.messageId),
-          eq(messages.state, 'published'),
-          isNull(messages.deletedAt),
-          reference.contentVersion === undefined
-            ? undefined
-            : eq(messages.contentVersion, reference.contentVersion),
-        ),
-      });
+      const row = await this.database.messages.findOne(
+        ownerId,
+        {
+          where: and(
+            eq(messages.conversationId, conversationId),
+            eq(messages.id, reference.messageId),
+            eq(messages.state, 'published'),
+            isNull(messages.deletedAt),
+            reference.contentVersion === undefined
+              ? undefined
+              : eq(messages.contentVersion, reference.contentVersion),
+          ),
+        },
+        db,
+      );
       if (!row || row.sequence === null) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       await assertVisible(member, row.sequence, db);
     }
@@ -563,7 +599,7 @@ export class ConversationsService {
     db: QueryDatabase,
   ): Promise<ConversationDetail> {
     const row = await requireConversation(ownerId, id, db);
-    const members = await db.sql
+    const members = await db
       .select()
       .from(conversationMembers)
       .where(

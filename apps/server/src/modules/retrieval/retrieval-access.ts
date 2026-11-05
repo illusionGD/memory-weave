@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import type { SQL } from 'drizzle-orm';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
@@ -11,22 +12,27 @@ import { requireCompanionMember } from '../conversations/conversation-access';
  * 首版跨会话只开放同一用户与本实例的私聊，群聊只使用本会话。
  */
 export async function recallConversationScope(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   runtimeEpoch: number,
   conversationId: string,
   tx: DatabaseTransaction,
 ): Promise<SQL> {
-  await requireCompanionMember(ownerId, companionId, runtimeEpoch, conversationId, tx);
-  const target = await tx.conversations.findOne({ where: { id: conversationId } });
-  const user = await tx.conversationMembers.findOne({
-    where: { conversationId: conversationId, kind: 'user', userId: ownerId },
-  });
+  await requireCompanionMember(database, ownerId, companionId, runtimeEpoch, conversationId, tx);
+  const target = await database.conversations.findById(ownerId, conversationId, tx);
+  const user = await database.conversationMembers.findOne(
+    ownerId,
+    {
+      where: { conversationId, kind: 'user', userId: ownerId },
+    },
+    tx,
+  );
   if (target?.kind !== 'private' || !user) return sql`${conversations.id} = ${conversationId}`;
   const member = alias(conversationMembers, 'recall_member');
   const other = alias(conversationMembers, 'recall_other');
   return sql`(${conversations.id} = ${conversationId} OR (
-    ${conversations.kind} = 'private' AND EXISTS (${tx.sql
+    ${conversations.kind} = 'private' AND EXISTS (${tx
       .select({ id: member.id })
       .from(member)
       .where(
@@ -37,7 +43,7 @@ export async function recallConversationScope(
           eq(member.runtimeEpoch, runtimeEpoch),
           isNull(member.deletedAt),
         ),
-      )}) AND NOT EXISTS (${tx.sql
+      )}) AND NOT EXISTS (${tx
       .select({ id: other.id })
       .from(other)
       .where(

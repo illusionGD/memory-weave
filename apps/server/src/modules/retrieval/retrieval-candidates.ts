@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { RecallMemory, RecallQuery, RetrievalConfiguration } from '@memory-weave/contracts';
@@ -18,6 +19,7 @@ import { lexicalTerms } from './retrieval-lexical';
  * 按渠道融合排名，只在主库确认版本和全部来源后返回正文。
  */
 export async function recallCandidates(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   query: RecallQuery,
@@ -52,14 +54,14 @@ export async function recallCandidates(
   );
   /** 构建当前检索范围的记忆版本查询。 */
   const base = () =>
-    tx.sql
+    tx
       .select({ entry: memoryEntries, version: memoryVersions })
       .from(memoryEntries)
       .innerJoin(memoryVersions, eq(memoryVersions.memoryId, memoryEntries.id))
       .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId));
   const terms = lexicalTerms(`${query.query}\n${query.context}`).slice(0, 64);
   const termHits = terms.length
-    ? await tx.sql
+    ? await tx
         .select({ id: memorySearchTerms.versionId, score: sql<number>`count(*)`.as('hits') })
         .from(memorySearchTerms)
         .innerJoin(memoryVersions, eq(memoryVersions.id, memorySearchTerms.versionId))
@@ -115,7 +117,7 @@ export async function recallCandidates(
     const row = byId.get(id);
     if (!row?.version.document) continue;
     try {
-      await assertVersionSources(ownerId, row.entry, row.version, tx);
+      await assertVersionSources(database, ownerId, row.entry, row.version, tx);
     } catch (error) {
       if (error instanceof ApiException) continue;
       throw error;
@@ -129,6 +131,7 @@ export async function recallCandidates(
       break;
     }
     const evidence = await memoryRecordEvidence(
+      database,
       ownerId,
       companionId,
       row.entry.id,

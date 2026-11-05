@@ -2,12 +2,11 @@ import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import type { CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { Request } from 'express';
+import type { AuthenticatedRequest } from './current-owner';
 import { AuthService } from './auth.service';
 import { PUBLIC_ROUTE } from './public-route';
 import { readSessionCookie } from './session-cookie';
 import { ApiException } from '../../http/api-exception';
-import { IdentityContext } from '../../database/identity-context';
 
 /** 路由默认需要认证，只有显式标记为公开时才允许直接访问。 */
 @Injectable()
@@ -16,7 +15,6 @@ export class AuthGuard implements CanActivate {
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(AuthService) private readonly auth: AuthService,
-    @Inject(IdentityContext) private readonly identity: IdentityContext,
   ) {}
 
   /**
@@ -32,10 +30,10 @@ export class AuthGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) return true;
-    const request = context.switchToHttp().getRequest<Request>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const ownerId = await this.auth.sessionOwner(readSessionCookie(request));
     if (ownerId) {
-      this.identity.authenticate(ownerId);
+      request.ownerId = ownerId;
       return true;
     }
     throw new ApiException(API_CODES.AUTH_REQUIRED);

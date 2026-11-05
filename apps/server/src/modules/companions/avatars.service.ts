@@ -1,7 +1,6 @@
 import type { AvatarState, ChangeAvatar } from '@memory-weave/contracts';
 import { API_CODES, AVATAR_MAX_BYTES, AVATAR_MEDIA_TYPES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import type { DatabaseTransaction } from '../../database/database.service';
@@ -21,11 +20,11 @@ export class AvatarsService {
   ) {}
   /** 锁定伴侣记录并执行头像操作。 */
   private async lock(ownerId: string, id: string, tx: DatabaseTransaction) {
-    const [row] = await tx.sql
-      .select()
-      .from(companions)
-      .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)))
-      .for('update');
+    const row = await this.database.companions.findOne(
+      ownerId,
+      { where: { id }, lock: 'update' },
+      tx,
+    );
     if (!row || row.deletedAt) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return row;
   }
@@ -36,7 +35,13 @@ export class AvatarsService {
       throw new ApiException(API_CODES.RUNTIME_EPOCH_MISMATCH);
   }
   /** 解码上传图片并保存规范化头像。 */
-  async upload(id: string, input: ChangeAvatar, mime: string, body: unknown): Promise<AvatarState> {
+  async upload(
+    ownerId: string,
+    id: string,
+    input: ChangeAvatar,
+    mime: string,
+    body: unknown,
+  ): Promise<AvatarState> {
     if (!AVATAR_MEDIA_TYPES.includes(mime as (typeof AVATAR_MEDIA_TYPES)[number]))
       throw new ApiException(
         API_CODES.UNSUPPORTED_MEDIA_TYPE,
@@ -46,11 +51,9 @@ export class AvatarsService {
       throw new ApiException(API_CODES.INVALID_REQUEST, '请选择有效图片。');
     if (body.length > AVATAR_MAX_BYTES) throw new ApiException(API_CODES.REQUEST_BODY_TOO_LARGE);
     // 解码前检查实例与版本，处理后仍在事务内再次检查，防止迟到上传跨越重置。
-    {
-      const db = await this.database.current();
-      const owner = db.ownerId;
-      await db.transaction(async (tx) => this.validate(await this.lock(owner, id, tx), input));
-    }
+    await this.database.transaction(async (tx) =>
+      this.validate(await this.lock(ownerId, id, tx), input),
+    );
     if (this.processing >= 2)
       throw new ApiException(API_CODES.RATE_LIMITED, '正在处理图片，请稍后重试。');
     this.processing++;
@@ -88,8 +91,6 @@ export class AvatarsService {
     };
     return this.database.transaction(
       async (tx) => {
-        const ownerId = tx.ownerId;
-
         const row = await this.lock(ownerId, id, tx);
         this.validate(row, input);
         if (row.avatar?.requestId === avatar.requestId) {
@@ -102,10 +103,12 @@ export class AvatarsService {
         if (row.avatarVersion === 2147483647)
           throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
         await this.files.save(ownerId, id, avatar, bytes);
-        await tx.companions.updateWhere({
-          where: { id: id },
-          set: { avatar, avatarVersion: row.avatarVersion + 1 },
-        });
+        await this.database.companions.update(
+          ownerId,
+          id,
+          { avatar, avatarVersion: row.avatarVersion + 1 },
+          tx,
+        );
         return { avatar: publicAvatar(id, avatar), avatarVersion: row.avatarVersion + 1 };
       },
       { isolationLevel: 'read committed' },
@@ -116,11 +119,9 @@ export class AvatarsService {
    *
    * 恢复默认允许安全重放；旧版本不能覆盖已经更换的新图片。
    */
-  async clear(id: string, input: ChangeAvatar): Promise<AvatarState> {
+  async clear(ownerId: string, id: string, input: ChangeAvatar): Promise<AvatarState> {
     return this.database.transaction(
       async (tx) => {
-        const ownerId = tx.ownerId;
-
         const row = await this.lock(ownerId, id, tx);
         this.validate(row, input);
         if (!row.avatar) return { avatar: null, avatarVersion: row.avatarVersion };
@@ -128,10 +129,12 @@ export class AvatarsService {
           throw new ApiException(API_CODES.VERSION_CONFLICT);
         if (row.avatarVersion === 2147483647)
           throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
-        await tx.companions.updateWhere({
-          where: { id: id },
-          set: { avatar: null, avatarVersion: row.avatarVersion + 1 },
-        });
+        await this.database.companions.update(
+          ownerId,
+          id,
+          { avatar: null, avatarVersion: row.avatarVersion + 1 },
+          tx,
+        );
         return { avatar: null, avatarVersion: row.avatarVersion + 1 };
       },
       { isolationLevel: 'read committed' },
@@ -142,10 +145,8 @@ export class AvatarsService {
    *
    * 旧图片 URL 在替换或删除后立即失效；持锁避免检查后读到被替换文件。
    */
-  async read(id: string, assetId: string): Promise<Buffer> {
+  async read(ownerId: string, id: string, assetId: string): Promise<Buffer> {
     return this.database.transaction(async (tx) => {
-      const ownerId = tx.ownerId;
-
       const row = await this.lock(ownerId, id, tx);
       if (!row.avatar || row.avatar.id !== assetId.toLowerCase())
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);

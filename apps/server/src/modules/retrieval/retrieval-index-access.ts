@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import { and, eq, isNull } from 'drizzle-orm';
 import { API_CODES } from '@memory-weave/contracts';
 import type { DatabaseTransaction } from '../../database/database.service';
@@ -10,8 +11,13 @@ import { assertVersionSources } from '../memories/memory-records';
  *
  * 模型派发、向量写入及进度提交前核对权威版本和来源。
  */
-export async function requireIndexSource(ownerId: string, id: string, tx: DatabaseTransaction) {
-  const [row] = await tx.sql
+export async function requireIndexSource(
+  database: DatabaseService,
+  ownerId: string,
+  id: string,
+  tx: DatabaseTransaction,
+) {
+  const [row] = await tx
     .select({ index: memoryVectorIndexes, entry: memoryEntries, version: memoryVersions })
     .from(memoryVectorIndexes)
     .innerJoin(memoryEntries, eq(memoryEntries.id, memoryVectorIndexes.memoryId))
@@ -30,6 +36,6 @@ export async function requireIndexSource(ownerId: string, id: string, tx: Databa
     row.entry.currentVersionId !== row.version.id
   )
     throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-  await assertVersionSources(ownerId, row.entry, row.version, tx);
+  await assertVersionSources(database, ownerId, row.entry, row.version, tx);
   return row;
 }

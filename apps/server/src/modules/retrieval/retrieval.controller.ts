@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
   recallIndexQuerySchema,
@@ -20,10 +21,11 @@ export class RetrievalController {
   ) {}
   /** 分页查询当前编码空间的索引状态。 */
   @Get('indexes') indexesList(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Query(new ZodValidationPipe(recallIndexQuerySchema)) query: RecallIndexQuery,
   ) {
-    return this.indexes.list(id, query.runtimeEpoch, query.afterId);
+    return this.indexes.list(ownerId, id, query.runtimeEpoch, query.afterId);
   }
   /**
    * 提交向量索引重试或重建请求。
@@ -31,11 +33,12 @@ export class RetrievalController {
    * 显式重试已知失败或重建派生点，保留旧尝试和成功编码。
    */
   @Post('indexes/:indexId/retry') retryIndex(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Param('indexId', new ZodValidationPipe(uuidSchema)) indexId: string,
     @Body(new ZodValidationPipe(organizeMemorySchema)) body: OrganizeMemory,
   ) {
-    return this.indexes.retry(id, indexId, body);
+    return this.indexes.retry(ownerId, id, indexId, body);
   }
   /**
    * 查询与输入相关的记忆及新原文。
@@ -43,9 +46,10 @@ export class RetrievalController {
    * 普通陈述、查询和受限的深度回忆共用入口。
    */
   @Post() recall(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(recallQuerySchema)) body: RecallQuery,
   ) {
-    return this.retrieval.recall(id, body);
+    return this.retrieval.recall(ownerId, id, body);
   }
 }

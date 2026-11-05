@@ -12,27 +12,23 @@ export class CompanionRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   /** 读取未删除伴侣及其当前人格，可复用调用方的事务。 */
-  async get(id: string, connection?: QueryDatabase) {
-    const db = connection ?? (await this.database.current());
+  async get(ownerId: string, id: string, connection?: QueryDatabase) {
+    const db = connection ?? this.database.sql;
     const [row] = await this.joinPersona(db)
       .where(
-        and(
-          eq(companions.ownerId, db.ownerId),
-          eq(companions.id, id),
-          isNull(companions.deletedAt),
-        ),
+        and(eq(companions.ownerId, ownerId), eq(companions.id, id), isNull(companions.deletedAt)),
       )
       .limit(1);
     return row ?? null;
   }
 
   /** 按 ID 游标读取伴侣及当前人格，多取一条用于判断下一页。 */
-  async list(query: IdPaginationQuery) {
-    const db = await this.database.current();
+  async list(ownerId: string, query: IdPaginationQuery) {
+    const db = this.database.sql;
     return this.joinPersona(db)
       .where(
         and(
-          eq(companions.ownerId, db.ownerId),
+          eq(companions.ownerId, ownerId),
           isNull(companions.deletedAt),
           query.afterId ? gt(companions.id, query.afterId) : undefined,
         ),
@@ -43,7 +39,7 @@ export class CompanionRepository {
 
   /** 固定人格必须属于同一用户与同一伴侣，不能只根据版本 ID 关联。 */
   private joinPersona(db: QueryDatabase) {
-    return db.sql
+    return db
       .select({ companion: companions, persona: personaVersions })
       .from(companions)
       .innerJoin(

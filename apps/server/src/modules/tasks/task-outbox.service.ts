@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import type { IdPaginationQuery, TaskOutboxList } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
@@ -17,24 +18,29 @@ import type { MessageOutboxInput } from './task-types';
  * 在调用方业务事务内登记，重复事件不能替换已经保存的接收范围。
  */
 export async function stageMessageOutbox(
+  database: DatabaseService,
   ownerId: string,
   tx: DatabaseTransaction,
   payload: MessageOutboxInput,
 ): Promise<void> {
   const eventKey = `message:${payload.messageId.toLowerCase()}:${payload.contentVersion}`;
-  const existing = await tx.taskOutbox.findOne({ where: { eventKey: eventKey } });
+  const existing = await database.taskOutbox.findOne(ownerId, { where: { eventKey } }, tx);
   if (existing) {
     if (fingerprint(existing.payload) !== fingerprint(payload))
       throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
     return;
   }
-  await tx.taskOutbox.insert({
-    eventKey,
-    kind: 'message_published',
-    sourceId: payload.messageId,
-    sourceVersion: payload.contentVersion,
-    payload,
-  });
+  await database.taskOutbox.insert(
+    ownerId,
+    {
+      eventKey,
+      kind: 'message_published',
+      sourceId: payload.messageId,
+      sourceVersion: payload.contentVersion,
+      payload,
+    },
+    tx,
+  );
 }
 
 /** 只在主库内转交任务；不在转交事务中访问模型、向量库或工具。 */
@@ -42,6 +48,7 @@ export async function stageMessageOutbox(
 export class TaskOutboxService {
   /** 初始化待办事件转交服务。 */
   constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TaskConfigurationService) private readonly configuration: TaskConfigurationService,
   ) {}
@@ -51,13 +58,17 @@ export class TaskOutboxService {
    *
    * 分页展示待办与转交状态，不代表相应伴侣完成记忆整理。
    */
-  list(query: IdPaginationQuery): Promise<TaskOutboxList> {
-    return this.store.locked(async (ownerId, tx) => {
-      const rows = await tx.taskOutbox.findMany({
-        where: query.afterId ? gt(taskOutbox.id, query.afterId) : undefined,
-        orderBy: [asc(taskOutbox.id)],
-        limit: query.limit + 1,
-      });
+  list(ownerId: string, query: IdPaginationQuery): Promise<TaskOutboxList> {
+    return this.store.locked(ownerId, async (tx) => {
+      const rows = await this.database.taskOutbox.findMany(
+        ownerId,
+        {
+          where: query.afterId ? gt(taskOutbox.id, query.afterId) : undefined,
+          orderBy: [asc(taskOutbox.id)],
+          limit: query.limit + 1,
+        },
+        tx,
+      );
       const page = idCursorPage(rows, query.limit, (row) => row.id);
       return {
         items: page.items.map((row) => ({
@@ -80,18 +91,22 @@ export class TaskOutboxService {
    *
    * 有界转交且幂等，任一存储写入失败则整批回滚，下一轮仍能重新领取。
    */
-  dispatch(): Promise<number> {
-    return this.store.locked(async (ownerId, tx, now) => {
+  dispatch(ownerId: string): Promise<number> {
+    return this.store.locked(ownerId, async (tx, now) => {
       const current = await this.configuration.current(ownerId, tx);
       if (!current.config.enabled) return 0;
-      const rows = await tx.taskOutbox.findMany({
-        where: { status: 'pending' },
-        orderBy: [asc(taskOutbox.createdAt), asc(taskOutbox.id)],
-        limit: current.config.outboxBatchSize,
-      });
+      const rows = await this.database.taskOutbox.findMany(
+        ownerId,
+        {
+          where: { status: 'pending' },
+          orderBy: [asc(taskOutbox.createdAt), asc(taskOutbox.id)],
+          limit: current.config.outboxBatchSize,
+        },
+        tx,
+      );
       for (const event of rows) {
         const payload = event.payload;
-        const [source] = await tx.sql
+        const [source] = await tx
           .select()
           .from(messages)
           .where(
@@ -107,17 +122,21 @@ export class TaskOutboxService {
           )
           .for('update');
         if (!source) {
-          await tx.taskOutbox.updateWhere({
-            where: { id: event.id },
-            set: { status: 'blocked', reason: 'source_changed' },
-          });
+          await this.database.taskOutbox.update(
+            ownerId,
+            event.id,
+            { status: 'blocked', reason: 'source_changed' },
+            tx,
+          );
           continue;
         }
         // F08 以已持久登记的 processingRanges 组成批次，不再为每条消息创建占位任务。
-        await tx.taskOutbox.updateWhere({
-          where: { id: event.id },
-          set: { status: 'dispatched', reason: null, dispatchedAt: now },
-        });
+        await this.database.taskOutbox.update(
+          ownerId,
+          event.id,
+          { status: 'dispatched', reason: null, dispatchedAt: now },
+          tx,
+        );
       }
       return rows.length;
     });

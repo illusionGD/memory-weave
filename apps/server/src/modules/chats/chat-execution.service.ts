@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import {
   MODEL_PROBE_DEFINITION_VERSION,
   MODEL_PREPROCESSING_VERSION,
@@ -33,6 +34,7 @@ import { CHAT_DEFINITION_VERSION, chatDefinition } from './chat-definition';
 export class ChatExecutionService {
   /** 初始化聊天回复执行服务。 */
   constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(RetrievalService) private readonly retrieval: RetrievalService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
@@ -49,18 +51,19 @@ export class ChatExecutionService {
    * 同一持久轮次始终使用同一模型请求身份；恢复只接续已确认结果的未发布部分。
    */
   async execute(lease: TaskLease): Promise<void> {
-    const saved = await this.store.locked((ownerId, tx) => this.guard(ownerId, tx, lease));
+    const ownerId = lease.ownerId;
+    const saved = await this.store.locked(ownerId, (tx) => this.guard(ownerId, tx, lease));
     const config =
       saved.context && saved.modelConfigVersion
-        ? await this.configuration.getVersion(saved.modelConfigVersion)
-        : await this.activateDefinition();
+        ? await this.configuration.getVersion(ownerId, saved.modelConfigVersion)
+        : await this.activateDefinition(ownerId);
     const definition = chatDefinition;
     const recall = !saved.context ? await this.recall(lease, saved) : undefined;
-    const prepared = await this.store.locked(async (ownerId, tx) => {
+    const prepared = await this.store.locked(ownerId, async (tx) => {
       const run = await this.guard(ownerId, tx, lease);
       const built = await this.contexts.prepare(ownerId, tx, lease, run, config, recall);
       if (!run.context) {
-        await tx.sql
+        await tx
           .insert(chatRunSources)
           .values(
             [
@@ -77,7 +80,7 @@ export class ChatExecutionService {
           )
           .onDuplicateKeyUpdate({ set: { runId: run.id } });
         if (built.context.recall?.memories.length)
-          await tx.sql
+          await tx
             .insert(chatMemorySources)
             .values(
               built.context.recall.memories.map((item) => ({
@@ -87,17 +90,19 @@ export class ChatExecutionService {
               })),
             )
             .onDuplicateKeyUpdate({ set: { runId: run.id } });
-        await tx.sql
-          .update(chatRuns)
-          .set({
+        await this.database.chatRuns.update(
+          ownerId,
+          run.id,
+          {
             context: built.context,
             modelConfigVersion: config.version,
             mode: config.config.tasks.chat.providerId === 'test' ? 'test' : 'model',
             transport: this.providers.supportsStreaming(config.config.tasks.chat.providerId)
               ? 'stream'
               : 'buffered',
-          })
-          .where(and(eq(chatRuns.ownerId, ownerId), eq(chatRuns.id, run.id)));
+          },
+          tx,
+        );
       }
       return {
         run,
@@ -105,7 +110,7 @@ export class ChatExecutionService {
         configVersion: run.modelConfigVersion ?? config.version,
       };
     });
-    const initial = await this.store.locked((ownerId, tx) =>
+    const initial = await this.store.locked(ownerId, (tx) =>
       this.published(ownerId, tx, lease.task.id),
     );
     let emitted = initial;
@@ -136,6 +141,7 @@ export class ChatExecutionService {
     };
     try {
       let call = await this.models.executeStreaming(
+        ownerId,
         {
           requestId: lease.task.id,
           expectedConfigVersion: prepared.configVersion,
@@ -173,7 +179,7 @@ export class ChatExecutionService {
       while (call.status === 'running') {
         await delay(lease.config.pollMs);
         await this.jobs.heartbeat(lease);
-        call = await this.models.get(call.id);
+        call = await this.models.get(ownerId, call.id);
       }
       await this.jobs.checkpoint(lease, {
         completedSteps: call.status === 'succeeded' ? 1 : 0,
@@ -212,42 +218,39 @@ export class ChatExecutionService {
    * 只用已授权的少量前文理解指代，片段身份随回复来源图保存。
    */
   private async recall(lease: TaskLease, run: typeof chatRuns.$inferSelect): Promise<RecallResult> {
-    const prepared = await this.store.locked(async (ownerId, tx) => {
+    const ownerId = lease.ownerId;
+    const prepared = await this.store.locked(ownerId, async (tx) => {
       await this.guard(ownerId, tx, lease);
       const member = await requireCompanionMember(
+        this.database,
         ownerId,
         lease.task.scope.companionId!,
         lease.task.scope.runtimeEpoch!,
         run.conversationId,
         tx,
       );
-      const [source] = await tx.sql
-        .select()
-        .from(messages)
-        .where(
-          and(
-            eq(messages.ownerId, ownerId),
-            eq(messages.id, run.triggerMessageId),
-            eq(messages.state, 'published'),
-            isNull(messages.deletedAt),
-          ),
-        );
+      const source = await this.database.messages.findOne(
+        ownerId,
+        { where: { id: run.triggerMessageId, state: 'published', deletedAt: null } },
+        tx,
+      );
       if (!source?.sequence) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       await assertVisible(member, source.sequence, tx);
-      const previous = await tx.sql
-        .select()
-        .from(messages)
-        .where(
-          and(
+      const previous = await this.database.messages.findMany(
+        ownerId,
+        {
+          where: and(
             eq(messages.ownerId, ownerId),
             eq(messages.conversationId, run.conversationId),
             eq(messages.state, 'published'),
             isNull(messages.deletedAt),
             lte(messages.sequence, source.sequence - 1),
           ),
-        )
-        .orderBy(desc(messages.sequence))
-        .limit(3);
+          orderBy: [desc(messages.sequence)],
+          limit: 3,
+        },
+        tx,
+      );
       for (const item of previous) await assertVisible(member, item.sequence!, tx);
       const sources = previous.reverse().filter((item) => item.text.length > 0);
       return {
@@ -272,6 +275,7 @@ export class ChatExecutionService {
       };
     });
     const result = await this.retrieval.recall(
+      ownerId,
       lease.task.scope.companionId!,
       prepared.query,
       (ownerId, tx) => this.jobs.guardDispatch(ownerId, tx, lease),
@@ -291,16 +295,26 @@ export class ChatExecutionService {
     lease: TaskLease,
   ): Promise<typeof chatRuns.$inferSelect> {
     await this.jobs.guardDispatch(ownerId, tx, lease);
-    const thread = await tx.chatThreads.findOne({
-      where: { conversationId: lease.task.scope.conversationId! },
-    });
-    const run = await tx.chatRuns.findOne({ where: { id: lease.task.id } });
+    const thread = await this.database.chatThreads.findOne(
+      ownerId,
+      {
+        where: { conversationId: lease.task.scope.conversationId! },
+      },
+      tx,
+    );
+    const run = await this.database.chatRuns.findById(ownerId, lease.task.id, tx);
     if (!thread || !run || thread.currentRunId !== run.id || run.interruptedAt)
       throw new ApiException(API_CODES.TASK_LEASE_LOST);
     if (run.context) {
       if (run.context.recall)
-        await validateRecallSnapshot(ownerId, lease.task.scope, run.context.recall, tx);
-      const companion = await tx.companions.findOne({ where: { id: thread.companionId } });
+        await validateRecallSnapshot(
+          this.database,
+          ownerId,
+          lease.task.scope,
+          run.context.recall,
+          tx,
+        );
+      const companion = await this.database.companions.findById(ownerId, thread.companionId, tx);
       if (companion?.currentPersonaVersionId !== run.context.personaVersionId)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
     }
@@ -313,10 +327,15 @@ export class ChatExecutionService {
    * 片段、原文发布与待整理 outbox 在同一事务提交，不将候选草稿当作已经说出。
    */
   private publish(lease: TaskLease, text: string, expectedOffset: number): Promise<void> {
+    const ownerId = lease.ownerId;
     // 模型取消与片段发布共用配置锁，顺序固定为模型锁 → 调度锁 → 会话锁。
-    return this.configuration.locked(async (ownerId, tx) => {
+    return this.configuration.locked(ownerId, async (tx) => {
       const run = await this.guard(ownerId, tx, lease);
-      const call = await tx.modelCalls.findOne({ where: { requestId: run.id } });
+      const call = await this.database.modelCalls.findOne(
+        ownerId,
+        { where: { requestId: run.id } },
+        tx,
+      );
       if (!call || !['running', 'succeeded'].includes(call.status))
         throw new ApiException(API_CODES.MODEL_CANCELLED);
       const prefix = await this.published(ownerId, tx, run.id);
@@ -360,12 +379,16 @@ export class ChatExecutionService {
     tx: DatabaseTransaction,
     runId: string,
   ): Promise<string> {
-    const rows = await tx.messages.findMany({
-      fields: ['text'],
-      where: { chatRunId: runId, state: 'published' },
-      orderBy: [asc(messages.chatPosition)],
-      limit: 16384,
-    });
+    const rows = await this.database.messages.findMany(
+      ownerId,
+      {
+        fields: ['text'],
+        where: { chatRunId: runId, state: 'published' },
+        orderBy: [asc(messages.chatPosition)],
+        limit: 16384,
+      },
+      tx,
+    );
     return rows.map((row) => row.text).join('');
   }
 
@@ -374,9 +397,9 @@ export class ChatExecutionService {
    *
    * 只把旧诊断占位定义绑定到聊天版本，保留供应商、价格、限额与历史。
    */
-  private async activateDefinition(): Promise<ModelConfigurationVersion> {
+  private async activateDefinition(ownerId: string): Promise<ModelConfigurationVersion> {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const current = await this.configuration.get();
+      const current = await this.configuration.get(ownerId);
       const chat = current.config.tasks.chat;
       if (
         chat.promptVersion === CHAT_DEFINITION_VERSION &&
@@ -391,7 +414,7 @@ export class ChatExecutionService {
       )
         throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED, '聊天定义与 chat 模型配置不一致。');
       try {
-        return await this.configuration.update({
+        return await this.configuration.update(ownerId, {
           requestId: randomUUID(),
           expectedVersion: current.version,
           config: {

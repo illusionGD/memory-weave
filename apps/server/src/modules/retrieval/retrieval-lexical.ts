@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import type { MemoryDocument } from '@memory-weave/contracts';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { memorySearchDocuments } from '../../database/schema';
@@ -52,6 +53,7 @@ export function lexicalTerms(text: string): string[] {
  * 原文提交记忆版本的同一事务登记词法和待索引身份。
  */
 export async function registerSearchDocument(
+  database: DatabaseService,
   ownerId: string,
   versionId: string,
   memoryId: string,
@@ -59,16 +61,20 @@ export async function registerSearchDocument(
   document: MemoryDocument,
   tx: DatabaseTransaction,
 ): Promise<void> {
-  await tx.sql
+  await tx
     .insert(memorySearchDocuments)
     .values({ ownerId, versionId, memoryId, ...scope, lexicalVersion: LEXICAL_VERSION })
     .onDuplicateKeyUpdate({ set: { lexicalVersion: LEXICAL_VERSION } });
-  await tx.memorySearchTerms.deleteWhere({ versionId });
+  await database.memorySearchTerms.deleteWhere(ownerId, { versionId }, tx);
   const terms = lexicalTerms(
     [document.text, document.subject.name, document.eventTime, document.storyKey]
       .filter(Boolean)
       .join(' '),
   );
   if (terms.length)
-    await tx.memorySearchTerms.insertMany(terms.map((term) => ({ versionId, term })));
+    await database.memorySearchTerms.insertMany(
+      ownerId,
+      terms.map((term) => ({ versionId, term })),
+      tx,
+    );
 }

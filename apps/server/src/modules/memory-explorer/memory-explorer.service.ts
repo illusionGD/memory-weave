@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import { requireCompanion } from '../conversations/conversation-access';
 import type {
   MemoryExplorerConversationsQuery,
@@ -37,19 +38,23 @@ import { readExplorerCursor, writeExplorerCursor } from './explorer-cursor';
 @Injectable()
 export class MemoryExplorerService {
   /** 初始化记忆浏览查询服务。 */
-  constructor(@Inject(TaskStore) private readonly store: TaskStore) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(TaskStore) private readonly store: TaskStore,
+  ) {}
   /**
    * 分页查询伴侣当前代次的会话选项。
    *
    * 只提供该实例当前代次的会话选择，群聊仍需用户明确选择。
    */
   conversations(
+    ownerId: string,
     companionId: string,
     query: MemoryExplorerConversationsQuery,
   ): Promise<MemoryExplorerConversations> {
-    return this.store.locked(async (ownerId, tx) => {
-      await requireCompanion(ownerId, companionId, query.runtimeEpoch, tx);
-      const rows = await tx.sql
+    return this.store.locked(ownerId, async (tx) => {
+      await requireCompanion(this.database, ownerId, companionId, query.runtimeEpoch, tx);
+      const rows = await tx
         .select({ id: conversations.id, title: conversations.title, kind: conversations.kind })
         .from(conversations)
         .innerJoin(conversationMembers, eq(conversationMembers.conversationId, conversations.id))
@@ -79,16 +84,17 @@ export class MemoryExplorerService {
    * 批量核对当前画面的版本、来源内容版本及权限；不读取全部历史。
    */
   validate(
+    ownerId: string,
     companionId: string,
     input: MemoryExplorerValidation,
   ): Promise<MemoryExplorerValidationResult> {
-    return this.store.locked(async (ownerId, tx) => {
-      const scope = await explorerScope(ownerId, companionId, input, tx);
+    return this.store.locked(ownerId, async (tx) => {
+      const scope = await explorerScope(this.database, ownerId, companionId, input, tx);
       const expected = new Map(
         input.references.map((reference) => [reference.versionId, reference.stamp]),
       );
       if (!expected.size) return { valid: true };
-      const rows = await tx.sql
+      const rows = await tx
         .select(explorerStampSelection)
         .from(memoryEntries)
         .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId))
@@ -113,9 +119,9 @@ export class MemoryExplorerService {
    *
    * 按中心返回一批真实邻接关系，绝不递归加载全部历史。
    */
-  graph(companionId: string, query: MemoryGraphQuery): Promise<MemoryGraphPage> {
-    return this.store.locked((ownerId, tx, now) =>
-      readMemoryGraph(ownerId, companionId, query, tx, now),
+  graph(ownerId: string, companionId: string, query: MemoryGraphQuery): Promise<MemoryGraphPage> {
+    return this.store.locked(ownerId, (tx, now) =>
+      readMemoryGraph(this.database, ownerId, companionId, query, tx, now),
     );
   }
   /**
@@ -123,30 +129,39 @@ export class MemoryExplorerService {
    *
    * 仅返回当前版本，私聊汇总与单会话范围分别校验。
    */
-  entries(companionId: string, query: MemoryExplorerQuery): Promise<MemoryExplorerPage> {
-    return this.records(companionId, query, 'entries');
+  entries(
+    ownerId: string,
+    companionId: string,
+    query: MemoryExplorerQuery,
+  ): Promise<MemoryExplorerPage> {
+    return this.records(ownerId, companionId, query, 'entries');
   }
   /**
    * 按记录时间分页查询记忆版本历史。
    *
    * 按记录时间浏览各语义版本，不把发生时间的文字描述强制转为日期。
    */
-  timeline(companionId: string, query: MemoryExplorerQuery): Promise<MemoryExplorerPage> {
-    return this.records(companionId, query, 'timeline');
+  timeline(
+    ownerId: string,
+    companionId: string,
+    query: MemoryExplorerQuery,
+  ): Promise<MemoryExplorerPage> {
+    return this.records(ownerId, companionId, query, 'timeline');
   }
   /** 执行记忆列表或时间线的组合筛选与分页查询。 */
   private records(
+    ownerId: string,
     companionId: string,
     query: MemoryExplorerQuery,
     view: 'entries' | 'timeline',
   ): Promise<MemoryExplorerPage> {
-    return this.store.locked(async (ownerId, tx, now) => {
-      const scope = await explorerScope(ownerId, companionId, query, tx);
+    return this.store.locked(ownerId, async (tx, now) => {
+      const scope = await explorerScope(this.database, ownerId, companionId, query, tx);
       const cursorScope = { ownerId, companionId, view, ...query, cursor: undefined };
       const status = sql`CASE WHEN ${memoryVersions.invalidatedAt} IS NOT NULL THEN 'invalidated' WHEN ${memoryVersions.id} = ${memoryEntries.currentVersionId} THEN ${memoryEntries.status} WHEN ${memoryVersions.operation} = 'conflict' THEN 'disputed' ELSE 'active' END`;
       const cursor = readExplorerCursor(query.cursor, cursorScope, now);
       const asOf = cursor?.asOf ?? now.toISOString();
-      const rows = await tx.sql
+      const rows = await tx
         .select(explorerSelection)
         .from(memoryEntries)
         .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId))
@@ -188,7 +203,7 @@ export class MemoryExplorerService {
         .limit(query.limit + 1);
       const items: MemoryExplorerItem[] = [];
       for (const row of rows.slice(0, query.limit)) {
-        await assertVersionSources(ownerId, row.entry, row.version, tx);
+        await assertVersionSources(this.database, ownerId, row.entry, row.version, tx);
         items.push(toExplorerItem(row));
       }
       const last = items.at(-1);

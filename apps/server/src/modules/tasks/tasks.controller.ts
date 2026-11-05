@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query, Put, HttpCode } from '@nestjs/common';
 import {
   emptyCommandSchema,
@@ -38,8 +39,11 @@ export class TasksController {
    * 创建不会修改伴侣状态的确定性诊断。
    */
   @Post('diagnostics')
-  createDiagnostic(@Body(new ZodValidationPipe(diagnosticTaskSchema)) body: DiagnosticTask) {
-    return this.tasks.createDiagnostic(body);
+  createDiagnostic(
+    @CurrentOwner() ownerId: string,
+    @Body(new ZodValidationPipe(diagnosticTaskSchema)) body: DiagnosticTask,
+  ) {
+    return this.tasks.createDiagnostic(ownerId, body);
   }
 
   /**
@@ -48,26 +52,35 @@ export class TasksController {
    * 创建后台模型诊断，保持 F03 的配置版本及预算检查。
    */
   @Post('model-probes')
-  createModelProbe(@Body(new ZodValidationPipe(queuedModelProbeSchema)) body: QueuedModelProbe) {
-    return this.tasks.createModelProbe(body);
+  createModelProbe(
+    @CurrentOwner() ownerId: string,
+    @Body(new ZodValidationPipe(queuedModelProbeSchema)) body: QueuedModelProbe,
+  ) {
+    return this.tasks.createModelProbe(ownerId, body);
   }
 
   /** 分页查询当前部署的任务。 */
   @Get()
-  list(@Query(new ZodValidationPipe(taskListQuerySchema)) query: TaskListQuery) {
-    return this.tasks.list(query);
+  list(
+    @CurrentOwner() ownerId: string,
+    @Query(new ZodValidationPipe(taskListQuerySchema)) query: TaskListQuery,
+  ) {
+    return this.tasks.list(ownerId, query);
   }
 
   /** 分页查询待办事件的转交进度。 */
   @Get('outbox')
-  listOutbox(@Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery) {
-    return this.outbox.list(query);
+  listOutbox(
+    @CurrentOwner() ownerId: string,
+    @Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery,
+  ) {
+    return this.outbox.list(ownerId, query);
   }
 
   /** 查询当前任务调度配置。 */
   @Get('config')
-  config() {
-    return this.configuration.get();
+  config(@CurrentOwner() ownerId: string) {
+    return this.configuration.get(ownerId);
   }
 
   /**
@@ -77,15 +90,19 @@ export class TasksController {
    */
   @Put('config')
   updateConfig(
+    @CurrentOwner() ownerId: string,
     @Body(new ZodValidationPipe(updateTaskConfigurationSchema)) body: UpdateTaskConfiguration,
   ) {
-    return this.configuration.update(body);
+    return this.configuration.update(ownerId, body);
   }
 
   /** 查询指定版本的任务调度配置。 */
   @Get('config/versions/:version')
-  configVersion(@Param('version', new ZodValidationPipe(versionParamSchema)) version: number) {
-    return this.configuration.getVersion(version);
+  configVersion(
+    @CurrentOwner() ownerId: string,
+    @Param('version', new ZodValidationPipe(versionParamSchema)) version: number,
+  ) {
+    return this.configuration.getVersion(ownerId, version);
   }
 
   /**
@@ -96,10 +113,11 @@ export class TasksController {
   @Post(':id/pause')
   @HttpCode(200)
   pause(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(emptyCommandSchema)) _body: EmptyCommand,
   ) {
-    return this.tasks.control(id, 'pause');
+    return this.tasks.control(ownerId, id, 'pause');
   }
 
   /**
@@ -110,10 +128,11 @@ export class TasksController {
   @Post(':id/resume')
   @HttpCode(200)
   resume(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(emptyCommandSchema)) _body: EmptyCommand,
   ) {
-    return this.tasks.control(id, 'resume');
+    return this.tasks.control(ownerId, id, 'resume');
   }
 
   /**
@@ -124,15 +143,16 @@ export class TasksController {
   @Post(':id/cancel')
   @HttpCode(200)
   cancel(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(emptyCommandSchema)) _body: EmptyCommand,
   ) {
-    return this.tasks.control(id, 'cancel');
+    return this.tasks.control(ownerId, id, 'cancel');
   }
 
   /** 查询任务详情和当前进度。 */
   @Get(':id')
-  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string) {
-    return this.tasks.get(id);
+  get(@CurrentOwner() ownerId: string, @Param('id', new ZodValidationPipe(uuidSchema)) id: string) {
+    return this.tasks.get(ownerId, id);
   }
 }

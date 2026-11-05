@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
   uuidSchema,
@@ -26,9 +27,10 @@ export class CompanionsController {
    */
   @Post()
   create(
+    @CurrentOwner() ownerId: string,
     @Body(new ZodValidationPipe(createCompanionRequestSchema)) body: CreateCompanionRequest,
   ): Promise<CompanionDetail> {
-    return this.companions.create(body);
+    return this.companions.create(ownerId, body);
   }
 
   /**
@@ -38,14 +40,18 @@ export class CompanionsController {
    */
   @Get()
   list(
+    @CurrentOwner() ownerId: string,
     @Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery,
   ): Promise<CompanionListResponse> {
-    return this.companions.list(query);
+    return this.companions.list(ownerId, query);
   }
 
   /** 查询伴侣实例详情。 */
   @Get(':id')
-  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<CompanionDetail> {
-    return this.companions.get(id);
+  get(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<CompanionDetail> {
+    return this.companions.get(ownerId, id);
   }
 }

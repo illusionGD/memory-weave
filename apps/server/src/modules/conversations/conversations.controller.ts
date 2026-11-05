@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
   uuidSchema,
@@ -30,32 +31,38 @@ export class ConversationsController {
   /** 创建会话及其初始成员。 */
   @Post()
   create(
+    @CurrentOwner() ownerId: string,
     @Body(new ZodValidationPipe(createConversationRequestSchema)) body: CreateConversationRequest,
   ): Promise<ConversationDetail> {
-    return this.conversations.create(body);
+    return this.conversations.create(ownerId, body);
   }
 
   /** 分页查询当前管理者的会话。 */
   @Get()
   list(
+    @CurrentOwner() ownerId: string,
     @Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery,
   ): Promise<ConversationListResponse> {
-    return this.conversations.list(query);
+    return this.conversations.list(ownerId, query);
   }
 
   /** 查询会话详情。 */
   @Get(':id')
-  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<ConversationDetail> {
-    return this.conversations.get(id);
+  get(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<ConversationDetail> {
+    return this.conversations.get(ownerId, id);
   }
 
   /** 保存会话消息草稿。 */
   @Post(':id/messages')
   save(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(saveMessageRequestSchema)) body: SaveMessageRequest,
   ): Promise<Message> {
-    return this.conversations.save(id, body);
+    return this.conversations.save(ownerId, id, body);
   }
 
   /**
@@ -65,11 +72,12 @@ export class ConversationsController {
    */
   @Post(':id/messages/:messageId/publish')
   publish(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Param('messageId', new ZodValidationPipe(uuidSchema)) messageId: string,
     @Body(new ZodValidationPipe(publishMessageRequestSchema)) body: PublishMessageRequest,
   ): Promise<Message> {
-    return this.conversations.publish(id, messageId, body);
+    return this.conversations.publish(ownerId, id, messageId, body);
   }
 
   /**
@@ -79,18 +87,20 @@ export class ConversationsController {
    */
   @Get(':id/messages')
   listMessages(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Query(new ZodValidationPipe(sequencePaginationQuerySchema)) query: SequencePaginationQuery,
   ): Promise<MessageListResponse> {
-    return this.conversations.listMessages(id, query);
+    return this.conversations.listMessages(ownerId, id, query);
   }
 
   /** 查询会话中的指定消息。 */
   @Get(':id/messages/:messageId')
   getMessage(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Param('messageId', new ZodValidationPipe(uuidSchema)) messageId: string,
   ): Promise<Message> {
-    return this.conversations.getMessage(id, messageId);
+    return this.conversations.getMessage(ownerId, id, messageId);
   }
 }

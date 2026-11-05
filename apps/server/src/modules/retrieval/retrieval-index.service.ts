@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import type { OrganizeMemory, RecallIndexList } from '@memory-weave/contracts';
 import { API_CODES, retrievalConfigurationSchema } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
@@ -35,6 +36,7 @@ import {
 export class RetrievalIndexService {
   /** 初始化记忆索引调度与执行服务。 */
   constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
@@ -47,14 +49,14 @@ export class RetrievalIndexService {
    *
    * 有界补齐旧版本词项和新编码空间待办，空轮询不发模型。
    */
-  async schedule(): Promise<void> {
+  async schedule(ownerId: string): Promise<void> {
     const limits = this.config.retrievalConfiguration ?? retrievalConfigurationSchema.parse({});
-    const configuration = await this.configuration.get();
+    const configuration = await this.configuration.get(ownerId);
     const embedding = configuration.config.tasks.embedding;
     const space = embeddingSpace(embedding, this.config);
-    await this.reconcileDeleted(limits.indexBatchSize);
-    await this.store.locked(async (ownerId, tx) => {
-      const old = await tx.sql
+    await this.reconcileDeleted(ownerId, limits.indexBatchSize);
+    await this.store.locked(ownerId, async (tx) => {
+      const old = await tx
         .select({ entry: memoryEntries, version: memoryVersions })
         .from(memoryVersions)
         .innerJoin(memoryEntries, eq(memoryEntries.id, memoryVersions.memoryId))
@@ -70,6 +72,7 @@ export class RetrievalIndexService {
       for (const row of old)
         if (row.version.document)
           await registerSearchDocument(
+            this.database,
             ownerId,
             row.version.id,
             row.entry.id,
@@ -82,7 +85,7 @@ export class RetrievalIndexService {
             tx,
           );
       if (!limits.vectorEnabled || !embedding.enabled || embedding.providerId === 'test') return;
-      const [waiting] = await tx.sql
+      const [waiting] = await tx
         .select({ count: sql<number>`count(*)` })
         .from(tasks)
         .where(
@@ -93,7 +96,7 @@ export class RetrievalIndexService {
           ),
         );
       if (Number(waiting?.count ?? 0) >= limits.indexBatchSize * 2) return;
-      const documents = await tx.sql
+      const documents = await tx
         .select({ document: memorySearchDocuments, entry: memoryEntries, version: memoryVersions })
         .from(memorySearchDocuments)
         .innerJoin(memoryEntries, eq(memoryEntries.id, memorySearchDocuments.memoryId))
@@ -125,33 +128,40 @@ export class RetrievalIndexService {
           runtimeEpoch: row.entry.runtimeEpoch,
           conversationId: row.entry.conversationId,
         };
-        await tx.tasks.insert({
-          id: taskId,
-          requestKey: `memory_index:${id}`,
-          fingerprint: fingerprint({ space, versionId: row.version.id }),
-          kind: 'memory_index',
-          input: { kind: 'memory_index', indexId: id, modelRequestId: taskId },
-          scope,
-          totalSteps: 2,
-        });
-        await tx.sql.insert(memoryVectorIndexes).values({
-          id,
+        await this.database.tasks.insert(
           ownerId,
-          versionId: row.version.id,
-          memoryId: row.entry.id,
-          ...scope,
-          space,
-          collection: vectorCollection(ownerId, space),
-          configVersion: configuration.version,
-          taskId,
-        });
+          {
+            id: taskId,
+            requestKey: `memory_index:${id}`,
+            fingerprint: fingerprint({ space, versionId: row.version.id }),
+            kind: 'memory_index',
+            input: { kind: 'memory_index', indexId: id, modelRequestId: taskId },
+            scope,
+            totalSteps: 2,
+          },
+          tx,
+        );
+        await this.database.memoryVectorIndexes.insert(
+          ownerId,
+          {
+            id,
+            versionId: row.version.id,
+            memoryId: row.entry.id,
+            ...scope,
+            space,
+            collection: vectorCollection(ownerId, space),
+            configVersion: configuration.version,
+            taskId,
+          },
+          tx,
+        );
       }
     });
   }
   /** 删除过期向量点并复查已失效的索引。 */
-  private async reconcileDeleted(limit: number): Promise<void> {
-    const rows = await this.store.locked((ownerId, tx) =>
-      tx.sql
+  private async reconcileDeleted(ownerId: string, limit: number): Promise<void> {
+    const rows = await this.store.locked(ownerId, (tx) =>
+      tx
         .select({ index: memoryVectorIndexes })
         .from(memoryVectorIndexes)
         .innerJoin(memoryEntries, eq(memoryEntries.id, memoryVectorIndexes.memoryId))
@@ -182,13 +192,13 @@ export class RetrievalIndexService {
     );
     for (const { index } of rows) {
       await this.vectors.remove(index.collection, [index.versionId]);
-      await this.store.locked(async (ownerId, tx) => {
-        await tx.sql
-          .update(memoryVectorIndexes)
-          .set({ status: 'deleted', reconciledAt: new Date() })
-          .where(
-            and(eq(memoryVectorIndexes.ownerId, ownerId), eq(memoryVectorIndexes.id, index.id)),
-          );
+      await this.store.locked(ownerId, async (tx) => {
+        await this.database.memoryVectorIndexes.update(
+          ownerId,
+          index.id,
+          { status: 'deleted', reconciledAt: new Date() },
+          tx,
+        );
       });
     }
   }
@@ -198,12 +208,16 @@ export class RetrievalIndexService {
    * 模型成功结果可复用；Qdrant 重试只覆盖相同点，不重复生成记忆。
    */
   async execute(lease: TaskLease): Promise<void> {
+    const ownerId = lease.ownerId;
     if (lease.input.kind !== 'memory_index') throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     const id = lease.input.indexId;
-    const row = await this.store.locked((ownerId, tx) => requireIndexSource(ownerId, id, tx));
-    const configuration = await this.configuration.getVersion(row.index.configVersion);
+    const row = await this.store.locked(ownerId, (tx) =>
+      requireIndexSource(this.database, ownerId, id, tx),
+    );
+    const configuration = await this.configuration.getVersion(ownerId, row.index.configVersion);
     const definition = embeddingDefinition(configuration.config.tasks.embedding);
     let call = await this.models.execute(
+      ownerId,
       {
         requestId: lease.input.modelRequestId,
         expectedConfigVersion: configuration.version,
@@ -219,7 +233,7 @@ export class RetrievalIndexService {
     while (call.status === 'running') {
       await delay(lease.config.pollMs);
       await this.jobs.heartbeat(lease);
-      call = await this.models.get(call.id);
+      call = await this.models.get(ownerId, call.id);
     }
     await this.jobs.checkpoint(lease, {
       completedSteps: Math.max(
@@ -237,7 +251,7 @@ export class RetrievalIndexService {
       await this.jobs.fail(lease, 'embedding_failed');
       return;
     }
-    await this.store.locked((ownerId, tx) => this.jobs.guardDispatch(ownerId, tx, lease));
+    await this.store.locked(ownerId, (tx) => this.jobs.guardDispatch(ownerId, tx, lease));
     await this.vectors.upsert(row.index.collection, row.version.id, call.result.vector, {
       owner: row.index.ownerId,
       companion: row.index.companionId,
@@ -252,11 +266,13 @@ export class RetrievalIndexService {
         modelCallId: call.id,
       });
       await this.jobs.complete(lease, async (ownerId, tx) => {
-        await requireIndexSource(ownerId, id, tx);
-        await tx.sql
-          .update(memoryVectorIndexes)
-          .set({ status: 'indexed', indexedAt: new Date() })
-          .where(eq(memoryVectorIndexes.id, id));
+        await requireIndexSource(this.database, ownerId, id, tx);
+        await this.database.memoryVectorIndexes.update(
+          ownerId,
+          id,
+          { status: 'indexed', indexedAt: new Date() },
+          tx,
+        );
       });
     } catch (error) {
       // 迟到外部写入不能变成有效索引；清理失败仍由持久记录负责后续补偿。
@@ -270,13 +286,14 @@ export class RetrievalIndexService {
    * 幂等创建恢复任务；结果未知不重发，成功编码可复用。
    */
   async retry(
+    ownerId: string,
     companionId: string,
     indexId: string,
     command: OrganizeMemory,
   ): Promise<{ taskId: string }> {
-    const current = await this.configuration.get();
-    return this.store.locked(async (ownerId, tx) => {
-      const row = await requireIndexSource(ownerId, indexId, tx);
+    const current = await this.configuration.get(ownerId);
+    return this.store.locked(ownerId, async (tx) => {
+      const row = await requireIndexSource(this.database, ownerId, indexId, tx);
       if (
         row.entry.companionId !== companionId ||
         row.entry.runtimeEpoch !== command.runtimeEpoch ||
@@ -285,48 +302,58 @@ export class RetrievalIndexService {
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       const requestKey = `index_retry:${indexId}:${command.requestId}`;
       const hash = fingerprint(command);
-      const replay = await tx.tasks.findOne({ where: { requestKey: requestKey } });
+      const replay = await this.database.tasks.findOne(ownerId, { where: { requestKey } }, tx);
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return { taskId: replay.id };
       }
-      const previous = await tx.tasks.findOne({ where: { id: row.index.taskId } });
+      const previous = await this.database.tasks.findById(ownerId, row.index.taskId, tx);
       if (
         !previous ||
         previous.input.kind !== 'memory_index' ||
         !['failed', 'blocked', 'cancelled', 'succeeded'].includes(previous.status)
       )
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
-      const call = await tx.modelCalls.findOne({
-        where: { requestId: previous.input.modelRequestId },
-      });
+      const call = await this.database.modelCalls.findOne(
+        ownerId,
+        {
+          where: { requestId: previous.input.modelRequestId },
+        },
+        tx,
+      );
       if (call && ['running', 'unknown'].includes(call.status))
         throw new ApiException(API_CODES.MODEL_USAGE_UNKNOWN);
       if (row.index.space !== embeddingSpace(current.config.tasks.embedding, this.config))
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       const taskId = randomUUID();
-      await tx.tasks.insert({
-        id: taskId,
-        requestKey,
-        fingerprint: hash,
-        kind: 'memory_index',
-        input: {
+      await this.database.tasks.insert(
+        ownerId,
+        {
+          id: taskId,
+          requestKey,
+          fingerprint: hash,
           kind: 'memory_index',
-          indexId,
-          modelRequestId: call?.status === 'succeeded' ? previous.input.modelRequestId : taskId,
+          input: {
+            kind: 'memory_index',
+            indexId,
+            modelRequestId: call?.status === 'succeeded' ? previous.input.modelRequestId : taskId,
+          },
+          scope: previous.scope,
+          totalSteps: 2,
         },
-        scope: previous.scope,
-        totalSteps: 2,
-      });
-      await tx.memoryVectorIndexes.updateWhere({
-        where: { id: indexId },
-        set: {
+        tx,
+      );
+      await this.database.memoryVectorIndexes.update(
+        ownerId,
+        indexId,
+        {
           taskId,
           status: 'pending',
           indexedAt: null,
           configVersion: call?.status === 'succeeded' ? row.index.configVersion : current.version,
         },
-      });
+        tx,
+      );
       return { taskId };
     });
   }
@@ -337,23 +364,28 @@ export class RetrievalIndexService {
    * 管理查询只显示身份与状态，正文仍从记忆查询接口读取。
    */
   async list(
+    ownerId: string,
     companionId: string,
     runtimeEpoch: number,
     afterId?: string,
   ): Promise<RecallIndexList> {
-    const configuration = await this.configuration.get();
+    const configuration = await this.configuration.get(ownerId);
     const space = embeddingSpace(configuration.config.tasks.embedding, this.config);
-    return this.store.locked(async (ownerId, tx) => {
-      await requireCompanion(ownerId, companionId, runtimeEpoch, tx);
-      const rows = await tx.memoryVectorIndexes.findMany({
-        where: and(
-          eq(memoryVectorIndexes.companionId, companionId),
-          eq(memoryVectorIndexes.runtimeEpoch, runtimeEpoch),
-          afterId ? gt(memoryVectorIndexes.id, afterId) : undefined,
-        ),
-        orderBy: [asc(memoryVectorIndexes.id)],
-        limit: 51,
-      });
+    return this.store.locked(ownerId, async (tx) => {
+      await requireCompanion(this.database, ownerId, companionId, runtimeEpoch, tx);
+      const rows = await this.database.memoryVectorIndexes.findMany(
+        ownerId,
+        {
+          where: and(
+            eq(memoryVectorIndexes.companionId, companionId),
+            eq(memoryVectorIndexes.runtimeEpoch, runtimeEpoch),
+            afterId ? gt(memoryVectorIndexes.id, afterId) : undefined,
+          ),
+          orderBy: [asc(memoryVectorIndexes.id)],
+          limit: 51,
+        },
+        tx,
+      );
       return {
         space,
         items: rows.slice(0, 50).map((row) => ({

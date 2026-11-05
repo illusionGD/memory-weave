@@ -28,8 +28,14 @@ export class ChatEventsService implements OnModuleDestroy {
    * @param request 用于周期复核会话是否仍有效。
    * @param response 直接发送 SSE，帧内数据仍遵循统一数字 code 协议。
    */
-  async stream(id: string, cursor: number, request: Request, response: Response): Promise<void> {
-    const initial = await this.chats.get(id);
+  async stream(
+    ownerId: string,
+    id: string,
+    cursor: number,
+    request: Request,
+    response: Response,
+  ): Promise<void> {
+    const initial = await this.chats.get(ownerId, id);
     if (cursor > initial.lastSequence) throw new ApiException(API_CODES.INVALID_REQUEST);
     const settings = this.chats.settings();
     if (this.connections.size >= settings.maxEventConnections)
@@ -60,22 +66,23 @@ export class ChatEventsService implements OnModuleDestroy {
     };
     try {
       while (!connection.signal.aborted) {
-        if (!this.auth.hasSession(readSessionCookie(request))) {
+        if ((await this.auth.sessionOwner(readSessionCookie(request))) !== ownerId) {
           await write(
             `event: error\ndata: ${JSON.stringify({ code: API_CODES.AUTH_REQUIRED, data: null, message: API_RESPONSES[API_CODES.AUTH_REQUIRED].message })}\n\n`,
           );
           break;
         }
-        const state = await this.chats.get(id);
+        const state = await this.chats.get(ownerId, id);
         const next = JSON.stringify(state);
         if (next !== stateHash) {
           await event('state', state);
           stateHash = next;
         }
         // 先发送失效状态，让在线终端清空缓存；清理期间不重放原文。
-        const items = state.availability === 'cleaning' ? [] : await this.chats.after(id, cursor);
+        const items =
+          state.availability === 'cleaning' ? [] : await this.chats.after(ownerId, id, cursor);
         if (items.length) {
-          const latest = await this.chats.get(id);
+          const latest = await this.chats.get(ownerId, id);
           if (
             latest.contentRevision !== state.contentRevision ||
             latest.availability !== state.availability

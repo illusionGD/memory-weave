@@ -4,7 +4,9 @@
 
 **当前功能：F10 管理后台记忆浏览、时间线与关系图谱。** 可跨私聊查看同一伴侣的记忆，追溯原文、历史、修订与冲突；纠错仍通过聊天自主整理。聊天端与后台是独立项目，同一伴侣的记忆与尚未整理的新补充继续参与聊天。MySQL 8.4.9 保存权威数据，Qdrant 1.18.3 保存可重建向量索引，Redis 8.4.8 保存登录会话与登录限流；反思与人格成长按后续阶段加入。
 
-**本次开发库需要重建。** 数据访问已改为自动归属的 `database.表.操作` 和事务回调，业务表由 42 张调整为 41 张，初始化迁移重新建立基线。已有开发环境先停止后端，保持 MySQL/Qdrant/Redis 运行，执行 `pnpm db:reset`，再运行 `pnpm dev` 并重新登录。该命令会清空本项目开发数据及对应向量、头像和 Redis 命名空间；新安装仍用 `pnpm db:migrate`。后文各历史功能的增量升级说明不适用于跨越本次重建，详见 [数据访问与重建说明](docs/features/crud-repositories.md)。
+**当前数据库访问重构无需重建。** 使用 `database.表.操作(ownerId, ...)`，事务显式传 tx，详见 [数据库访问](docs/features/crud-repositories.md)。
+
+较早版本已将业务表从 42 张合并为 41 张，并重建初始化基线。只有尚未升级到 `0000_development_baseline` 的旧开发库需要停止后端再执行 `pnpm db:reset`；该命令清空开发数据及对应向量、头像和 Redis 命名空间。已完成这次升级的环境正常拉取、重启即可；新安装仍执行 `pnpm db:migrate`。旧库重建步骤见 [数据库访问说明](docs/features/crud-repositories.md#较早开发库的结构升级)。
 
 - [模型 JSON 配置与环境区分](docs/features/model-json-config.md)
 - [架构设计](docs/architecture.md)

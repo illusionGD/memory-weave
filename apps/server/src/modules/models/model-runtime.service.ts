@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import {
   MODEL_PROBE_DEFINITION_VERSION,
   MODEL_VECTOR_SCHEMA_VERSION,
@@ -56,6 +57,7 @@ export class ModelRuntimeService {
   private readonly cancellations = new Map<string, AbortController>();
   /** 初始化模型调用和用量管理服务。 */
   constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
     @Inject(ModelProvidersService) private readonly providers: ModelProvidersService,
   ) {}
@@ -68,8 +70,9 @@ export class ModelRuntimeService {
    * @param guard 后台模块提供的派发前租约检查，不参与模型调用身份。
    * @returns 持久调用及尝试记录；失败结果仅含受控原因。
    */
-  probe(input: ModelProbe, guard?: ModelDispatchGuard): Promise<ModelCall> {
+  probe(ownerId: string, input: ModelProbe, guard?: ModelDispatchGuard): Promise<ModelCall> {
     return this.invoke(
+      ownerId,
       input,
       {
         promptVersion: MODEL_PROBE_DEFINITION_VERSION,
@@ -101,12 +104,13 @@ export class ModelRuntimeService {
    * @returns 持久候选与诊断，后续业务提交仍须校验版本及生命周期。
    */
   execute(
+    ownerId: string,
     command: ModelProbe,
     definition: ModelTaskDefinition,
     scope: ModelTaskScope = { companionId: null, runtimeEpoch: null, conversationId: null },
     guard?: ModelDispatchGuard,
   ): Promise<ModelCall> {
-    return this.invoke(command, definition, scope, 'task', guard);
+    return this.invoke(ownerId, command, definition, scope, 'task', guard);
   }
 
   /**
@@ -121,6 +125,7 @@ export class ModelRuntimeService {
    * @returns 持久结果及真实尝试；中断不自动重发已经输出的回复。
    */
   executeStreaming(
+    ownerId: string,
     command: ModelProbe,
     definition: ModelTaskDefinition,
     onText: ModelTextSink,
@@ -128,7 +133,7 @@ export class ModelRuntimeService {
     guard?: ModelDispatchGuard,
   ): Promise<ModelCall> {
     if (command.operation !== 'text') throw new ApiException(API_CODES.INVALID_REQUEST);
-    return this.invoke(command, definition, scope, 'task', guard, onText);
+    return this.invoke(ownerId, command, definition, scope, 'task', guard, onText);
   }
 
   /**
@@ -137,6 +142,7 @@ export class ModelRuntimeService {
    * 两类入口共享同一配置、计量和幂等实现，诊断不能冒充真实经历。
    */
   private async invoke(
+    ownerId: string,
     command: ModelProbe,
     definition: ModelTaskDefinition,
     scope: ModelTaskScope,
@@ -170,14 +176,15 @@ export class ModelRuntimeService {
       outputJsonSchema,
       ...(onText ? { streaming: true } : {}),
     });
-    const prepared = await this.configuration.locked(async (ownerId, tx, current) => {
+    const prepared = await this.configuration.locked(ownerId, async (tx, current) => {
       await guard?.(ownerId, tx);
-      await expireAttempts(ownerId, tx);
-      await assertScope(ownerId, tx, context);
-      const [existing] = await tx.sql
-        .select()
-        .from(modelCalls)
-        .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.requestId, input.requestId)));
+      await expireAttempts(this.database, ownerId, tx);
+      await assertScope(this.database, ownerId, tx, context);
+      const existing = await this.database.modelCalls.findOne(
+        ownerId,
+        { where: { requestId: input.requestId } },
+        tx,
+      );
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return { callId: existing.id, task: null, attempt: null };
@@ -214,8 +221,9 @@ export class ModelRuntimeService {
         createdAt: new Date(),
         finishedAt: null,
       };
-      await tx.sql.insert(modelCalls).values(call);
+      await tx.insert(modelCalls).values(call);
       const attempt = await reserveAttempt(
+        this.database,
         ownerId,
         tx,
         { ...current, config: this.providers.effective(current.config) },
@@ -239,7 +247,7 @@ export class ModelRuntimeService {
           try {
             if (attempt.number > 1)
               await delay(task.retryDelayMs, undefined, { signal: cancellation.signal });
-            await this.checkDispatch(prepared.callId, guard);
+            await this.checkDispatch(ownerId, prepared.callId, guard);
             cancellation.signal.throwIfAborted();
             response = await this.providers.adapter(task.providerId, input.operation).invoke({
               operation: input.operation,
@@ -277,13 +285,22 @@ export class ModelRuntimeService {
                     error instanceof ApiException ? error.code : API_CODES.MODEL_USAGE_UNKNOWN,
                   );
           }
-          attempt = await this.settle(attempt, task, input, response, failure, definition, !onText);
+          attempt = await this.settle(
+            ownerId,
+            attempt,
+            task,
+            input,
+            response,
+            failure,
+            definition,
+            !onText,
+          );
         }
       } finally {
         this.cancellations.delete(prepared.callId);
       }
     }
-    return this.get(prepared.callId);
+    return this.get(ownerId, prepared.callId);
   }
 
   /**
@@ -291,16 +308,16 @@ export class ModelRuntimeService {
    *
    * 等待后重新检查版本、取消和范围，避免按旧配置继续发送重试。
    */
-  private checkDispatch(id: string, guard?: ModelDispatchGuard): Promise<void> {
-    return this.configuration.locked(async (ownerId, tx, current) => {
+  private checkDispatch(ownerId: string, id: string, guard?: ModelDispatchGuard): Promise<void> {
+    return this.configuration.locked(ownerId, async (tx, current) => {
       await guard?.(ownerId, tx);
-      await expireAttempts(ownerId, tx);
-      const call = await readCall(ownerId, tx, id);
+      await expireAttempts(this.database, ownerId, tx);
+      const call = await readCall(this.database, ownerId, tx, id);
       if (call.status !== 'running')
         throw new ApiException(call.errorCode ?? API_CODES.MODEL_USAGE_UNKNOWN);
       if (call.configVersion !== current.version)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
-      await assertScope(ownerId, tx, call.context);
+      await assertScope(this.database, ownerId, tx, call.context);
     });
   }
 
@@ -309,10 +326,10 @@ export class ModelRuntimeService {
    *
    * 查询当前 owner 的调用；过期尝试显式转为未知，保留预算占用。
    */
-  get(id: string): Promise<ModelCall> {
-    return this.configuration.locked(async (ownerId, tx) => {
-      await expireAttempts(ownerId, tx);
-      return readCall(ownerId, tx, id);
+  get(ownerId: string, id: string): Promise<ModelCall> {
+    return this.configuration.locked(ownerId, async (tx) => {
+      await expireAttempts(this.database, ownerId, tx);
+      return readCall(this.database, ownerId, tx, id);
     });
   }
 
@@ -321,22 +338,24 @@ export class ModelRuntimeService {
    *
    * 先持久化取消，再中止本进程网络等待；已发出的请求仍需结算其消耗。
    */
-  async cancel(id: string): Promise<ModelCall> {
-    const call = await this.configuration.locked(async (ownerId, tx) => {
-      await expireAttempts(ownerId, tx);
-      const current = await readCall(ownerId, tx, id);
+  async cancel(ownerId: string, id: string): Promise<ModelCall> {
+    const call = await this.configuration.locked(ownerId, async (tx) => {
+      await expireAttempts(this.database, ownerId, tx);
+      const current = await readCall(this.database, ownerId, tx, id);
       if (current.status === 'running') {
-        await tx.sql
-          .update(modelCalls)
-          .set({
+        await this.database.modelCalls.update(
+          ownerId,
+          id,
+          {
             status: 'cancelled',
             errorCode: API_CODES.MODEL_CANCELLED,
             result: null,
             finishedAt: new Date(),
-          })
-          .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.id, id)));
+          },
+          tx,
+        );
       }
-      return readCall(ownerId, tx, id);
+      return readCall(this.database, ownerId, tx, id);
     });
     if (call.status === 'cancelled') this.cancellations.get(call.id)?.abort();
     return call;
@@ -347,12 +366,12 @@ export class ModelRuntimeService {
    *
    * 查询固定 UTC 当日的全局及任务用量，不因配置版本变化重置。
    */
-  usage(): Promise<ModelUsage> {
-    return this.configuration.locked(async (ownerId, tx, current) => {
-      await expireAttempts(ownerId, tx);
+  usage(ownerId: string): Promise<ModelUsage> {
+    return this.configuration.locked(ownerId, async (tx, current) => {
+      await expireAttempts(this.database, ownerId, tx);
       const day = new Date().toISOString().slice(0, 10);
       const effective = this.providers.effective(current.config);
-      const rows = await tx.sql
+      const rows = await tx
         .select()
         .from(modelUsageWindows)
         .where(and(eq(modelUsageWindows.ownerId, ownerId), eq(modelUsageWindows.day, day)));
@@ -368,7 +387,7 @@ export class ModelRuntimeService {
           },
         };
       };
-      const active = await tx.sql
+      const active = await tx
         .select({ id: modelAttempts.id })
         .from(modelAttempts)
         .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.status, 'running')));
@@ -394,6 +413,7 @@ export class ModelRuntimeService {
    * 将可观察输出与额度在同一事务结算；重试也必须再次原子预留。
    */
   private settle(
+    ownerId: string,
     attempt: AttemptRow,
     task: ModelTaskConfig,
     input: ModelProbe,
@@ -402,9 +422,9 @@ export class ModelRuntimeService {
     definition: ModelTaskDefinition,
     allowRetry = true,
   ): Promise<AttemptRow | null> {
-    return this.configuration.locked(async (ownerId, tx, current) => {
-      const saved = await tx.modelAttempts.findOne({ where: { id: attempt.id } });
-      const call = await tx.modelCalls.findOne({ where: { id: attempt.callId } });
+    return this.configuration.locked(ownerId, async (tx, current) => {
+      const saved = await this.database.modelAttempts.findById(ownerId, attempt.id, tx);
+      const call = await this.database.modelCalls.findById(ownerId, attempt.callId, tx);
       if (!saved || !call) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
       if (
         saved.usageSource === 'reported' ||
@@ -417,6 +437,7 @@ export class ModelRuntimeService {
         ? costMicros(usage.inputTokens, usage.outputTokens, task)
         : saved.chargedCostMicros;
       await adjustUsage(
+        this.database,
         ownerId,
         tx,
         saved.day,
@@ -426,7 +447,7 @@ export class ModelRuntimeService {
       );
       let scopeError: number | null = call.invalidatedAt ? API_CODES.LIFECYCLE_RESTRICTED : null;
       try {
-        await assertScope(ownerId, tx, call.context);
+        await assertScope(this.database, ownerId, tx, call.context);
       } catch (error) {
         if (!(error instanceof ApiException)) throw error;
         scopeError = error.code;
@@ -466,9 +487,10 @@ export class ModelRuntimeService {
         errorCode = scopeError;
       }
       const finishedAt = new Date();
-      await tx.modelAttempts.updateWhere({
-        where: { id: saved.id },
-        set: {
+      await this.database.modelAttempts.update(
+        ownerId,
+        saved.id,
+        {
           status,
           errorCode,
           usageSource: usage ? 'reported' : 'reserved',
@@ -480,7 +502,8 @@ export class ModelRuntimeService {
           responseFingerprint: response?.responseId ? fingerprint(response.responseId) : null,
           finishedAt,
         },
-      });
+        tx,
+      );
       let next: AttemptRow | null = null;
       if (
         allowRetry &&
@@ -495,6 +518,7 @@ export class ModelRuntimeService {
             throw new ApiException(API_CODES.VERSION_CONFLICT);
           assertRunnable(input, current.config.tasks[call.role], definition);
           next = await reserveAttempt(
+            this.database,
             ownerId,
             tx,
             { ...current, config: this.providers.effective(current.config) },
@@ -512,10 +536,12 @@ export class ModelRuntimeService {
           errorCode = error.code;
         }
       }
-      await tx.modelCalls.updateWhere({
-        where: { id: saved.callId },
-        set: { status, errorCode, result, finishedAt: next ? null : finishedAt },
-      });
+      await this.database.modelCalls.update(
+        ownerId,
+        saved.callId,
+        { status, errorCode, result, finishedAt: next ? null : finishedAt },
+        tx,
+      );
       return next;
     });
   }
@@ -569,6 +595,7 @@ function assertRunnable(
  * @returns 已持久保存、可以在事务外发送的尝试。
  */
 async function reserveAttempt(
+  database: DatabaseService,
   ownerId: string,
   tx: DatabaseTransaction,
   current: ModelConfigurationVersion,
@@ -578,7 +605,7 @@ async function reserveAttempt(
   number: number,
   definition: ModelTaskDefinition,
 ): Promise<AttemptRow> {
-  const active = await tx.sql
+  const active = await tx
     .select({ lane: modelAttempts.lane })
     .from(modelAttempts)
     .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.status, 'running')));
@@ -597,11 +624,11 @@ async function reserveAttempt(
   for (const scope of ['global', call.role]) {
     const limit =
       scope === 'global' ? current.config.dailyBudget : current.config.tasks[call.role].dailyBudget;
-    await tx.sql
+    await tx
       .insert(modelUsageWindows)
       .values({ ownerId, day, scope })
       .onDuplicateKeyUpdate({ set: { scope } });
-    const window = await tx.modelUsageWindows.findOne({ where: { day: day, scope: scope } });
+    const window = await database.modelUsageWindows.findOne(ownerId, { where: { day, scope } }, tx);
     if (!window) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
     if (
       window.requests + 1 > limit.requests ||
@@ -612,14 +639,16 @@ async function reserveAttempt(
     windows.push(window);
   }
   for (const window of windows) {
-    await tx.modelUsageWindows.updateWhere({
-      where: { id: window.id },
-      set: {
+    await database.modelUsageWindows.update(
+      ownerId,
+      window.id,
+      {
         requests: window.requests + 1,
         tokens: window.tokens + tokens,
         costMicros: window.costMicros + cost,
       },
-    });
+      tx,
+    );
   }
   const attempt: AttemptRow = {
     id: randomUUID(),
@@ -644,7 +673,7 @@ async function reserveAttempt(
     ),
     finishedAt: null,
   };
-  await tx.sql.insert(modelAttempts).values(attempt);
+  await tx.insert(modelAttempts).values(attempt);
   return attempt;
 }
 
@@ -666,6 +695,7 @@ function costMicros(inputTokens: number, outputTokens: number, task: ModelTaskCo
  * 原窗口结算，即使调用跨日结束，也不将前一天的预留扣到新一天。
  */
 async function adjustUsage(
+  database: DatabaseService,
   ownerId: string,
   tx: DatabaseTransaction,
   day: string,
@@ -674,12 +704,14 @@ async function adjustUsage(
   costDelta: number,
 ): Promise<void> {
   for (const scope of ['global', role]) {
-    const window = await tx.modelUsageWindows.findOne({ where: { day: day, scope: scope } });
+    const window = await database.modelUsageWindows.findOne(ownerId, { where: { day, scope } }, tx);
     if (!window) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-    await tx.modelUsageWindows.updateWhere({
-      where: { id: window.id },
-      set: { tokens: window.tokens + tokenDelta, costMicros: window.costMicros + costDelta },
-    });
+    await database.modelUsageWindows.update(
+      ownerId,
+      window.id,
+      { tokens: window.tokens + tokenDelta, costMicros: window.costMicros + costDelta },
+      tx,
+    );
   }
 }
 
@@ -727,8 +759,12 @@ function validatedResult(
  *
  * 进程消失或结果迟到时，保留预留并明确标记未知，不自动重复调用。
  */
-async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise<void> {
-  const expired = await tx.sql
+async function expireAttempts(
+  database: DatabaseService,
+  ownerId: string,
+  tx: DatabaseTransaction,
+): Promise<void> {
+  const expired = await tx
     .select()
     .from(modelAttempts)
     .where(
@@ -744,8 +780,12 @@ async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise
       errorCode: API_CODES.MODEL_USAGE_UNKNOWN,
       finishedAt: new Date(),
     };
-    await tx.modelAttempts.updateWhere({ where: { id: row.id }, set: state });
-    await tx.modelCalls.updateWhere({ where: { id: row.callId, status: 'running' }, set: state });
+    await database.modelAttempts.update(ownerId, row.id, state, tx);
+    await database.modelCalls.updateWhere(
+      ownerId,
+      { where: { id: row.callId, status: 'running' }, set: state },
+      tx,
+    );
   }
 }
 
@@ -754,17 +794,22 @@ async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise
  *
  * 只映射本部署的可展示字段，排序保持真实尝试次序。
  */
-async function readCall(ownerId: string, tx: DatabaseTransaction, id: string): Promise<ModelCall> {
-  const call = await tx.modelCalls.findOne({ where: { id: id } });
+async function readCall(
+  database: DatabaseService,
+  ownerId: string,
+  tx: DatabaseTransaction,
+  id: string,
+): Promise<ModelCall> {
+  const call = await database.modelCalls.findById(ownerId, id, tx);
   if (!call) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   let invalidated = Boolean(call.invalidatedAt);
   try {
-    await assertScope(ownerId, tx, call.context);
+    await assertScope(database, ownerId, tx, call.context);
   } catch (error) {
     if (!(error instanceof ApiException)) throw error;
     invalidated = true;
   }
-  const rows = await tx.sql
+  const rows = await tx
     .select()
     .from(modelAttempts)
     .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.callId, id)))
@@ -831,6 +876,7 @@ function outputSpecification(
  * 相同 owner、有效运行代次及当前会话成员是模型调用的必要范围。
  */
 async function assertScope(
+  database: DatabaseService,
   ownerId: string,
   tx: DatabaseTransaction,
   context: ModelCallContext,
@@ -839,9 +885,10 @@ async function assertScope(
     throw new ApiException(API_CODES.INVALID_REQUEST);
   if (context.conversationId) await requireConversation(ownerId, context.conversationId, tx);
   if (context.companionId && context.runtimeEpoch !== null) {
-    await requireCompanion(ownerId, context.companionId, context.runtimeEpoch, tx);
+    await requireCompanion(database, ownerId, context.companionId, context.runtimeEpoch, tx);
     if (context.conversationId) {
       const member = await requireCompanionMember(
+        database,
         ownerId,
         context.companionId,
         context.runtimeEpoch,

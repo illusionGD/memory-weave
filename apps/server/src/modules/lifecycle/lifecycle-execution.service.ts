@@ -1,14 +1,9 @@
+import { DatabaseService } from '../../database/database.service';
 import { AvatarFiles } from '../companions/avatar-files';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { API_CODES } from '@memory-weave/contracts';
-import {
-  companions,
-  conversations,
-  lifecycleOperations,
-  tasks,
-  memoryVectorIndexes,
-} from '../../database/schema';
+import { memoryVectorIndexes } from '../../database/schema';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
 import { ApiException } from '../../http/api-exception';
@@ -24,6 +19,7 @@ import { RetrievalVector } from '../retrieval/retrieval-vector';
 export class LifecycleExecutionService {
   /** 初始化生命周期清理执行服务。 */
   constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(AvatarFiles) private readonly avatarFiles: AvatarFiles,
     @Inject(RetrievalVector) private readonly vectors: RetrievalVector,
     @Inject(ModelConfigurationService) private readonly models: ModelConfigurationService,
@@ -36,18 +32,18 @@ export class LifecycleExecutionService {
    * 仅清理当前部署拥有的数据；全局用量与必要核对身份不删除。
    */
   async execute(lease: TaskLease): Promise<void> {
+    const ownerId = lease.ownerId;
     if (lease.input.kind !== 'lifecycle_cleanup')
       throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     const operationId = lease.input.operationId;
     while (true) {
-      const done = await this.models.locked(async (ownerId, tx) => {
+      const done = await this.models.locked(ownerId, async (tx) => {
         await this.jobs.guardDispatch(ownerId, tx, lease);
-        const [operation] = await tx.sql
-          .select()
-          .from(lifecycleOperations)
-          .where(
-            and(eq(lifecycleOperations.ownerId, ownerId), eq(lifecycleOperations.id, operationId)),
-          );
+        const operation = await this.database.lifecycleOperations.findById(
+          ownerId,
+          operationId,
+          tx,
+        );
         if (!operation) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
         if (operation.taskId !== lease.task.id) throw new ApiException(API_CODES.TASK_LEASE_LOST);
         const stages = LIFECYCLE_STAGES;
@@ -62,39 +58,48 @@ export class LifecycleExecutionService {
             this.config.lifecycleBatchSize ?? 100,
           );
           if (rows.length) return { kind: 'vectors' as const, operation, rows };
-          await tx.sql
-            .update(lifecycleOperations)
-            .set({ stage: operation.stage + 1 })
-            .where(eq(lifecycleOperations.id, operation.id));
-          await tx.sql
-            .update(tasks)
-            .set({
+          await this.database.lifecycleOperations.update(
+            ownerId,
+            operation.id,
+            { stage: operation.stage + 1 },
+            tx,
+          );
+          await this.database.tasks.update(
+            ownerId,
+            lease.task.id,
+            {
               completedSteps: operation.stage + 1,
               stage: stages[operation.stage + 1]!,
               updatedAt: new Date(),
-            })
-            .where(eq(tasks.id, lease.task.id));
+            },
+            tx,
+          );
           return false;
         }
         const result = await cleanupLifecyclePage(
+          this.database,
           ownerId,
           tx,
           operation,
           this.config.lifecycleBatchSize ?? 100,
         );
         const stage = operation.stage + (result.done ? 1 : 0);
-        await tx.sql
-          .update(lifecycleOperations)
-          .set({ stage, processedRecords: operation.processedRecords + result.changed })
-          .where(eq(lifecycleOperations.id, operation.id));
-        await tx.sql
-          .update(tasks)
-          .set({
+        await this.database.lifecycleOperations.update(
+          ownerId,
+          operation.id,
+          { stage, processedRecords: operation.processedRecords + result.changed },
+          tx,
+        );
+        await this.database.tasks.update(
+          ownerId,
+          lease.task.id,
+          {
             completedSteps: stage,
             stage: stages[stage] ?? 'cleanup_complete',
             updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, lease.task.id));
+          },
+          tx,
+        );
         await this.jobs.guardDispatch(ownerId, tx, lease);
         return stage >= stages.length;
       });
@@ -102,38 +107,38 @@ export class LifecycleExecutionService {
         // 删除限制已持久生效；文件操作在事务外，重复删除同一目录安全。
         if (done.operation.kind === 'delete_companion' && done.operation.companionId)
           await this.avatarFiles.removeAll(done.ownerId, done.operation.companionId);
-        await this.models.locked(async (ownerId, tx) => {
+        await this.models.locked(ownerId, async (tx) => {
           await this.jobs.guardDispatch(ownerId, tx, lease);
-          const [operation] = await tx.sql
-            .select()
-            .from(lifecycleOperations)
-            .where(
-              and(
-                eq(lifecycleOperations.ownerId, ownerId),
-                eq(lifecycleOperations.id, operationId),
-              ),
-            );
+          const operation = await this.database.lifecycleOperations.findById(
+            ownerId,
+            operationId,
+            tx,
+          );
           if (operation?.taskId !== lease.task.id || operation.stage !== done.operation.stage)
             throw new ApiException(API_CODES.TASK_LEASE_LOST);
           if (operation.kind === 'delete_companion' && operation.companionId)
-            await tx.sql
-              .update(companions)
-              .set({ avatar: null })
-              .where(
-                and(eq(companions.ownerId, ownerId), eq(companions.id, operation.companionId)),
-              );
-          await tx.sql
-            .update(lifecycleOperations)
-            .set({ stage: operation.stage + 1 })
-            .where(eq(lifecycleOperations.id, operationId));
-          await tx.sql
-            .update(tasks)
-            .set({
+            await this.database.companions.update(
+              ownerId,
+              operation.companionId,
+              { avatar: null },
+              tx,
+            );
+          await this.database.lifecycleOperations.update(
+            ownerId,
+            operationId,
+            { stage: operation.stage + 1 },
+            tx,
+          );
+          await this.database.tasks.update(
+            ownerId,
+            lease.task.id,
+            {
               completedSteps: operation.stage + 1,
               stage: 'cleanup_complete',
               updatedAt: new Date(),
-            })
-            .where(eq(tasks.id, lease.task.id));
+            },
+            tx,
+          );
         });
       } else if (typeof done === 'object') {
         const groups = new Map<string, string[]>();
@@ -143,57 +148,52 @@ export class LifecycleExecutionService {
           groups.set(row.collection, ids);
         }
         for (const [collection, ids] of groups) await this.vectors.remove(collection, ids);
-        await this.models.locked(async (ownerId, tx) => {
+        await this.models.locked(ownerId, async (tx) => {
           await this.jobs.guardDispatch(ownerId, tx, lease);
-          const [operation] = await tx.sql
-            .select()
-            .from(lifecycleOperations)
-            .where(
-              and(
-                eq(lifecycleOperations.ownerId, ownerId),
-                eq(lifecycleOperations.id, operationId),
-              ),
-            );
+          const operation = await this.database.lifecycleOperations.findById(
+            ownerId,
+            operationId,
+            tx,
+          );
           if (operation?.taskId !== lease.task.id || operation.stage !== done.operation.stage)
             throw new ApiException(API_CODES.TASK_LEASE_LOST);
-          await tx.sql
-            .update(memoryVectorIndexes)
-            .set({ status: 'deleted', reconciledAt: new Date() })
-            .where(
-              inArray(
+          await this.database.memoryVectorIndexes.updateWhere(
+            ownerId,
+            {
+              where: inArray(
                 memoryVectorIndexes.id,
                 done.rows.map((row) => row.id),
               ),
-            );
-          await tx.sql
-            .update(lifecycleOperations)
-            .set({ processedRecords: operation.processedRecords + done.rows.length })
-            .where(eq(lifecycleOperations.id, operationId));
+              set: { status: 'deleted', reconciledAt: new Date() },
+            },
+            tx,
+          );
+          await this.database.lifecycleOperations.update(
+            ownerId,
+            operationId,
+            { processedRecords: operation.processedRecords + done.rows.length },
+            tx,
+          );
         });
       } else if (done) break;
     }
     await this.jobs.complete(lease, async (ownerId, tx) => {
-      await tx.sql
-        .update(lifecycleOperations)
-        .set({ completedAt: new Date() })
-        .where(
-          and(eq(lifecycleOperations.ownerId, ownerId), eq(lifecycleOperations.id, operationId)),
-        );
-      await tx.sql
-        .update(companions)
-        .set({ lifecycleOperationId: null })
-        .where(
-          and(eq(companions.ownerId, ownerId), eq(companions.lifecycleOperationId, operationId)),
-        );
-      await tx.sql
-        .update(conversations)
-        .set({ lifecycleOperationId: null })
-        .where(
-          and(
-            eq(conversations.ownerId, ownerId),
-            eq(conversations.lifecycleOperationId, operationId),
-          ),
-        );
+      await this.database.lifecycleOperations.update(
+        ownerId,
+        operationId,
+        { completedAt: new Date() },
+        tx,
+      );
+      await this.database.companions.updateWhere(
+        ownerId,
+        { where: { lifecycleOperationId: operationId }, set: { lifecycleOperationId: null } },
+        tx,
+      );
+      await this.database.conversations.updateWhere(
+        ownerId,
+        { where: { lifecycleOperationId: operationId }, set: { lifecycleOperationId: null } },
+        tx,
+      );
     });
   }
 }

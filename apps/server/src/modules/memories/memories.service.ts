@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import {
   MODEL_PROBE_DEFINITION_VERSION,
   MODEL_PREPROCESSING_VERSION,
@@ -48,6 +49,7 @@ import type { MemoryBatchInput } from './memory-types';
 export class MemoriesService {
   /** 初始化记忆批次管理服务。 */
   constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(ModelConfigurationService) private readonly models: ModelConfigurationService,
     @Inject(SERVER_CONFIG) private readonly runtime: RuntimeConfig,
@@ -57,10 +59,15 @@ export class MemoriesService {
    *
    * 提前安排一个批次，同命令严格复用首次范围。
    */
-  async organize(companionId: string, input: OrganizeMemory): Promise<MemoryBatchResult> {
-    const current = await this.activateDefinition();
-    return this.store.locked(async (ownerId, tx, now) => {
+  async organize(
+    ownerId: string,
+    companionId: string,
+    input: OrganizeMemory,
+  ): Promise<MemoryBatchResult> {
+    const current = await this.activateDefinition(ownerId);
+    return this.store.locked(ownerId, async (tx, now) => {
       await requireCompanionMember(
+        this.database,
         ownerId,
         companionId,
         input.runtimeEpoch,
@@ -68,7 +75,11 @@ export class MemoriesService {
         tx,
       );
       const hash = fingerprint({ companionId, ...input });
-      const existing = await tx.memoryBatches.findOne({ where: { requestId: input.requestId } });
+      const existing = await this.database.memoryBatches.findOne(
+        ownerId,
+        { where: { requestId: input.requestId } },
+        tx,
+      );
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return this.result(existing);
@@ -96,10 +107,16 @@ export class MemoriesService {
    *
    * 已知失败可显式重新分批；保留旧任务，不自动重发未知模型调用。
    */
-  async retry(companionId: string, id: string, input: OrganizeMemory): Promise<MemoryBatchResult> {
-    const current = await this.activateDefinition();
-    return this.store.locked(async (ownerId, tx, now) => {
+  async retry(
+    ownerId: string,
+    companionId: string,
+    id: string,
+    input: OrganizeMemory,
+  ): Promise<MemoryBatchResult> {
+    const current = await this.activateDefinition(ownerId);
+    return this.store.locked(ownerId, async (tx, now) => {
       await requireCompanionMember(
+        this.database,
         ownerId,
         companionId,
         input.runtimeEpoch,
@@ -107,20 +124,28 @@ export class MemoriesService {
         tx,
       );
       const hash = fingerprint({ companionId, retryBatchId: id, ...input });
-      const replay = await tx.memoryBatches.findOne({ where: { requestId: input.requestId } });
+      const replay = await this.database.memoryBatches.findOne(
+        ownerId,
+        { where: { requestId: input.requestId } },
+        tx,
+      );
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return this.result(replay);
       }
-      const previous = await requireMemoryBatch(ownerId, id, tx);
+      const previous = await requireMemoryBatch(this.database, ownerId, id, tx);
       if (
         previous.companionId !== companionId ||
         previous.runtimeEpoch !== input.runtimeEpoch ||
         previous.conversationId !== input.conversationId
       )
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-      const task = await tx.tasks.findOne({ where: { id: previous.taskId ?? '' } });
-      const call = await tx.modelCalls.findOne({ where: { requestId: previous.taskId ?? '' } });
+      const task = await this.database.tasks.findById(ownerId, previous.taskId ?? '', tx);
+      const call = await this.database.modelCalls.findOne(
+        ownerId,
+        { where: { requestId: previous.taskId ?? '' } },
+        tx,
+      );
       if (
         previous.completedAt ||
         !task ||
@@ -132,11 +157,15 @@ export class MemoriesService {
           API_CODES.TASK_STATE_CONFLICT,
           '原批次仍在执行或外部结果未确定，不能重发。',
         );
-      await tx.memoryBatches.updateWhere({ where: { id: id }, set: { completedAt: now } });
-      await tx.processingRanges.updateWhere({
-        where: { batchId: id, status: 'processing' },
-        set: { status: 'pending', batchId: null },
-      });
+      await this.database.memoryBatches.update(ownerId, id, { completedAt: now }, tx);
+      await this.database.processingRanges.updateWhere(
+        ownerId,
+        {
+          where: { batchId: id, status: 'processing' },
+          set: { status: 'pending', batchId: null },
+        },
+        tx,
+      );
       const batch = await this.createBatch(
         ownerId,
         tx,
@@ -156,12 +185,12 @@ export class MemoriesService {
    *
    * 持久范围决定待办，定时器仅唤醒；每轮最多检查十个有资格的会话。
    */
-  async schedule(): Promise<void> {
+  async schedule(ownerId: string): Promise<void> {
     const config = memoryConfigurationSchema.parse(this.runtime.memoryConfiguration ?? {});
     if (!config.enabled) return;
-    const current = await this.models.get();
-    await this.store.locked(async (ownerId, tx, now) => {
-      const groups = await tx.sql
+    const current = await this.models.get(ownerId);
+    await this.store.locked(ownerId, async (tx, now) => {
+      const groups = await tx
         .select({
           companionId: processingRanges.companionId,
           runtimeEpoch: processingRanges.runtimeEpoch,
@@ -234,16 +263,17 @@ export class MemoriesService {
    *
    * 查询当前会话的记忆，不隐式推进读取或整理进度。
    */
-  list(companionId: string, query: MemoryQuery) {
-    return this.store.locked(async (ownerId, tx) => {
+  list(ownerId: string, companionId: string, query: MemoryQuery) {
+    return this.store.locked(ownerId, async (tx) => {
       await requireCompanionMember(
+        this.database,
         ownerId,
         companionId,
         query.runtimeEpoch,
         query.conversationId,
         tx,
       );
-      return listMemoryRecords(ownerId, companionId, query, tx);
+      return listMemoryRecords(this.database, ownerId, companionId, query, tx);
     });
   }
   /**
@@ -251,29 +281,37 @@ export class MemoriesService {
    *
    * 回查当前及历史版本的精确来源。
    */
-  detail(companionId: string, id: string, query: MemoryQuery) {
-    return this.store.locked(async (ownerId, tx) => {
+  detail(ownerId: string, companionId: string, id: string, query: MemoryQuery) {
+    return this.store.locked(ownerId, async (tx) => {
       await requireCompanionMember(
+        this.database,
         ownerId,
         companionId,
         query.runtimeEpoch,
         query.conversationId,
         tx,
       );
-      return memoryRecordDetail(ownerId, companionId, id, query, tx);
+      return memoryRecordDetail(this.database, ownerId, companionId, id, query, tx);
     });
   }
   /** 分页查询指定记忆版本的证据。 */
-  evidence(companionId: string, id: string, versionId: string, query: MemoryQuery) {
-    return this.store.locked(async (ownerId, tx) => {
+  evidence(
+    ownerId: string,
+    companionId: string,
+    id: string,
+    versionId: string,
+    query: MemoryQuery,
+  ) {
+    return this.store.locked(ownerId, async (tx) => {
       await requireCompanionMember(
+        this.database,
         ownerId,
         companionId,
         query.runtimeEpoch,
         query.conversationId,
         tx,
       );
-      return memoryRecordEvidence(ownerId, companionId, id, versionId, query, tx);
+      return memoryRecordEvidence(this.database, ownerId, companionId, id, versionId, query, tx);
     });
   }
   /**
@@ -281,16 +319,17 @@ export class MemoriesService {
    *
    * 失败和阻塞保持可见；无候选也能显示成功。
    */
-  batches(companionId: string, query: MemoryQuery): Promise<MemoryBatchList> {
-    return this.store.locked(async (ownerId, tx) => {
+  batches(ownerId: string, companionId: string, query: MemoryQuery): Promise<MemoryBatchList> {
+    return this.store.locked(ownerId, async (tx) => {
       await requireCompanionMember(
+        this.database,
         ownerId,
         companionId,
         query.runtimeEpoch,
         query.conversationId,
         tx,
       );
-      const rows = await tx.sql
+      const rows = await tx
         .select({ batch: memoryBatches, task: tasks })
         .from(memoryBatches)
         .leftJoin(tasks, eq(tasks.id, memoryBatches.taskId))
@@ -339,18 +378,23 @@ export class MemoriesService {
   ) {
     const config = memoryConfigurationSchema.parse(this.runtime.memoryConfiguration ?? {});
     const member = await requireCompanionMember(
+      this.database,
       ownerId,
       companionId,
       command.runtimeEpoch,
       command.conversationId,
       tx,
     );
-    const active = await tx.memoryBatches.findOne({
-      where: { companionId: companionId, runtimeEpoch: command.runtimeEpoch, completedAt: null },
-      fields: { id: memoryBatches.id },
-    });
+    const active = await this.database.memoryBatches.findOne(
+      ownerId,
+      {
+        where: { companionId, runtimeEpoch: command.runtimeEpoch, completedAt: null },
+        fields: { id: memoryBatches.id },
+      },
+      tx,
+    );
     if (active) return null;
-    const ranges = await tx.sql
+    const ranges = await tx
       .select({ range: processingRanges, message: messages, speaker: conversationMembers })
       .from(processingRanges)
       .innerJoin(
@@ -375,19 +419,15 @@ export class MemoriesService {
       .orderBy(asc(processingRanges.startSequence))
       .limit(config.maxMessages);
     if (!force && !ranges.length) return null;
-    const [latest] = await tx.sql
-      .select({ publishedAt: messages.publishedAt })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.ownerId, ownerId),
-          eq(messages.conversationId, command.conversationId),
-          eq(messages.state, 'published'),
-          isNull(messages.deletedAt),
-        ),
-      )
-      .orderBy(desc(messages.sequence))
-      .limit(1);
+    const latest = await this.database.messages.findOne(
+      ownerId,
+      {
+        where: { conversationId: command.conversationId, state: 'published', deletedAt: null },
+        fields: { publishedAt: messages.publishedAt },
+        orderBy: [desc(messages.sequence)],
+      },
+      tx,
+    );
     const totalCharacters = ranges.reduce((sum, row) => sum + row.message.text.length, 0);
     if (
       !force &&
@@ -429,7 +469,7 @@ export class MemoriesService {
       selected.push(row);
     }
     if (selected.length) {
-      const context = await tx.sql
+      const context = await tx
         .select({ message: messages, speaker: conversationMembers })
         .from(messages)
         .innerJoin(conversationMembers, eq(conversationMembers.id, messages.speakerMembershipId))
@@ -473,7 +513,7 @@ export class MemoriesService {
           break;
         }
       }
-      const related = await tx.sql
+      const related = await tx
         .select({ entry: memoryEntries, version: memoryVersions })
         .from(memoryEntries)
         .innerJoin(memoryVersions, eq(memoryVersions.id, memoryEntries.currentVersionId))
@@ -490,6 +530,7 @@ export class MemoriesService {
         .limit(config.relatedMemories);
       for (const row of related) {
         await memoryRecordDetail(
+          this.database,
           ownerId,
           companionId,
           row.entry.id,
@@ -533,7 +574,7 @@ export class MemoriesService {
       createdAt: now,
       completedAt: taskId ? null : now,
     };
-    await tx.sql.insert(memoryBatches).values(row);
+    await tx.insert(memoryBatches).values(row);
     if (taskId) {
       const taskInput = { kind: 'memory_batch' as const, batchId: id };
       const scope = {
@@ -541,22 +582,26 @@ export class MemoriesService {
         runtimeEpoch: command.runtimeEpoch,
         conversationId: command.conversationId,
       };
-      await tx.tasks.insert({
-        id: taskId,
-        requestKey: `memory-batch:${id}`,
-        fingerprint: fingerprint({ input: taskInput, scope }),
-        kind: 'memory_extraction',
-        input: taskInput,
-        scope,
-        status: reason ? 'blocked' : 'queued',
-        reason,
-        stage: 'memory_batch',
-        totalSteps: 1,
-        createdAt: now,
-        updatedAt: now,
-        availableAt: now,
-      });
-      await tx.sql
+      await this.database.tasks.insert(
+        ownerId,
+        {
+          id: taskId,
+          requestKey: `memory-batch:${id}`,
+          fingerprint: fingerprint({ input: taskInput, scope }),
+          kind: 'memory_extraction',
+          input: taskInput,
+          scope,
+          status: reason ? 'blocked' : 'queued',
+          reason,
+          stage: 'memory_batch',
+          totalSteps: 1,
+          createdAt: now,
+          updatedAt: now,
+          availableAt: now,
+        },
+        tx,
+      );
+      await tx
         .insert(readReceipts)
         .values(
           input.messages.map((source) => ({
@@ -571,13 +616,17 @@ export class MemoriesService {
           })),
         )
         .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
-      await tx.processingRanges.updateWhere({
-        where: inArray(
-          processingRanges.id,
-          selected.map((r) => r.range.id),
-        ),
-        set: { status: 'processing', batchId: id },
-      });
+      await this.database.processingRanges.updateWhere(
+        ownerId,
+        {
+          where: inArray(
+            processingRanges.id,
+            selected.map((r) => r.range.id),
+          ),
+          set: { status: 'processing', batchId: id },
+        },
+        tx,
+      );
     }
     return row;
   }
@@ -586,9 +635,9 @@ export class MemoriesService {
    *
    * 首次显式唤醒可升级旧占位定义，不更换模型、价格或预算。
    */
-  private async activateDefinition(): Promise<ModelConfigurationVersion> {
+  private async activateDefinition(ownerId: string): Promise<ModelConfigurationVersion> {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const current = await this.models.get();
+      const current = await this.models.get(ownerId);
       const role = current.config.tasks.memory;
       if (
         role.promptVersion === MEMORY_DEFINITION_VERSION &&
@@ -603,7 +652,7 @@ export class MemoriesService {
       )
         throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
       try {
-        return await this.models.update({
+        return await this.models.update(ownerId, {
           requestId: randomUUID(),
           expectedVersion: current.version,
           config: {

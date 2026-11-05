@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import type { RecallResult, TaskScope } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
@@ -14,12 +15,14 @@ import { recallConversationScope } from './retrieval-access';
  * 来源受限或当前版本变化时旧上下文停止派发和发布，不能仅依赖向量过滤。
  */
 export async function validateRecallSnapshot(
+  database: DatabaseService,
   ownerId: string,
   scope: TaskScope,
   result: RecallResult,
   tx: DatabaseTransaction,
 ): Promise<void> {
   const filter = await recallConversationScope(
+    database,
     ownerId,
     scope.companionId!,
     scope.runtimeEpoch!,
@@ -34,7 +37,7 @@ export async function validateRecallSnapshot(
     ]),
   ];
   if (ids.length) {
-    const allowed = await tx.sql
+    const allowed = await tx
       .select({ id: conversations.id })
       .from(conversations)
       .where(
@@ -49,6 +52,7 @@ export async function validateRecallSnapshot(
   }
   for (const source of [...result.pending, ...(result.querySources ?? [])]) {
     const member = await requireCompanionMember(
+      database,
       ownerId,
       scope.companionId!,
       scope.runtimeEpoch!,
@@ -58,20 +62,24 @@ export async function validateRecallSnapshot(
     if (member.permissionVersion !== source.permissionVersion)
       throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
     await assertVisible(member, source.sequence, tx);
-    const row = await tx.messages.findOne({
-      where: {
-        id: source.messageId,
-        conversationId: source.conversationId,
-        contentVersion: source.contentVersion,
-        state: 'published',
-        deletedAt: null,
+    const row = await database.messages.findOne(
+      ownerId,
+      {
+        where: {
+          id: source.messageId,
+          conversationId: source.conversationId,
+          contentVersion: source.contentVersion,
+          state: 'published',
+          deletedAt: null,
+        },
+        fields: { id: messages.id },
       },
-      fields: { id: messages.id },
-    });
+      tx,
+    );
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   }
   for (const item of result.memories) {
-    const [row] = await tx.sql
+    const [row] = await tx
       .select({ entry: memoryEntries, version: memoryVersions })
       .from(memoryEntries)
       .innerJoin(memoryVersions, eq(memoryVersions.memoryId, memoryEntries.id))
@@ -91,6 +99,6 @@ export async function validateRecallSnapshot(
       (item.current && row.entry.currentVersionId !== item.versionId)
     )
       throw new ApiException(API_CODES.VERSION_CONFLICT);
-    await assertVersionSources(ownerId, row.entry, row.version, tx);
+    await assertVersionSources(database, ownerId, row.entry, row.version, tx);
   }
 }

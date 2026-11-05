@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import {
@@ -39,16 +40,20 @@ export class ChatsController {
 
   /** 创建与指定伴侣的独立私聊。 */
   @Post()
-  create(@Body(new ZodValidationPipe(createChatSchema)) body: CreateChat): Promise<Chat> {
-    return this.chats.create(body);
+  create(
+    @CurrentOwner() ownerId: string,
+    @Body(new ZodValidationPipe(createChatSchema)) body: CreateChat,
+  ): Promise<Chat> {
+    return this.chats.create(ownerId, body);
   }
 
   /** 分页查询用户的聊天会话。 */
   @Get()
   list(
+    @CurrentOwner() ownerId: string,
     @Query(new ZodValidationPipe(idPaginationQuerySchema)) query: IdPaginationQuery,
   ): Promise<ChatList> {
-    return this.chats.list(query);
+    return this.chats.list(ownerId, query);
   }
 
   /**
@@ -68,6 +73,7 @@ export class ChatsController {
    */
   @Get(':id/events')
   stream(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Query(new ZodValidationPipe(chatEventsQuerySchema)) query: ChatEventsQuery,
     @RequestHeader('Last-Event-ID', new ZodValidationPipe(chatEventCursorSchema.optional()))
@@ -76,7 +82,7 @@ export class ChatsController {
     @Res() response: Response,
   ): Promise<void> {
     const cursor = lastEventId ?? query.afterSequence;
-    return this.events.stream(id, cursor, request, response);
+    return this.events.stream(ownerId, id, cursor, request, response);
   }
 
   /**
@@ -86,10 +92,11 @@ export class ChatsController {
    */
   @Post(':id/deliveries')
   acknowledge(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(chatDeliverySchema)) body: ChatDelivery,
   ): Promise<null> {
-    return this.chats.acknowledge(id, body);
+    return this.chats.acknowledge(ownerId, id, body);
   }
 
   /**
@@ -99,16 +106,20 @@ export class ChatsController {
    */
   @Post(':id/stop')
   stop(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(stopChatSchema)) body: StopChat,
   ): Promise<Chat> {
-    return this.chats.stop(id, body);
+    return this.chats.stop(ownerId, id, body);
   }
 
   /** 查询聊天当前回复与任务状态。 */
   @Get(':id')
-  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<Chat> {
-    return this.chats.get(id);
+  get(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<Chat> {
+    return this.chats.get(ownerId, id);
   }
 
   /**
@@ -118,10 +129,11 @@ export class ChatsController {
    */
   @Post(':id/messages')
   send(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(sendChatMessageSchema)) body: SendChatMessage,
   ): Promise<SentChatMessage> {
-    return this.chats.send(id, body);
+    return this.chats.send(ownerId, id, body);
   }
 
   /**
@@ -131,9 +143,10 @@ export class ChatsController {
    */
   @Get(':id/messages')
   history(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Query(new ZodValidationPipe(chatMessageQuerySchema)) query: ChatMessageQuery,
   ): Promise<ChatMessageList> {
-    return this.chats.history(id, query);
+    return this.chats.history(ownerId, id, query);
   }
 }

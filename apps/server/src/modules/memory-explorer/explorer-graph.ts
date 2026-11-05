@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import { and, asc, eq, gt, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { z } from 'zod';
@@ -43,13 +44,14 @@ type Candidate = {
  * 以真实持久关系生成一个有界邻接页；每个端点均核对当前来源，不保留独立图数据库副本。
  */
 export async function readMemoryGraph(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   query: MemoryGraphQuery,
   tx: DatabaseTransaction,
   now: Date,
 ): Promise<MemoryGraphPage> {
-  const scope = await explorerScope(ownerId, companionId, query, tx);
+  const scope = await explorerScope(database, ownerId, companionId, query, tx);
   const cursorScope = fingerprint({ ownerId, companionId, ...query, cursor: undefined });
   let after = '';
   let asOf = now.toISOString();
@@ -71,7 +73,7 @@ export async function readMemoryGraph(
    * 查询自身的来源表，不能用未校验的节点或边标识直接返回正文。
    */
   async function records(where: SQL) {
-    return tx.sql
+    return tx
       .select(explorerSelection)
       .from(memoryEntries)
       .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId))
@@ -106,7 +108,7 @@ export async function readMemoryGraph(
   async function addRecord(row: ExplorerRecord, kind: 'memory' | 'version') {
     const id = `${kind}:${kind === 'memory' ? row.entry.id : row.version.id}`;
     if (nodes.has(id)) return;
-    await assertVersionSources(ownerId, row.entry, row.version, tx);
+    await assertVersionSources(database, ownerId, row.entry, row.version, tx);
     nodes.set(id, {
       id,
       kind,
@@ -184,7 +186,7 @@ export async function readMemoryGraph(
     // 入边和出边分别利用索引查询，最多各取一页，不递归加载祖先。
     for (const incoming of [false, true]) {
       const prefix = 'd:';
-      const dependencies = await tx.sql
+      const dependencies = await tx
         .select({ dependency: memoryDependencies, ...explorerSelection })
         .from(memoryDependencies)
         .innerJoin(
@@ -230,7 +232,7 @@ export async function readMemoryGraph(
           record: row,
         });
     }
-    const evidence = await tx.sql
+    const evidence = await tx
       .select({ evidence: memoryEvidence, message: messages })
       .from(memoryEvidence)
       .innerJoin(

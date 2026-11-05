@@ -1,13 +1,13 @@
+import { DatabaseService } from '../../database/database.service';
 import type { ChatContext, ModelConfigurationVersion, RecallResult } from '@memory-weave/contracts';
 import { API_CODES, recallResultSchema } from '@memory-weave/contracts';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatRuns,
   conversationMembers,
   messages,
-  owners,
   personaFoundations,
   readReceipts,
 } from '../../database/schema';
@@ -25,6 +25,9 @@ import { chatDefinition } from './chat-definition';
 /** 选取有界的当前会话原文，固定来源后才能派发模型；不依赖记忆整理。 */
 @Injectable()
 export class ChatContextService {
+  /** 注入可复用的数据库操作。 */
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+
   /**
    * 创建或读取聊天轮次的上下文快照。
    *
@@ -45,8 +48,15 @@ export class ChatContextService {
     recall?: RecallResult,
   ): Promise<{ context: ChatContext; inputText: string }> {
     const scope = lease.task.scope;
-    const companion = await requireCompanion(ownerId, scope.companionId!, scope.runtimeEpoch!, tx);
+    const companion = await requireCompanion(
+      this.database,
+      ownerId,
+      scope.companionId!,
+      scope.runtimeEpoch!,
+      tx,
+    );
     const member = await requireCompanionMember(
+      this.database,
       ownerId,
       companion.id,
       scope.runtimeEpoch!,
@@ -55,18 +65,23 @@ export class ChatContextService {
     );
     if (!companion.currentPersonaVersionId) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
     const context = run.context;
-    if (context?.recall) await validateRecallSnapshot(ownerId, scope, context.recall, tx);
-    if (recall) await validateRecallSnapshot(ownerId, scope, recall, tx);
-    const persona = await tx.personaVersions.findOne({
-      where: {
-        companionId: companion.id,
-        runtimeEpoch: scope.runtimeEpoch!,
-        id: context?.personaVersionId ?? companion.currentPersonaVersionId,
+    if (context?.recall)
+      await validateRecallSnapshot(this.database, ownerId, scope, context.recall, tx);
+    if (recall) await validateRecallSnapshot(this.database, ownerId, scope, recall, tx);
+    const persona = await this.database.personaVersions.findOne(
+      ownerId,
+      {
+        where: {
+          companionId: companion.id,
+          runtimeEpoch: scope.runtimeEpoch!,
+          id: context?.personaVersionId ?? companion.currentPersonaVersionId,
+        },
       },
-    });
+      tx,
+    );
     if (!persona) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     const [foundation] = !persona.document
-      ? await tx.sql
+      ? await tx
           .select()
           .from(personaFoundations)
           .where(
@@ -79,7 +94,7 @@ export class ChatContextService {
       : [];
 
     const rows = context
-      ? await tx.sql
+      ? await tx
           .select()
           .from(messages)
           .where(
@@ -94,11 +109,15 @@ export class ChatContextService {
           )
           .orderBy(asc(messages.sequence))
       : (
-          await tx.messages.findMany({
-            where: { conversationId: scope.conversationId!, state: 'published', deletedAt: null },
-            orderBy: [desc(messages.sequence)],
-            limit: run.configuration.historyMessages,
-          })
+          await this.database.messages.findMany(
+            ownerId,
+            {
+              where: { conversationId: scope.conversationId!, state: 'published', deletedAt: null },
+              orderBy: [desc(messages.sequence)],
+              limit: run.configuration.historyMessages,
+            },
+            tx,
+          )
         ).reverse();
     for (const row of rows) {
       if (row.deletedAt || row.sequence === null || row.state !== 'published')
@@ -115,7 +134,7 @@ export class ChatContextService {
         ))
     )
       throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-    const members = await tx.sql
+    const members = await tx
       .select()
       .from(conversationMembers)
       .where(
@@ -124,7 +143,7 @@ export class ChatContextService {
           eq(conversationMembers.conversationId, scope.conversationId!),
         ),
       );
-    const [owner] = await tx.sql.select().from(owners).where(eq(owners.id, ownerId));
+    const owner = await this.database.owners.findById(ownerId, ownerId, tx);
     const selected = [...rows];
     if (!context) {
       // 最近页可能从旧回复的中间开始；丢弃没有对应用户发言的旧片段。
@@ -220,7 +239,7 @@ export class ChatContextService {
       }));
     }
     if (selected.length)
-      await tx.sql
+      await tx
         .insert(readReceipts)
         .values(
           selected.map((row) => ({
@@ -236,7 +255,7 @@ export class ChatContextService {
         )
         .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
     if (snapshot.recall?.pending.length)
-      await tx.sql
+      await tx
         .insert(readReceipts)
         .values(
           snapshot.recall.pending.map((source) => ({
@@ -252,7 +271,7 @@ export class ChatContextService {
         )
         .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
     if (snapshot.recall?.querySources?.length)
-      await tx.sql
+      await tx
         .insert(readReceipts)
         .values(
           snapshot.recall.querySources.map((source) => ({

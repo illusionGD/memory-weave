@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Put, Post, HttpCode } from '@nestjs/common';
 import {
   versionParamSchema,
@@ -43,8 +44,11 @@ export class ModelsController {
    * 生成隔离诊断结果；失败时也保留真实尝试记录。
    */
   @Post('probes')
-  probe(@Body(new ZodValidationPipe(modelProbeSchema)) body: ModelProbe): Promise<ModelCall> {
-    return this.runtime.probe(body);
+  probe(
+    @CurrentOwner() ownerId: string,
+    @Body(new ZodValidationPipe(modelProbeSchema)) body: ModelProbe,
+  ): Promise<ModelCall> {
+    return this.runtime.probe(ownerId, body);
   }
 
   /**
@@ -53,8 +57,11 @@ export class ModelsController {
    * 当前部署的调用详情，包括每次尝试及用量。
    */
   @Get('calls/:id')
-  getCall(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<ModelCall> {
-    return this.runtime.get(id);
+  getCall(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<ModelCall> {
+    return this.runtime.get(ownerId, id);
   }
 
   /**
@@ -64,8 +71,11 @@ export class ModelsController {
    */
   @Post('calls/:id/cancel')
   @HttpCode(200)
-  cancel(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<ModelCall> {
-    return this.runtime.cancel(id);
+  cancel(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<ModelCall> {
+    return this.runtime.cancel(ownerId, id);
   }
 
   /**
@@ -74,14 +84,14 @@ export class ModelsController {
    * 固定 UTC 日窗口的全局及任务计量。
    */
   @Get('usage')
-  getUsage(): Promise<ModelUsage> {
-    return this.runtime.usage();
+  getUsage(@CurrentOwner() ownerId: string): Promise<ModelUsage> {
+    return this.runtime.usage(ownerId);
   }
 
   /** 查询当前生效的模型配置。 */
   @Get('config')
-  getConfiguration(): Promise<ModelConfigurationVersion> {
-    return this.configuration.get();
+  getConfiguration(@CurrentOwner() ownerId: string): Promise<ModelConfigurationVersion> {
+    return this.configuration.get(ownerId);
   }
 
   /**
@@ -91,9 +101,10 @@ export class ModelsController {
    */
   @Get('config/versions/:version')
   getVersion(
+    @CurrentOwner() ownerId: string,
     @Param('version', new ZodValidationPipe(versionParamSchema)) version: number,
   ): Promise<ModelConfigurationVersion> {
-    return this.configuration.getVersion(version);
+    return this.configuration.getVersion(ownerId, version);
   }
 
   /**
@@ -103,8 +114,9 @@ export class ModelsController {
    */
   @Put('config')
   updateConfiguration(
+    @CurrentOwner() ownerId: string,
     @Body(new ZodValidationPipe(updateModelConfigurationSchema)) body: UpdateModelConfiguration,
   ): Promise<ModelConfigurationVersion> {
-    return this.configuration.update(body);
+    return this.configuration.update(ownerId, body);
   }
 }

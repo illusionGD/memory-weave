@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import {
   uuidSchema,
@@ -31,9 +32,10 @@ export class CompanionPersonasController {
    */
   @Post('companion-creations')
   create(
+    @CurrentOwner() ownerId: string,
     @Body(new ZodValidationPipe(companionCreationSchema)) body: CompanionCreation,
   ): Promise<CompanionPersonaState> {
-    return this.personas.create(body);
+    return this.personas.create(ownerId, body);
   }
 
   /**
@@ -42,8 +44,11 @@ export class CompanionPersonasController {
    * 查询当前与初始人格及后台任务。
    */
   @Get('companions/:id/persona')
-  get(@Param('id', new ZodValidationPipe(uuidSchema)) id: string): Promise<CompanionPersonaState> {
-    return this.personas.get(id);
+  get(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ): Promise<CompanionPersonaState> {
+    return this.personas.get(ownerId, id);
   }
 
   /**
@@ -53,10 +58,11 @@ export class CompanionPersonasController {
    */
   @Post('companions/:id/persona/locks')
   reviseLocks(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(revisePersonaLocksSchema)) body: RevisePersonaLocks,
   ): Promise<PersonaVersion> {
-    return this.personas.reviseLocks(id, body);
+    return this.personas.reviseLocks(ownerId, id, body);
   }
 
   /**
@@ -66,10 +72,11 @@ export class CompanionPersonasController {
    */
   @Post('companions/:id/persona/initialize')
   initialize(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Body(new ZodValidationPipe(initializePersonaSchema)) body: InitializePersona,
   ): Promise<CompanionPersonaState> {
-    return this.personas.initialize(id, body);
+    return this.personas.initialize(ownerId, id, body);
   }
 
   /**
@@ -79,10 +86,11 @@ export class CompanionPersonasController {
    */
   @Get('companions/:id/persona/versions/:version')
   version(
+    @CurrentOwner() ownerId: string,
     @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
     @Param('version', new ZodValidationPipe(runtimeEpochQuerySchema)) version: number,
     @Query('runtimeEpoch', new ZodValidationPipe(runtimeEpochQuerySchema)) epoch: number,
   ): Promise<PersonaVersion> {
-    return this.personas.version(id, epoch, version);
+    return this.personas.version(ownerId, id, epoch, version);
   }
 }

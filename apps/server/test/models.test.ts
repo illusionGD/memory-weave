@@ -176,8 +176,8 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
       systemPrompt: '协议测试。',
     };
     const chunks: string[] = [];
-    const result = await asOwner(app, () =>
-      runtime.executeStreaming(command, definition, async (delta: string) => {
+    const result = await asOwner(app, (ownerId) =>
+      runtime.executeStreaming(ownerId, command, definition, async (delta: string) => {
         chunks.push(delta);
         if (chunks.length === 1) {
           expect(ended).toBe(false);
@@ -199,8 +199,8 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
       inputTokens: 20,
       outputTokens: 6,
     });
-    const replay = await asOwner(app, () =>
-      runtime.executeStreaming(command, definition, async () => {
+    const replay = await asOwner(app, (ownerId) =>
+      runtime.executeStreaming(ownerId, command, definition, async () => {
         throw new Error('重放不能再次发送片段');
       }),
     );
@@ -544,8 +544,9 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
         .send({ requestId: randomUUID(), name: '候选验证', initialProfile: '保留初始人生。' })
         .expect(201)
     ).body.data;
-    const output = await asOwner(app, () =>
+    const output = await asOwner(app, (ownerId) =>
       app.get(ModelRuntimeService).execute(
+        ownerId,
         {
           requestId: randomUUID(),
           expectedConfigVersion: current.version,

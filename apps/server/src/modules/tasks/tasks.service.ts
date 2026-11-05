@@ -1,3 +1,4 @@
+import { DatabaseService } from '../../database/database.service';
 import type {
   DiagnosticTask,
   QueuedModelProbe,
@@ -43,6 +44,7 @@ type TaskRow = typeof tasks.$inferSelect;
 export class TasksService {
   /** 初始化持久任务管理服务。 */
   constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TaskConfigurationService) private readonly configuration: TaskConfigurationService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
@@ -53,25 +55,29 @@ export class TasksService {
    *
    * 创建确定性诊断；同一命令重试只读取原任务，不清零进度。
    */
-  createDiagnostic(input: DiagnosticTask): Promise<Task> {
-    return this.store.locked(async (ownerId, tx) => {
+  createDiagnostic(ownerId: string, input: DiagnosticTask): Promise<Task> {
+    return this.store.locked(ownerId, async (tx) => {
       const requestKey = `diagnostic:${input.requestId.toLowerCase()}`;
       const hash = fingerprint({ steps: input.steps });
-      const existing = await tx.tasks.findOne({ where: { requestKey: requestKey } });
+      const existing = await this.database.tasks.findOne(ownerId, { where: { requestKey } }, tx);
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-        return this.view(existing, tx);
+        return this.view(ownerId, existing, tx);
       }
       const id = randomUUID();
-      await tx.tasks.insert({
-        id,
-        requestKey,
-        fingerprint: hash,
-        kind: 'diagnostic',
-        input: { kind: 'diagnostic', steps: input.steps },
-        scope: { companionId: null, runtimeEpoch: null, conversationId: null },
-        totalSteps: input.steps,
-      });
+      await this.database.tasks.insert(
+        ownerId,
+        {
+          id,
+          requestKey,
+          fingerprint: hash,
+          kind: 'diagnostic',
+          input: { kind: 'diagnostic', steps: input.steps },
+          scope: { companionId: null, runtimeEpoch: null, conversationId: null },
+          totalSteps: input.steps,
+        },
+        tx,
+      );
       return this.getInTransaction(ownerId, id, tx);
     });
   }
@@ -81,25 +87,29 @@ export class TasksService {
    *
    * 模型任务固定调用身份，任何接管都不能换键补发未知请求。
    */
-  createModelProbe(input: QueuedModelProbe): Promise<Task> {
-    return this.store.locked(async (ownerId, tx) => {
+  createModelProbe(ownerId: string, input: QueuedModelProbe): Promise<Task> {
+    return this.store.locked(ownerId, async (tx) => {
       const requestKey = `model_probe:${input.requestId.toLowerCase()}`;
       const hash = fingerprint({ ...input, requestId: input.requestId.toLowerCase() });
-      const existing = await tx.tasks.findOne({ where: { requestKey: requestKey } });
+      const existing = await this.database.tasks.findOne(ownerId, { where: { requestKey } }, tx);
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-        return this.view(existing, tx);
+        return this.view(ownerId, existing, tx);
       }
       const id = randomUUID();
-      await tx.tasks.insert({
-        id,
-        requestKey,
-        fingerprint: hash,
-        kind: 'model_probe',
-        input: { kind: 'model_probe', probe: { ...input, requestId: id } },
-        scope: { companionId: null, runtimeEpoch: null, conversationId: null },
-        totalSteps: 1,
-      });
+      await this.database.tasks.insert(
+        ownerId,
+        {
+          id,
+          requestKey,
+          fingerprint: hash,
+          kind: 'model_probe',
+          input: { kind: 'model_probe', probe: { ...input, requestId: id } },
+          scope: { companionId: null, runtimeEpoch: null, conversationId: null },
+          totalSteps: 1,
+        },
+        tx,
+      );
       return this.getInTransaction(ownerId, id, tx);
     });
   }
@@ -110,7 +120,12 @@ export class TasksService {
    * F03 在实际派发的短事务内核对租约，避免排队期间的取消被忽略。
    */
   async guardDispatch(ownerId: string, tx: DatabaseTransaction, lease: TaskLease): Promise<void> {
-    await this.requireLease(ownerId, tx, await lockTaskScheduler(ownerId, tx), lease);
+    await this.requireLease(
+      ownerId,
+      tx,
+      await lockTaskScheduler(this.database, ownerId, tx),
+      lease,
+    );
     if (!(await this.configuration.current(ownerId, tx)).config.enabled)
       throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
   }
@@ -120,8 +135,8 @@ export class TasksService {
    *
    * 查询实际状态，必要时将已过期的执行尝试转入有界恢复。
    */
-  get(id: string): Promise<Task> {
-    return this.store.locked(async (ownerId, tx, now) => {
+  get(ownerId: string, id: string): Promise<Task> {
+    return this.store.locked(ownerId, async (tx, now) => {
       await this.expire(ownerId, tx, now, (await this.configuration.current(ownerId, tx)).config);
       return this.getInTransaction(ownerId, id, tx);
     });
@@ -132,23 +147,27 @@ export class TasksService {
    *
    * UUID 游标与状态/实例筛选，不一次加载完整历史。
    */
-  list(query: TaskListQuery): Promise<TaskList> {
-    return this.store.locked(async (ownerId, tx, now) => {
+  list(ownerId: string, query: TaskListQuery): Promise<TaskList> {
+    return this.store.locked(ownerId, async (tx, now) => {
       await this.expire(ownerId, tx, now, (await this.configuration.current(ownerId, tx)).config);
-      const rows = await tx.tasks.findMany({
-        where: and(
-          query.afterId ? gt(tasks.id, query.afterId) : undefined,
-          query.status ? eq(tasks.status, query.status) : undefined,
-          query.companionId
-            ? sql`JSON_UNQUOTE(JSON_EXTRACT(${tasks.scope}, '$.companionId')) = ${query.companionId.toLowerCase()}`
-            : undefined,
-        ),
-        orderBy: [asc(tasks.id)],
-        limit: query.limit + 1,
-      });
+      const rows = await this.database.tasks.findMany(
+        ownerId,
+        {
+          where: and(
+            query.afterId ? gt(tasks.id, query.afterId) : undefined,
+            query.status ? eq(tasks.status, query.status) : undefined,
+            query.companionId
+              ? sql`JSON_UNQUOTE(JSON_EXTRACT(${tasks.scope}, '$.companionId')) = ${query.companionId.toLowerCase()}`
+              : undefined,
+          ),
+          orderBy: [asc(tasks.id)],
+          limit: query.limit + 1,
+        },
+        tx,
+      );
       const page = idCursorPage(rows, query.limit, (row) => row.id);
       return {
-        items: await Promise.all(page.items.map((row) => this.view(row, tx))),
+        items: await Promise.all(page.items.map((row) => this.view(ownerId, row, tx))),
         nextAfterId: page.nextAfterId,
       };
     });
@@ -159,12 +178,12 @@ export class TasksService {
    *
    * 在部署锁下原子检查容量并领取一个任务；返回后立即释放数据库锁。
    */
-  claim(): Promise<TaskLease | null> {
-    return this.store.locked(async (ownerId, tx, now) => {
+  claim(ownerId: string): Promise<TaskLease | null> {
+    return this.store.locked(ownerId, async (tx, now) => {
       const current = await this.configuration.current(ownerId, tx);
       await this.expire(ownerId, tx, now, current.config);
       if (!current.config.enabled) return null;
-      const active = await tx.sql
+      const active = await tx
         .select({ kind: tasks.kind })
         .from(tasks)
         .where(and(eq(tasks.ownerId, ownerId), eq(tasks.status, 'running')));
@@ -181,48 +200,53 @@ export class TasksService {
         kinds.push('memory_extraction', 'memory_index');
       if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
       if (!kinds.length) return null;
-      const [row] = await tx.sql
-        .select()
-        .from(tasks)
-        .where(
-          and(
+      const row = await this.database.tasks.findOne(
+        ownerId,
+        {
+          where: and(
             eq(tasks.ownerId, ownerId),
             inArray(tasks.status, ['queued', 'waiting']),
             inArray(tasks.kind, kinds),
             lte(tasks.availableAt, now),
           ),
-        )
-        .orderBy(
-          sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 1 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 ELSE 2 END`,
-          asc(tasks.availableAt),
-          asc(tasks.id),
-        )
-        .limit(1);
+          orderBy: [
+            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 1 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 ELSE 2 END`,
+            asc(tasks.availableAt),
+            asc(tasks.id),
+          ],
+        },
+        tx,
+      );
       if (!row) return null;
       // 整理和索引共用一个后台位置，不能占满聊天队列；模型容量仍由 F03 限制。
       if (row.fence >= current.config.maxAttempts) {
-        await tx.tasks.updateWhere({
-          where: { id: row.id },
-          set: { status: 'failed', reason: 'attempt_limit', updatedAt: now },
-        });
+        await this.database.tasks.update(
+          ownerId,
+          row.id,
+          { status: 'failed', reason: 'attempt_limit', updatedAt: now },
+          tx,
+        );
         return null;
       }
       try {
         await this.checkScope(ownerId, tx, row);
       } catch (error) {
         if (!(error instanceof ApiException)) throw error;
-        await tx.tasks.updateWhere({
-          where: { id: row.id },
-          set: { status: 'blocked', reason: 'scope_changed', updatedAt: now },
-        });
+        await this.database.tasks.update(
+          ownerId,
+          row.id,
+          { status: 'blocked', reason: 'scope_changed', updatedAt: now },
+          tx,
+        );
         return null;
       }
       const token = randomUUID();
       const fence = row.fence + 1;
       const leaseExpiresAt = new Date(now.getTime() + current.config.leaseMs);
-      await tx.tasks.updateWhere({
-        where: { id: row.id },
-        set: {
+      await this.database.tasks.update(
+        ownerId,
+        row.id,
+        {
           status: 'running',
           reason: null,
           fence,
@@ -230,16 +254,21 @@ export class TasksService {
           leaseExpiresAt,
           updatedAt: now,
         },
-      });
-      await tx.taskAttempts.insert({
-        taskId: row.id,
-        number: fence,
-        configVersion: current.version,
-        config: current.config,
-        status: 'running',
-        startedAt: now,
-        deadlineAt: new Date(now.getTime() + current.config.attemptTimeoutMs),
-      });
+        tx,
+      );
+      await this.database.taskAttempts.insert(
+        ownerId,
+        {
+          taskId: row.id,
+          number: fence,
+          configVersion: current.version,
+          config: current.config,
+          status: 'running',
+          startedAt: now,
+          deadlineAt: new Date(now.getTime() + current.config.attemptTimeoutMs),
+        },
+        tx,
+      );
       return {
         task: await this.getInTransaction(ownerId, row.id, tx),
         ownerId,
@@ -257,20 +286,27 @@ export class TasksService {
    * 心跳不能复活已过期租约，也不能跨越此次尝试的绝对截止时间。
    */
   heartbeat(lease: TaskLease): Promise<void> {
-    return this.store.locked(async (ownerId, tx, now) => {
+    const ownerId = lease.ownerId;
+    return this.store.locked(ownerId, async (tx, now) => {
       const row = await this.requireLease(ownerId, tx, now, lease);
-      const attempt = await tx.taskAttempts.findOne({
-        where: { taskId: row.id, number: row.fence },
-      });
+      const attempt = await this.database.taskAttempts.findOne(
+        ownerId,
+        {
+          where: { taskId: row.id, number: row.fence },
+        },
+        tx,
+      );
       if (!attempt || attempt.deadlineAt <= now) throw new ApiException(API_CODES.TASK_LEASE_LOST);
-      await tx.tasks.updateWhere({
-        where: { id: row.id },
-        set: {
+      await this.database.tasks.update(
+        ownerId,
+        row.id,
+        {
           leaseExpiresAt: new Date(
             Math.min(now.getTime() + attempt.config.leaseMs, attempt.deadlineAt.getTime()),
           ),
         },
-      });
+        tx,
+      );
     });
   }
 
@@ -280,7 +316,8 @@ export class TasksService {
    * 检查点仅单调前进，只有当前有效执行者可以写入。
    */
   checkpoint(lease: TaskLease, checkpoint: TaskCheckpoint): Promise<Task> {
-    return this.store.locked(async (ownerId, tx, now) => {
+    const ownerId = lease.ownerId;
+    return this.store.locked(ownerId, async (tx, now) => {
       const row = await this.requireLease(ownerId, tx, now, lease);
       if (
         !Number.isSafeInteger(checkpoint.completedSteps) ||
@@ -289,15 +326,17 @@ export class TasksService {
         !/^[a-z][a-z0-9_]{0,63}$/.test(checkpoint.stage)
       )
         throw new ApiException(API_CODES.INVALID_REQUEST);
-      await tx.tasks.updateWhere({
-        where: { id: row.id },
-        set: {
+      await this.database.tasks.update(
+        ownerId,
+        row.id,
+        {
           completedSteps: checkpoint.completedSteps,
           stage: checkpoint.stage,
           ...(checkpoint.modelCallId ? { modelCallId: checkpoint.modelCallId } : {}),
           updatedAt: now,
         },
-      });
+        tx,
+      );
       return this.getInTransaction(ownerId, row.id, tx);
     });
   }
@@ -312,14 +351,15 @@ export class TasksService {
     lease: TaskLease,
     commit?: (ownerId: string, tx: DatabaseTransaction) => Promise<void>,
   ): Promise<Task> {
-    return this.store.locked(async (ownerId, tx, now) => {
+    const ownerId = lease.ownerId;
+    return this.store.locked(ownerId, async (tx, now) => {
       const saved = await this.row(ownerId, lease.task.id, tx);
       if (
         saved.status === 'succeeded' &&
         saved.fence === lease.fence &&
         saved.leaseToken === lease.token
       )
-        return this.view(saved, tx);
+        return this.view(ownerId, saved, tx);
       const row = await this.requireLease(ownerId, tx, now, lease);
       if (row.totalSteps !== null && row.completedSteps !== row.totalSteps)
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT, '实际步骤尚未全部完成。');
@@ -330,29 +370,35 @@ export class TasksService {
         row.input.kind === 'memory_batch' ||
         row.input.kind === 'memory_index'
       ) {
-        const call = await tx.modelCalls.findOne({
-          where: {
-            requestId: row.input.kind === 'memory_index' ? row.input.modelRequestId : row.id,
-            id: row.modelCallId ?? row.id,
+        const call = await this.database.modelCalls.findOne(
+          ownerId,
+          {
+            where: {
+              requestId: row.input.kind === 'memory_index' ? row.input.modelRequestId : row.id,
+              id: row.modelCallId ?? row.id,
+            },
           },
-        });
+          tx,
+        );
         if (!call || call.status !== 'succeeded')
           throw new ApiException(API_CODES.TASK_STATE_CONFLICT, '模型结果尚未确认成功。');
       }
       await commit?.(ownerId, tx);
-      const committedAt = await taskDatabaseTime(ownerId, tx);
+      const committedAt = await taskDatabaseTime(this.database, ownerId, tx);
       await this.requireLease(ownerId, tx, committedAt, lease);
       await this.finishAttempt(ownerId, tx, row, committedAt, 'succeeded', null);
-      await tx.tasks.updateWhere({
-        where: { id: row.id },
-        set: {
+      await this.database.tasks.update(
+        ownerId,
+        row.id,
+        {
           status: 'succeeded',
           stage: 'completed',
           reason: null,
           leaseExpiresAt: null,
           updatedAt: committedAt,
         },
-      });
+        tx,
+      );
       return this.getInTransaction(ownerId, row.id, tx);
     });
   }
@@ -362,12 +408,12 @@ export class TasksService {
    *
    * 管理者改变任务运行状态；租约立即失效，外部已发出的动作仍需核对。
    */
-  async control(id: string, action: 'pause' | 'resume' | 'cancel'): Promise<Task> {
-    const result = await this.store.locked((ownerId, tx, now) =>
+  async control(ownerId: string, id: string, action: 'pause' | 'resume' | 'cancel'): Promise<Task> {
+    const result = await this.store.locked(ownerId, (tx, now) =>
       this.controlInTransaction(ownerId, tx, now, id, action),
     );
     if (action === 'cancel' && result.status === 'cancelled' && result.modelCallId)
-      await this.models.cancel(result.modelCallId);
+      await this.models.cancel(ownerId, result.modelCallId);
     return result;
   }
 
@@ -387,13 +433,13 @@ export class TasksService {
     await this.expire(ownerId, tx, now, current.config);
     const row = await this.row(ownerId, id, tx);
     if (action === 'cancel') {
-      if (['succeeded', 'cancelled'].includes(row.status)) return this.view(row, tx);
+      if (['succeeded', 'cancelled'].includes(row.status)) return this.view(ownerId, row, tx);
     } else if (action === 'pause') {
-      if (row.status === 'paused') return this.view(row, tx);
+      if (row.status === 'paused') return this.view(ownerId, row, tx);
       if (!['queued', 'waiting', 'running'].includes(row.status))
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     } else {
-      if (row.status === 'queued') return this.view(row, tx);
+      if (row.status === 'queued') return this.view(ownerId, row, tx);
       if (row.status !== 'paused' || row.fence >= current.config.maxAttempts)
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     }
@@ -407,9 +453,10 @@ export class TasksService {
         action === 'pause' ? 'paused' : 'cancelled',
         action === 'pause' ? 'operator_paused' : 'operator_cancelled',
       );
-    await tx.tasks.updateWhere({
-      where: { id: row.id },
-      set: {
+    await this.database.tasks.update(
+      ownerId,
+      row.id,
+      {
         status,
         reason:
           action === 'resume'
@@ -421,7 +468,8 @@ export class TasksService {
         leaseExpiresAt: null,
         updatedAt: now,
       },
-    });
+      tx,
+    );
     return this.getInTransaction(ownerId, row.id, tx);
   }
 
@@ -450,16 +498,18 @@ export class TasksService {
     retryable: boolean,
     blocked: boolean,
   ): Promise<Task> {
+    const ownerId = lease.ownerId;
     if (!/^[a-z][a-z0-9_]{0,63}$/.test(reason)) throw new ApiException(API_CODES.INVALID_REQUEST);
-    return this.store.locked(async (ownerId, tx, now) => {
+    return this.store.locked(ownerId, async (tx, now) => {
       const row = await this.requireLease(ownerId, tx, now, lease, false);
       const current = (await this.configuration.current(ownerId, tx)).config;
       const exhausted = retryable && row.fence >= current.maxAttempts;
       const status = blocked ? 'blocked' : retryable && !exhausted ? 'waiting' : 'failed';
       await this.finishAttempt(ownerId, tx, row, now, blocked ? 'blocked' : 'failed', reason);
-      await tx.tasks.updateWhere({
-        where: { id: row.id },
-        set: {
+      await this.database.tasks.update(
+        ownerId,
+        row.id,
+        {
           status,
           reason: exhausted ? 'attempt_limit' : reason,
           availableAt: new Date(
@@ -468,7 +518,8 @@ export class TasksService {
           leaseExpiresAt: null,
           updatedAt: now,
         },
-      });
+        tx,
+      );
       return this.getInTransaction(ownerId, row.id, tx);
     });
   }
@@ -480,22 +531,28 @@ export class TasksService {
     now: Date,
     config: TaskConfiguration,
   ): Promise<void> {
-    const rows = await tx.tasks.findMany({
-      where: and(eq(tasks.status, 'running'), lte(tasks.leaseExpiresAt, now)),
-      limit: 4,
-    });
+    const rows = await this.database.tasks.findMany(
+      ownerId,
+      {
+        where: and(eq(tasks.status, 'running'), lte(tasks.leaseExpiresAt, now)),
+        limit: 4,
+      },
+      tx,
+    );
     for (const row of rows) {
       await this.finishAttempt(ownerId, tx, row, now, 'expired', 'lease_expired');
-      await tx.tasks.updateWhere({
-        where: { id: row.id },
-        set: {
+      await this.database.tasks.update(
+        ownerId,
+        row.id,
+        {
           status: row.fence >= config.maxAttempts ? 'failed' : 'waiting',
           reason: row.fence >= config.maxAttempts ? 'attempt_limit' : 'lease_expired',
           availableAt: new Date(now.getTime() + retryDelay(config, row.fence)),
           leaseExpiresAt: null,
           updatedAt: now,
         },
-      });
+        tx,
+      );
     }
   }
 
@@ -518,7 +575,7 @@ export class TasksService {
     )
       throw new ApiException(API_CODES.TASK_LEASE_LOST);
     if (verifyScope) await this.checkScope(ownerId, tx, row);
-    if (row.leaseExpiresAt <= (await taskDatabaseTime(ownerId, tx)))
+    if (row.leaseExpiresAt <= (await taskDatabaseTime(this.database, ownerId, tx)))
       throw new ApiException(API_CODES.TASK_LEASE_LOST);
     return row;
   }
@@ -539,29 +596,33 @@ export class TasksService {
       scope.runtimeEpoch &&
       scope.conversationId === null
     ) {
-      const [companion] = await tx.sql
-        .select({ epoch: companions.runtimeEpoch })
-        .from(companions)
-        .where(and(eq(companions.ownerId, ownerId), eq(companions.id, scope.companionId)))
-        .for('update');
-      await requireCompanion(ownerId, scope.companionId, scope.runtimeEpoch, tx);
+      const companion = await this.database.companions.findOne(
+        ownerId,
+        {
+          where: { id: scope.companionId },
+          fields: { epoch: companions.runtimeEpoch },
+          lock: 'update',
+        },
+        tx,
+      );
+      await requireCompanion(this.database, ownerId, scope.companionId, scope.runtimeEpoch, tx);
       if (!companion || companion.epoch !== scope.runtimeEpoch)
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
       return;
     }
     if (!scope.companionId || !scope.runtimeEpoch || !scope.conversationId)
       throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
-    await tx.sql
+    await tx
       .select({ id: conversations.id })
       .from(conversations)
       .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, scope.conversationId)))
       .for('update');
-    await tx.sql
+    await tx
       .select({ id: companions.id })
       .from(companions)
       .where(and(eq(companions.ownerId, ownerId), eq(companions.id, scope.companionId)))
       .for('update');
-    await tx.sql
+    await tx
       .select({ id: conversationMembers.id })
       .from(conversationMembers)
       .where(
@@ -574,6 +635,7 @@ export class TasksService {
       .for('update');
     await requireConversation(ownerId, scope.conversationId, tx);
     const member = await requireCompanionMember(
+      this.database,
       ownerId,
       scope.companionId,
       scope.runtimeEpoch,
@@ -581,18 +643,18 @@ export class TasksService {
       tx,
     );
     if (row.input.kind === 'memory_batch') {
-      const batch = await requireMemoryBatch(ownerId, row.input.batchId, tx);
+      const batch = await requireMemoryBatch(this.database, ownerId, row.input.batchId, tx);
       if (batch.taskId !== row.id) throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     }
     if (row.input.kind === 'memory_index') {
-      const index = await requireIndexSource(ownerId, row.input.indexId, tx);
+      const index = await requireIndexSource(this.database, ownerId, row.input.indexId, tx);
       if (index.index.taskId !== row.id) throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
     }
     if (row.input.kind === 'memory_extraction') {
       if (member.permissionVersion !== row.input.permissionVersion)
         throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
       await assertVisible(member, row.input.sequence, tx);
-      const [source] = await tx.sql
+      const [source] = await tx
         .select({ id: messages.id })
         .from(messages)
         .where(
@@ -620,15 +682,19 @@ export class TasksService {
     status: Task['attempts'][number]['status'],
     reason: string | null,
   ): Promise<void> {
-    await tx.taskAttempts.updateWhere({
-      where: { taskId: row.id, number: row.fence, status: 'running' },
-      set: { status, reason, finishedAt: now },
-    });
+    await this.database.taskAttempts.updateWhere(
+      ownerId,
+      {
+        where: { taskId: row.id, number: row.fence, status: 'running' },
+        set: { status, reason, finishedAt: now },
+      },
+      tx,
+    );
   }
 
   /** 读取并校验指定的任务记录。 */
   private async row(ownerId: string, id: string, tx: DatabaseTransaction): Promise<TaskRow> {
-    const row = await tx.tasks.findOne({ where: { id: id } });
+    const row = await this.database.tasks.findById(ownerId, id, tx);
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return row;
   }
@@ -639,24 +705,27 @@ export class TasksService {
    * 在调用者已有的调度事务内读取任务，避免嵌套加锁。
    */
   async getInTransaction(ownerId: string, id: string, tx: DatabaseTransaction): Promise<Task> {
-    return this.view(await this.row(ownerId, id, tx), tx);
+    return this.view(ownerId, await this.row(ownerId, id, tx), tx);
   }
 
   /** 将任务及执行尝试转换为公共详情。 */
-  private async view(row: TaskRow, tx: DatabaseTransaction): Promise<Task> {
-    const attempts = await tx.sql
-      .select()
-      .from(taskAttempts)
-      .where(and(eq(taskAttempts.ownerId, row.ownerId), eq(taskAttempts.taskId, row.id)))
-      .orderBy(asc(taskAttempts.number))
-      .limit(10);
+  private async view(ownerId: string, row: TaskRow, tx: DatabaseTransaction): Promise<Task> {
+    const attempts = await this.database.taskAttempts.findMany(
+      ownerId,
+      {
+        where: and(eq(taskAttempts.ownerId, row.ownerId), eq(taskAttempts.taskId, row.id)),
+        orderBy: [asc(taskAttempts.number)],
+        limit: 10,
+      },
+      tx,
+    );
     const [call] =
       row.kind === 'model_probe' ||
       row.kind === 'persona_initialization' ||
       row.kind === 'chat_reply' ||
       row.input.kind === 'memory_batch' ||
       row.input.kind === 'memory_index'
-        ? await tx.sql
+        ? await tx
             .select({ id: modelCalls.id })
             .from(modelCalls)
             .where(

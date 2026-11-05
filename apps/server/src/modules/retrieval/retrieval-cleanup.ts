@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import { and, eq, inArray, isNotNull, isNull, lte, ne } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
 import type { DatabaseTransaction } from '../../database/database.service';
@@ -23,6 +24,7 @@ import { lifecycleConversationScope } from '../lifecycle/lifecycle-scope';
  * 消息→记忆版本→旧版本依赖→回复，循环至固定点；不通过正文猜测关系。
  */
 export async function propagateRecallDeletion(
+  database: DatabaseService,
   ownerId: string,
   tx: DatabaseTransaction,
   operation: LifecycleRecord,
@@ -31,7 +33,7 @@ export async function propagateRecallDeletion(
   if (operation.kind !== 'delete_messages') return { done: true, changed: 0 };
   let changed = 0;
   const known = alias(lifecycleMemoryTargets, 'known_memory_target');
-  const roots = await tx.sql
+  const roots = await tx
     .selectDistinct({ versionId: memoryOriginalSources.versionId })
     .from(lifecycleMessageTargets)
     .innerJoin(
@@ -58,11 +60,11 @@ export async function propagateRecallDeletion(
     )
     .limit(limit);
   if (roots.length)
-    await tx.sql
+    await tx
       .insert(lifecycleMemoryTargets)
       .values(roots.map((row) => ({ ...row, ownerId, operationId: operation.id })));
   changed += roots.length;
-  const derived = await tx.sql
+  const derived = await tx
     .selectDistinct({ versionId: memoryDependencies.versionId })
     .from(lifecycleMemoryTargets)
     .innerJoin(
@@ -85,11 +87,11 @@ export async function propagateRecallDeletion(
     )
     .limit(limit);
   if (derived.length)
-    await tx.sql
+    await tx
       .insert(lifecycleMemoryTargets)
       .values(derived.map((row) => ({ ...row, ownerId, operationId: operation.id })));
   changed += derived.length;
-  const invalid = await tx.sql
+  const invalid = await tx
     .select({ id: memoryVersions.id })
     .from(lifecycleMemoryTargets)
     .innerJoin(memoryVersions, eq(memoryVersions.id, lifecycleMemoryTargets.versionId))
@@ -103,18 +105,22 @@ export async function propagateRecallDeletion(
     .limit(limit);
   if (invalid.length) {
     const ids = invalid.map((row) => row.id);
-    await tx.memoryEntries.updateWhere({
-      where: inArray(memoryEntries.currentVersionId, ids),
-      set: { status: 'invalidated' },
-    });
-    await tx.sql
+    await database.memoryEntries.updateWhere(
+      ownerId,
+      {
+        where: inArray(memoryEntries.currentVersionId, ids),
+        set: { status: 'invalidated' },
+      },
+      tx,
+    );
+    await tx
       .update(memoryVersions)
       .set({ document: null, reason: null, fingerprint: 'deleted', invalidatedAt: new Date() })
-      .where(inArray(memoryVersions.id, ids));
+      .where(and(eq(memoryVersions.ownerId, ownerId), inArray(memoryVersions.id, ids)));
   }
   changed += invalid.length;
   const knownMessage = alias(lifecycleMessageTargets, 'known_recall_message');
-  const replies = await tx.sql
+  const replies = await tx
     .selectDistinct({ messageId: messages.id, contentVersion: messages.contentVersion })
     .from(lifecycleMemoryTargets)
     .innerJoin(
@@ -144,7 +150,7 @@ export async function propagateRecallDeletion(
     )
     .limit(limit);
   if (replies.length)
-    await tx.sql.insert(lifecycleMessageTargets).values(
+    await tx.insert(lifecycleMessageTargets).values(
       replies.map((row) => ({
         ...row,
         ownerId,
@@ -162,6 +168,7 @@ export async function propagateRecallDeletion(
  * 清除派生词项后删除索引待办文档，身份来源图保留而不保存正文。
  */
 export async function cleanupSearchPage(
+  database: DatabaseService,
   ownerId: string,
   tx: DatabaseTransaction,
   operation: LifecycleRecord,
@@ -174,7 +181,7 @@ export async function cleanupSearchPage(
           eq(memoryEntries.companionId, operation.companionId!),
           lte(memoryEntries.runtimeEpoch, operation.previousEpoch!),
         );
-  const rows = await tx.sql
+  const rows = await tx
     .select({ id: memorySearchDocuments.versionId })
     .from(memorySearchDocuments)
     .innerJoin(memoryEntries, eq(memoryEntries.id, memorySearchDocuments.memoryId))
@@ -189,8 +196,16 @@ export async function cleanupSearchPage(
     .limit(limit);
   if (rows.length) {
     const ids = rows.map((row) => row.id);
-    await tx.memorySearchTerms.deleteWhere(inArray(memorySearchTerms.versionId, ids));
-    await tx.memorySearchDocuments.deleteWhere(inArray(memorySearchDocuments.versionId, ids));
+    await database.memorySearchTerms.deleteWhere(
+      ownerId,
+      inArray(memorySearchTerms.versionId, ids),
+      tx,
+    );
+    await database.memorySearchDocuments.deleteWhere(
+      ownerId,
+      inArray(memorySearchDocuments.versionId, ids),
+      tx,
+    );
   }
   return { done: rows.length === 0, changed: rows.length };
 }
@@ -213,7 +228,7 @@ export async function vectorCleanupRows(
           eq(memoryVectorIndexes.companionId, operation.companionId!),
           lte(memoryVectorIndexes.runtimeEpoch, operation.previousEpoch!),
         );
-  return tx.sql
+  return tx
     .select({
       id: memoryVectorIndexes.id,
       versionId: memoryVectorIndexes.versionId,

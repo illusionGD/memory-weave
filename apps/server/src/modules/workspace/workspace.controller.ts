@@ -1,3 +1,4 @@
+import { CurrentOwner } from '../auth/current-owner';
 import { Body, Controller, Get, Inject, Patch } from '@nestjs/common';
 import { updateWorkspaceRequestSchema } from '@memory-weave/contracts';
 import type { UpdateWorkspaceRequest, WorkspaceResponse } from '@memory-weave/contracts';
@@ -16,8 +17,8 @@ export class WorkspaceController {
    * 读取稳定身份和当前显示名称，不把显示名称用于身份认证。
    */
   @Get()
-  get(): Promise<WorkspaceResponse> {
-    return this.workspace.get();
+  get(@CurrentOwner() ownerId: string): Promise<WorkspaceResponse> {
+    return this.workspace.get(ownerId);
   }
 
   /**
@@ -27,8 +28,9 @@ export class WorkspaceController {
    */
   @Patch()
   update(
+    @CurrentOwner() ownerId: string,
     @Body(new ZodValidationPipe(updateWorkspaceRequestSchema)) body: UpdateWorkspaceRequest,
   ): Promise<WorkspaceResponse> {
-    return this.workspace.update(body);
+    return this.workspace.update(ownerId, body);
   }
 }

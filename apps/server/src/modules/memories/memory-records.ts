@@ -1,3 +1,4 @@
+import type { DatabaseService } from '../../database/database.service';
 import type {
   MemoryDetail,
   MemoryEvidencePage,
@@ -51,6 +52,7 @@ export function toMemoryItem(entry: Entry, version: Version): MemoryItem {
  * 用有界存在性查询检查全部来源，不能靠截断证据绕过失效记录。
  */
 export async function assertVersionSources(
+  database: DatabaseService,
   ownerId: string,
   entry: Entry,
   version: Version,
@@ -58,13 +60,14 @@ export async function assertVersionSources(
 ): Promise<void> {
   if (version.invalidatedAt) return;
   const member = await requireCompanionMember(
+    database,
     ownerId,
     entry.companionId,
     entry.runtimeEpoch,
     entry.conversationId,
     tx,
   );
-  const visible = tx.sql
+  const visible = tx
     .select({ id: visibilityGrants.id })
     .from(visibilityGrants)
     .where(
@@ -75,7 +78,7 @@ export async function assertVersionSources(
         sql`${visibilityGrants.startSequence} <= ${messages.sequence} AND (${visibilityGrants.endSequence} IS NULL OR ${visibilityGrants.endSequence} >= ${messages.sequence}) AND (${visibilityGrants.kind} = 'history' OR (${messages.sequence} >= ${member.joinedSequence} AND (${member.leftSequence} IS NULL OR ${messages.sequence} <= ${member.leftSequence})))`,
       ),
     );
-  const [invalid] = await tx.sql
+  const [invalid] = await tx
     .select({ id: memoryEvidence.id })
     .from(memoryEvidence)
     .leftJoin(
@@ -108,6 +111,7 @@ export async function assertVersionSources(
  * 证据独立分页，只从仍可见的原文取出精确片段。
  */
 async function evidenceFor(
+  database: DatabaseService,
   ownerId: string,
   entry: Entry,
   version: Version,
@@ -116,8 +120,8 @@ async function evidenceFor(
   limit = 20,
 ): Promise<MemoryEvidencePage> {
   if (version.invalidatedAt) return { items: [], nextAfterId: null };
-  await assertVersionSources(ownerId, entry, version, tx);
-  const rows = await tx.sql
+  await assertVersionSources(database, ownerId, entry, version, tx);
+  const rows = await tx
     .select({ evidence: memoryEvidence, source: messages })
     .from(memoryEvidence)
     .innerJoin(
@@ -154,6 +158,7 @@ async function evidenceFor(
  * 回查某个版本的后续证据页。
  */
 export async function memoryRecordEvidence(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   id: string,
@@ -161,7 +166,7 @@ export async function memoryRecordEvidence(
   query: MemoryQuery,
   tx: DatabaseTransaction,
 ): Promise<MemoryEvidencePage> {
-  const [row] = await tx.sql
+  const [row] = await tx
     .select({ entry: memoryEntries, version: memoryVersions })
     .from(memoryEntries)
     .innerJoin(memoryVersions, eq(memoryVersions.memoryId, memoryEntries.id))
@@ -176,7 +181,7 @@ export async function memoryRecordEvidence(
       ),
     );
   if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-  return evidenceFor(ownerId, row.entry, row.version, tx, query.afterId, query.limit);
+  return evidenceFor(database, ownerId, row.entry, row.version, tx, query.afterId, query.limit);
 }
 /**
  * 分页查询会话中各记忆的当前版本。
@@ -184,12 +189,13 @@ export async function memoryRecordEvidence(
  * 当前版本的有界查询，不扫描会话全部原文。
  */
 export async function listMemoryRecords(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   query: MemoryQuery,
   tx: DatabaseTransaction,
 ): Promise<MemoryList> {
-  const rows = await tx.sql
+  const rows = await tx
     .select({ entry: memoryEntries, version: memoryVersions })
     .from(memoryEntries)
     .innerJoin(memoryVersions, eq(memoryVersions.id, memoryEntries.currentVersionId))
@@ -205,7 +211,7 @@ export async function listMemoryRecords(
     .orderBy(asc(memoryEntries.id))
     .limit(query.limit + 1);
   for (const row of rows.slice(0, query.limit))
-    await assertVersionSources(ownerId, row.entry, row.version, tx);
+    await assertVersionSources(database, ownerId, row.entry, row.version, tx);
   return {
     items: rows.slice(0, query.limit).map((row) => toMemoryItem(row.entry, row.version)),
     nextAfterId: rows.length > query.limit ? rows[query.limit - 1]!.entry.id : null,
@@ -217,37 +223,46 @@ export async function listMemoryRecords(
  * 历史版本与来源独立分页；删除正文后不展示旧证据。
  */
 export async function memoryRecordDetail(
+  database: DatabaseService,
   ownerId: string,
   companionId: string,
   id: string,
   query: MemoryQuery,
   tx: DatabaseTransaction,
 ): Promise<MemoryDetail> {
-  const entry = await tx.memoryEntries.findOne({
-    where: {
-      companionId: companionId,
-      runtimeEpoch: query.runtimeEpoch,
-      conversationId: query.conversationId,
-      id: id,
+  const entry = await database.memoryEntries.findOne(
+    ownerId,
+    {
+      where: {
+        companionId,
+        runtimeEpoch: query.runtimeEpoch,
+        conversationId: query.conversationId,
+        id,
+      },
     },
-  });
+    tx,
+  );
   if (!entry) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-  const current = await tx.memoryVersions.findOne({ where: { id: entry.currentVersionId } });
+  const current = await database.memoryVersions.findById(ownerId, entry.currentVersionId, tx);
   if (!current) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-  await assertVersionSources(ownerId, entry, current, tx);
-  const versions = await tx.memoryVersions.findMany({
-    where: and(
-      eq(memoryVersions.memoryId, id),
-      query.afterId ? gt(memoryVersions.id, query.afterId) : undefined,
-    ),
-    orderBy: [asc(memoryVersions.id)],
-    limit: query.limit + 1,
-  });
+  await assertVersionSources(database, ownerId, entry, current, tx);
+  const versions = await database.memoryVersions.findMany(
+    ownerId,
+    {
+      where: and(
+        eq(memoryVersions.memoryId, id),
+        query.afterId ? gt(memoryVersions.id, query.afterId) : undefined,
+      ),
+      orderBy: [asc(memoryVersions.id)],
+      limit: query.limit + 1,
+    },
+    tx,
+  );
   return {
     current: toMemoryItem(entry, current),
     versions: await Promise.all(
       versions.slice(0, query.limit).map(async (version) => {
-        const evidence = await evidenceFor(ownerId, entry, version, tx);
+        const evidence = await evidenceFor(database, ownerId, entry, version, tx);
         return {
           ...toMemoryItem(entry, version),
           operation: version.operation,
@@ -267,6 +282,7 @@ export async function memoryRecordDetail(
  * 采用候选前检查精确来源、修订版本与现实作用域，整批失败则不推进任何范围。
  */
 export async function adoptMemories(
+  database: DatabaseService,
   ownerId: string,
   batch: Batch,
   output: MemoryOutput,
@@ -323,14 +339,14 @@ export async function adoptMemories(
         (item) => item.id === action.targetId && item.version === action.targetVersion,
       );
       if (!related || changed.has(related.id)) return invalid();
-      [entry] = await tx.sql
+      [entry] = await tx
         .select()
         .from(memoryEntries)
         .where(and(eq(memoryEntries.ownerId, ownerId), eq(memoryEntries.id, related.id)))
         .for('update');
       if (!entry || entry.currentVersionId !== related.versionId || entry.status === 'invalidated')
         throw new ApiException(API_CODES.VERSION_CONFLICT);
-      [previous] = await tx.sql
+      [previous] = await tx
         .select()
         .from(memoryVersions)
         .where(eq(memoryVersions.id, entry.currentVersionId));
@@ -344,7 +360,7 @@ export async function adoptMemories(
       changed.add(entry.id);
     } else {
       if (action.targetId || action.targetVersion) invalid();
-      const [duplicate] = await tx.sql
+      const [duplicate] = await tx
         .select({ entry: memoryEntries, version: memoryVersions })
         .from(memoryEntries)
         .innerJoin(memoryVersions, eq(memoryVersions.id, memoryEntries.currentVersionId))
@@ -377,29 +393,38 @@ export async function adoptMemories(
         ? ('disputed' as const)
         : ('active' as const);
     if (!entry)
-      await tx.memoryEntries.insert({
-        id: entryId,
-        companionId: batch.companionId,
-        runtimeEpoch: batch.runtimeEpoch,
-        conversationId: batch.conversationId,
-        currentVersionId: versionId,
-        version,
-        status,
-      });
+      await database.memoryEntries.insert(
+        ownerId,
+        {
+          id: entryId,
+          companionId: batch.companionId,
+          runtimeEpoch: batch.runtimeEpoch,
+          conversationId: batch.conversationId,
+          currentVersionId: versionId,
+          version,
+          status,
+        },
+        tx,
+      );
     if (!duplicate) {
-      await tx.memoryVersions.insert({
-        id: versionId,
-        memoryId: entryId,
-        version,
-        batchId: batch.id,
-        document: doc,
-        fingerprint: hash,
-        operation: action.action === 'revise' ? action.revisionKind! : action.action,
-        previousVersionId: previous?.id ?? null,
-        reason: action.reason,
-        mode: batch.mode,
-      });
+      await database.memoryVersions.insert(
+        ownerId,
+        {
+          id: versionId,
+          memoryId: entryId,
+          version,
+          batchId: batch.id,
+          document: doc,
+          fingerprint: hash,
+          operation: action.action === 'revise' ? action.revisionKind! : action.action,
+          previousVersionId: previous?.id ?? null,
+          reason: action.reason,
+          mode: batch.mode,
+        },
+        tx,
+      );
       await registerSearchDocument(
+        database,
         ownerId,
         versionId,
         entryId,
@@ -412,10 +437,12 @@ export async function adoptMemories(
         tx,
       );
       if (entry)
-        await tx.memoryEntries.updateWhere({
-          where: { id: entry.id },
-          set: { currentVersionId: versionId, version, status },
-        });
+        await database.memoryEntries.update(
+          ownerId,
+          entry.id,
+          { currentVersionId: versionId, version, status },
+          tx,
+        );
     }
     // 新正文保守依赖本批全部上下文及旧版本；重复内容只补新证据，避免产生依赖环。
     const dependencies = [
@@ -438,13 +465,13 @@ export async function adoptMemories(
     ];
     const unique = [...new Map(dependencies.map((e) => [JSON.stringify(e), e])).values()];
     for (const evidence of unique)
-      await tx.sql
+      await tx
         .insert(memoryEvidence)
         .values({ ...evidence, ownerId, versionId })
         .onDuplicateKeyUpdate({ set: { versionId } });
     const sourceIds = [...new Map(unique.map((e) => [e.messageId, e])).values()];
     if (sourceIds.length)
-      await tx.sql
+      await tx
         .insert(memoryOriginalSources)
         .values(
           sourceIds.map((e) => ({
@@ -456,7 +483,7 @@ export async function adoptMemories(
         )
         .onDuplicateKeyUpdate({ set: { versionId } });
     if (!duplicate && input.related.length)
-      await tx.sql
+      await tx
         .insert(memoryDependencies)
         .values(
           input.related.map((item) => ({ ownerId, versionId, sourceVersionId: item.versionId })),
