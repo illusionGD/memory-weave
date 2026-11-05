@@ -1,3 +1,4 @@
+import { MODEL_PREPROCESSING_VERSION } from '../src/modules/models/model-constants';
 import { asOwner } from './support/identity';
 import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import type { ModelConfiguration } from '@memory-weave/contracts';
@@ -171,7 +172,7 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
     const definition = {
       promptVersion: current.config.tasks.chat.promptVersion,
       schemaVersion: current.config.tasks.chat.schemaVersion,
-      preprocessingVersion: 'utf8-v1',
+      preprocessingVersion: MODEL_PREPROCESSING_VERSION,
       systemPrompt: '协议测试。',
     };
     const chunks: string[] = [];
@@ -556,7 +557,7 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
         {
           promptVersion: 'persona-fixture-v1',
           schemaVersion: 'traits-v1',
-          preprocessingVersion: 'utf8-v1',
+          preprocessingVersion: MODEL_PREPROCESSING_VERSION,
           systemPrompt: '将人设解析为 traits 字符串数组。',
           outputSchema: z.object({ traits: z.array(z.string()).min(1) }).strict(),
         },

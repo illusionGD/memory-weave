@@ -1,3 +1,7 @@
+import {
+  MODEL_PROBE_DEFINITION_VERSION,
+  MODEL_PREPROCESSING_VERSION,
+} from '../models/model-constants';
 import type {
   CompanionCreation,
   CompanionPersonaState,
@@ -493,13 +497,13 @@ export class CompanionPersonasService {
       if (
         persona.promptVersion === PERSONA_DEFINITION_VERSION &&
         persona.schemaVersion === PERSONA_DEFINITION_VERSION &&
-        persona.preprocessingVersion === 'utf8-v1'
+        persona.preprocessingVersion === MODEL_PREPROCESSING_VERSION
       )
         return current;
       if (
-        persona.promptVersion !== 'probe-v1' ||
-        persona.schemaVersion !== 'probe-v1' ||
-        persona.preprocessingVersion !== 'utf8-v1'
+        persona.promptVersion !== MODEL_PROBE_DEFINITION_VERSION ||
+        persona.schemaVersion !== MODEL_PROBE_DEFINITION_VERSION ||
+        persona.preprocessingVersion !== MODEL_PREPROCESSING_VERSION
       )
         throw new ApiException(
           API_CODES.MODEL_NOT_CONFIGURED,

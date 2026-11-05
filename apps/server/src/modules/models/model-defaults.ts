@@ -1,3 +1,8 @@
+import {
+  MODEL_PROBE_DEFINITION_VERSION,
+  MODEL_VECTOR_SCHEMA_VERSION,
+  MODEL_PREPROCESSING_VERSION,
+} from './model-constants';
 import { MEMORY_DEFINITION_VERSION } from '../memories/memory-definition';
 import { MODEL_TASK_ROLES } from '@memory-weave/contracts';
 import type { ModelConfiguration, ModelTaskConfig } from '@memory-weave/contracts';
@@ -24,8 +29,8 @@ export function defaultModelConfiguration(): ModelConfiguration {
               ? PERSONA_DEFINITION_VERSION
               : role === 'chat'
                 ? CHAT_DEFINITION_VERSION
-                : 'probe-v1',
-        preprocessingVersion: 'utf8-v1',
+                : MODEL_PROBE_DEFINITION_VERSION,
+        preprocessingVersion: MODEL_PREPROCESSING_VERSION,
         schemaVersion:
           role === 'memory'
             ? MEMORY_DEFINITION_VERSION
@@ -34,8 +39,8 @@ export function defaultModelConfiguration(): ModelConfiguration {
               : role === 'chat'
                 ? CHAT_DEFINITION_VERSION
                 : role === 'embedding'
-                  ? 'vector-v1'
-                  : 'probe-v1',
+                  ? MODEL_VECTOR_SCHEMA_VERSION
+                  : MODEL_PROBE_DEFINITION_VERSION,
         maxInputTokens: role === 'persona' || role === 'chat' || role === 'memory' ? 32768 : 8192,
         maxOutputTokens:
           role === 'embedding' ? 0 : role === 'persona' || role === 'memory' ? 4096 : 512,

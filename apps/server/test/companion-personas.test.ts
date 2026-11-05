@@ -1,3 +1,4 @@
+import { MODEL_PROBE_DEFINITION_VERSION } from '../src/modules/models/model-constants';
 import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -429,8 +430,8 @@ describe('伴侣初始人格的公开命令与查询', () => {
     const agent = await login();
     const current = (await agent.get('/api/models/config')).body.data;
     Object.assign(current.config.tasks.persona, {
-      promptVersion: 'probe-v1',
-      schemaVersion: 'probe-v1',
+      promptVersion: MODEL_PROBE_DEFINITION_VERSION,
+      schemaVersion: MODEL_PROBE_DEFINITION_VERSION,
       maxInputTokens: 8192,
       maxOutputTokens: 512,
     });

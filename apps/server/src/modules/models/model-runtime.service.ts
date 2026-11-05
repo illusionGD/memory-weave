@@ -1,3 +1,8 @@
+import {
+  MODEL_PROBE_DEFINITION_VERSION,
+  MODEL_VECTOR_SCHEMA_VERSION,
+  MODEL_PREPROCESSING_VERSION,
+} from './model-constants';
 import type {
   DailyModelBudget,
   ModelAttempt,
@@ -67,9 +72,12 @@ export class ModelRuntimeService {
     return this.invoke(
       input,
       {
-        promptVersion: 'probe-v1',
-        schemaVersion: input.operation === 'embedding' ? 'vector-v1' : 'probe-v1',
-        preprocessingVersion: 'utf8-v1',
+        promptVersion: MODEL_PROBE_DEFINITION_VERSION,
+        schemaVersion:
+          input.operation === 'embedding'
+            ? MODEL_VECTOR_SCHEMA_VERSION
+            : MODEL_PROBE_DEFINITION_VERSION,
+        preprocessingVersion: MODEL_PREPROCESSING_VERSION,
         systemPrompt:
           input.operation === 'structured'
             ? '这是隔离的模型接口诊断。请返回 JSON 对象，只包含 ok（布尔值）和 reply（非空字符串），不要输出额外字段。'

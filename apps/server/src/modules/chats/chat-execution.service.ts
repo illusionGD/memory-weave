@@ -1,3 +1,7 @@
+import {
+  MODEL_PROBE_DEFINITION_VERSION,
+  MODEL_PREPROCESSING_VERSION,
+} from '../models/model-constants';
 import type { ModelConfigurationVersion, RecallResult } from '@memory-weave/contracts';
 import { API_CODES, recallQuerySchema } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
@@ -377,13 +381,13 @@ export class ChatExecutionService {
       if (
         chat.promptVersion === CHAT_DEFINITION_VERSION &&
         chat.schemaVersion === CHAT_DEFINITION_VERSION &&
-        chat.preprocessingVersion === 'utf8-v1'
+        chat.preprocessingVersion === MODEL_PREPROCESSING_VERSION
       )
         return current;
       if (
-        !['probe-v1'].includes(chat.promptVersion) ||
-        !['probe-v1'].includes(chat.schemaVersion) ||
-        chat.preprocessingVersion !== 'utf8-v1'
+        ![MODEL_PROBE_DEFINITION_VERSION].includes(chat.promptVersion) ||
+        ![MODEL_PROBE_DEFINITION_VERSION].includes(chat.schemaVersion) ||
+        chat.preprocessingVersion !== MODEL_PREPROCESSING_VERSION
       )
         throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED, '聊天定义与 chat 模型配置不一致。');
       try {

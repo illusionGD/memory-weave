@@ -1,3 +1,7 @@
+import {
+  MODEL_PROBE_DEFINITION_VERSION,
+  MODEL_PREPROCESSING_VERSION,
+} from '../models/model-constants';
 import type {
   MemoryBatchList,
   MemoryBatchResult,
@@ -504,7 +508,7 @@ export class MemoriesService {
     const configured =
       current.config.tasks.memory.promptVersion === MEMORY_DEFINITION_VERSION &&
       current.config.tasks.memory.schemaVersion === MEMORY_DEFINITION_VERSION &&
-      current.config.tasks.memory.preprocessingVersion === 'utf8-v1';
+      current.config.tasks.memory.preprocessingVersion === MODEL_PREPROCESSING_VERSION;
     const reason = !configured
       ? 'memory_configuration_required'
       : JSON.stringify(input).length > config.maxInputCharacters
@@ -589,13 +593,13 @@ export class MemoriesService {
       if (
         role.promptVersion === MEMORY_DEFINITION_VERSION &&
         role.schemaVersion === MEMORY_DEFINITION_VERSION &&
-        role.preprocessingVersion === 'utf8-v1'
+        role.preprocessingVersion === MODEL_PREPROCESSING_VERSION
       )
         return current;
       if (
-        role.promptVersion !== 'probe-v1' ||
-        role.schemaVersion !== 'probe-v1' ||
-        role.preprocessingVersion !== 'utf8-v1'
+        role.promptVersion !== MODEL_PROBE_DEFINITION_VERSION ||
+        role.schemaVersion !== MODEL_PROBE_DEFINITION_VERSION ||
+        role.preprocessingVersion !== MODEL_PREPROCESSING_VERSION
       )
         throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
       try {
