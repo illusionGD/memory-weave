@@ -99,6 +99,8 @@ const modelConfigurationVersionShape = {
   id: uuidSchema,
   /** 此部署内递增版本号。 */
   version: positiveIntegerSchema,
+  /** 配置与非秘密部署信息的指纹，可与文件校验结果比较。 */
+  fingerprint: z.string().min(1).max(64),
   /** 首次默认配置或部署者明确发布的配置。 */
   source: z.enum(['default', 'deployment']),
   /** 完整配置快照，不包含凭据。 */

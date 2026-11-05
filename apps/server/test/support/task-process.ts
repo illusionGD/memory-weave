@@ -1,6 +1,6 @@
 import { asOwner } from './identity';
 import { createApplication } from '../../src/app';
-import { loadServerConfig } from '../../src/config';
+import { loadServerConfig } from './model-config';
 import { TasksService } from '../../src/modules/tasks/tasks.service';
 import { TaskWorkerService } from '../../src/modules/tasks/task-worker.service';
 

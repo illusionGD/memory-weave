@@ -1,7 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { defaultModelConfiguration } from '../src/modules/models/model-defaults';
+import { defaultModelHardLimits } from '../src/modules/models/model-deployment';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it } from 'vitest';
 import { loadServerConfig } from '../src/config';
 
 const BASE_ENV = {
+  MODEL_CONFIG_FILE: fileURLToPath(
+    new URL('../../../config/models.development.example.json', import.meta.url),
+  ),
   REDIS_URL: 'redis://localhost:6379',
   REDIS_NAMESPACE: 'configuration-test',
   AUTH_SESSION_SECRET: 'a'.repeat(64),
@@ -45,7 +54,7 @@ describe('server bootstrap configuration', () => {
     };
     const config = loadServerConfig({
       ...BASE_ENV,
-      MODEL_PROVIDERS_JSON: JSON.stringify([definition]),
+      MODEL_CONFIG_FILE: providerFile(definition),
     });
     expect(config.modelDeployment?.providers[0]).toMatchObject({ id: 'local', apiKey: null });
     for (const invalid of [
@@ -54,7 +63,7 @@ describe('server bootstrap configuration', () => {
       { ...definition, apiKeyEnv: 'DATABASE_URL' },
     ]) {
       expect(() =>
-        loadServerConfig({ ...BASE_ENV, MODEL_PROVIDERS_JSON: JSON.stringify([invalid]) }),
+        loadServerConfig({ ...BASE_ENV, MODEL_CONFIG_FILE: providerFile(invalid) }),
       ).toThrow('模型部署配置无效');
     }
   });
@@ -83,3 +92,23 @@ describe('server bootstrap configuration', () => {
     ).toThrow(/COOKIE_SECURE/);
   });
 });
+
+const directories: string[] = [];
+/** 为公开配置加载接口生成独立供应商文件。 */
+function providerFile(provider: unknown) {
+  const directory = mkdtempSync(join(tmpdir(), 'mw-provider-config-'));
+  directories.push(directory);
+  const file = join(directory, 'models.json');
+  writeFileSync(
+    file,
+    JSON.stringify({
+      providers: [provider],
+      hardLimits: defaultModelHardLimits(),
+      configuration: defaultModelConfiguration(),
+    }),
+  );
+  return file;
+}
+afterEach(() =>
+  directories.splice(0).forEach((directory) => rmSync(directory, { recursive: true, force: true })),
+);

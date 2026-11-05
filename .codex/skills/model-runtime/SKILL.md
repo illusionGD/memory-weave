@@ -5,6 +5,8 @@ description: 维护 F03 模型 adapter、任务配置版本、调用诊断和持
 
 # F03 模型基础
 
+2026-11-05：部署模型配置以 [模型 JSON 配置](../../../docs/features/model-json-config.md) 为准。开发/正式独立文件，启动前校验并同步生效快照，改文件后重启；文件管理的服务禁止 HTTP 发布和内部占位升级，密钥仍从环境变量引用。不得恢复旧 MODEL_PROVIDERS_JSON / MODEL_HARD_LIMITS_JSON 入口。下方旧 apply/占位升级说明只适用于历史及程序化故障测试。
+
 先读 [功能说明](../../../docs/features/f03-model-runtime.md)、架构 §13.1/13.5、开发进度与 coding/tdd。沿用已确认的 HTTP、模型任务入口、配置及进程恢复测试边界，无需重复确认。
 
 - `packages/contracts/src/models.ts` 维护跨终端 schema、类型和中文字段注释，数字码仍集中在 api.ts。源代码导入不写 .js，运行脚本指向真实 dist 文件时保留 .js。

@@ -201,6 +201,12 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
     if (config.adminDistDir) await attachWebAssets(app, config.adminDistDir, '/admin');
     if (config.webDistDir) await attachWebAssets(app, config.webDistDir);
     await app.init();
+    if (config.modelDeployment?.file) {
+      const ownerId = await app.get(DeploymentIdentity).ownerId();
+      await app
+        .get(IdentityContext)
+        .run(ownerId, () => app.get(ModelConfigurationService).synchronizeFile());
+    }
   } catch (error) {
     await app.close();
     throw error;

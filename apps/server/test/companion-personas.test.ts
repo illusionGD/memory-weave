@@ -4,7 +4,7 @@ import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:http';
 import type { Server, ServerResponse } from 'node:http';
-import { loadServerConfig } from '../src/config';
+import { loadServerConfig } from './support/model-config';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

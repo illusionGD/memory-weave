@@ -105,6 +105,7 @@ services:
     environment:
       <<: *database-environment
       NODE_ENV: production
+      MODEL_CONFIG_FILE: /app/config/models.production.json
       HOST: 0.0.0.0
       PORT: '3000'
       CHAT_CONFIG_JSON: '${CHAT_CONFIG_JSON:-}'
@@ -129,6 +130,7 @@ services:
       - '${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8080}:3000'
     volumes:
       - app-data:/app/data
+      - ../config/models.production.json:/app/config/models.production.json:ro
     healthcheck:
       test:
         [

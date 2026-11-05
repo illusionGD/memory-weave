@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
-import { loadServerConfig } from '../src/config';
+import { loadServerConfig } from './support/model-config';
 import type { ServerConfig } from '../src/config';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { mkdtemp, rm } from 'node:fs/promises';

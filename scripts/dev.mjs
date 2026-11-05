@@ -22,6 +22,9 @@ const child = spawn(
     stdio: 'inherit',
     env: {
       ...process.env,
+      NODE_ENV: 'development',
+      MODEL_CONFIG_FILE:
+        process.env.MODEL_CONFIG_FILE || resolve(root, 'config/models.development.json'),
       DATA_DIR: resolve(root, process.env.DATA_DIR || 'data'),
       ADMIN_APP_ORIGIN: process.env.ADMIN_APP_ORIGIN || adminOrigin.origin,
     },

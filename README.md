@@ -6,6 +6,7 @@
 
 **本次开发库需要重建。** 数据访问已改为自动归属的 `database.表.操作` 和事务回调，业务表由 42 张调整为 41 张，初始化迁移重新建立基线。已有开发环境先停止后端，保持 MySQL/Qdrant/Redis 运行，执行 `pnpm db:reset`，再运行 `pnpm dev` 并重新登录。该命令会清空本项目开发数据及对应向量、头像和 Redis 命名空间；新安装仍用 `pnpm db:migrate`。后文各历史功能的增量升级说明不适用于跨越本次重建，详见 [数据访问与重建说明](docs/features/crud-repositories.md)。
 
+- [模型 JSON 配置与环境区分](docs/features/model-json-config.md)
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
 - [开发进度](docs/progress.md)
@@ -93,7 +94,7 @@ pnpm verify:f05
 pnpm verify:f06
 ```
 
-脚本保留一位隔离验收伴侣、一个私聊和两条用户原文，只允许 chat 使用 test。`.env` 的 `CHAT_CONFIG_JSON` 集中配置合并等待、上下文条数和片段/连接资源；供应商在 `.env.models` 声明 `streaming: true` 后启用实际流式，否则整段返回。恢复、未知调用、SSE 代理设置和全部 API 见 [F06 功能说明](docs/features/f06-private-chat.md)。
+脚本保留一位隔离验收伴侣、一个私聊和两条用户原文，只允许 chat 使用 test。`.env` 的 `CHAT_CONFIG_JSON` 集中配置合并等待、上下文条数和片段/连接资源；供应商在模型 JSON 中声明 `streaming: true` 后启用实际流式，否则整段返回。恢复、未知调用、SSE 代理设置和全部 API 见 [F06 功能说明](docs/features/f06-private-chat.md)。
 
 ### 删除与重置验收
 
@@ -136,15 +137,15 @@ pnpm tasks:config show
 
 F04 保存两条隔离诊断并调用一次 test 模型，验证自动执行、幂等、结果关联与计量。失败、暂停和取消详情，以及配置导出/发布方式见 [F04 说明](docs/features/f04-durable-tasks.md)。消息发布会登记每个接收实例的独立待整理范围，由 F08 按批次处理；旧 `handler_unavailable` 占位任务保留历史，不代表记忆已经完成。
 
-F03 验收脚本检查配置、文本/结构化/向量输出、幂等和计量，持久保存三条测试调用。默认无需真实密钥；脚本只允许 test adapter，不会替用户更换模型或调用付费服务。配置与预算目前通过 HTTP 和命令维护，模型管理页面后续加入。
+F03 验收脚本检查配置、文本/结构化/向量输出、幂等和计量，持久保存三条测试调用。默认无需真实密钥；脚本只允许 test adapter，不会替用户更换模型或调用付费服务。配置与预算通过模型 JSON 文件维护，模型管理页面后续加入。
 
-使用真实或本地模型时，将 `deploy/models.env.example` 复制为根目录 `.env.models`，登记供应商和密钥引用，重启服务。dev、start 和 Docker app 都加载该可选文件；秘密文件不会提交或打入镜像。再导出普通配置，编辑 providerId、实际模型名、价格、预算和评估说明后发布：
+模型配置已统一为 `config/models.development.json` / `config/models.production.json`。先运行 `pnpm setup` 创建文件，密钥仍放 `.env.models`，改 JSON 后重启生效；正式模板默认关闭任务。旧 apply 发布流程已取消，详细步骤见 [模型 JSON 配置](docs/features/model-json-config.md)。
 
 ```powershell
-pnpm models:config providers
-pnpm models:config export
-# 编辑 model-config.local.json
-pnpm models:config apply
+pnpm models:config check
+pnpm models:config show
+# 编辑 config/models.development.json 后重启 pnpm dev
+pnpm models:config status
 ```
 
 真实供应商价格不能留空，免费本地模型显式填零。配置发布不会重置用量；模型切换只影响所修改的任务。供应商兼容参数、金额单位、默认值及失败语义见 [F03 说明](docs/features/f03-model-runtime.md)。从 F02 升级需先停止旧应用、执行 `pnpm db:migrate`；新增五张表，不修改原有实例和会话表。
@@ -160,7 +161,7 @@ docker compose --env-file .env -f deploy/compose.yaml ps
 
 聊天端打开 **http://localhost:8080**，管理后台打开 **http://localhost:8080/admin/**。Compose 会等待 MySQL 可连接，执行一次性 `migrate` 服务，并等待 Qdrant 和 Redis 健康后启动应用；迁移失败时应用不会按就绪状态启动。查看升级结果使用 `docker compose --env-file .env -f deploy/compose.yaml logs migrate`。后端镜像分别托管 `apps/web/dist` 与 `apps/admin/dist`，两端拥有独立入口、资源和路由，因此运行时不需要 Vite 服务。
 
-服务器只有 Docker 时，可先复制 `.env.example` 为 `.env`，填写独立随机的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`QDRANT_API_KEY`、`REDIS_PASSWORD`、稳定的 `REDIS_NAMESPACE`、64 位小写 hex 的 `AUTH_SESSION_SECRET` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器 MySQL 与 Redis 连接串，不依赖宿主配置中的 `DATABASE_URL` / `REDIS_URL`；在该方式下可以将这两项留空。其他环境变量仍按示例设置。
+服务器只有 Docker 时，还需将 config/models.production.example.json 复制为 config/models.production.json 并按需要编辑。可先复制 `.env.example` 为 `.env`，填写独立随机的 `MYSQL_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`QDRANT_API_KEY`、`REDIS_PASSWORD`、稳定的 `REDIS_NAMESPACE`、64 位小写 hex 的 `AUTH_SESSION_SECRET` 和至少 12 字符的 `ADMIN_PASSWORD`，然后执行上述 Compose 命令。Compose 自行构造容器 MySQL 与 Redis 连接串，不依赖宿主配置中的 `DATABASE_URL` / `REDIS_URL`；在该方式下可以将这两项留空。其他环境变量仍按示例设置。
 
 MySQL、Qdrant 数据和快照、Redis 会话、应用文件分别保存在 Compose 的持久卷中。Redis 使用 AOF 每秒落盘，正常容器重启会保留已保存的会话；突然掉电仍可能丢失最近一秒的变化。Qdrant 保存 F09 可重建的记忆索引；默认 test 模型不创建无语义向量，F03 的 embedding 诊断也不写 Qdrant。普通停止使用：
 

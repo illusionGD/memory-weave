@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, copyFile, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 
@@ -80,3 +81,21 @@ if (contents !== original) {
 } else {
   console.log('.env 配置已齐全，保留现有值。');
 }
+
+// 仅创建缺失的模型文件；重复 setup 不改变已经选择的模型或预算。
+await mkdir(new URL('config/', root), { recursive: true });
+for (const mode of ['development', 'production']) {
+  try {
+    await copyFile(
+      new URL(`config/models.${mode}.example.json`, root),
+      new URL(`config/models.${mode}.json`, root),
+      constants.COPYFILE_EXCL,
+    );
+  } catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST'))
+      throw error;
+  }
+}
+console.log(
+  '模型配置已准备：config/models.development.json 与 config/models.production.json；已有文件保持不变。',
+);

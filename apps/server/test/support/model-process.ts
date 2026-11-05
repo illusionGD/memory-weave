@@ -1,5 +1,5 @@
 import { createApplication } from '../../src/app';
-import { loadServerConfig } from '../../src/config';
+import { loadServerConfig } from './model-config';
 
 /** 故障测试专用进程，监听随机本机端口；仅输出端口，不输出部署配置。 */
 const app = await createApplication(loadServerConfig(process.env));

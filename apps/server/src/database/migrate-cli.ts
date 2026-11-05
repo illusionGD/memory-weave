@@ -12,7 +12,7 @@ async function main(): Promise<void> {
   const command = argumentsList[0] ?? 'migrate';
   const remaining = argumentsList.slice(1);
   if (command === 'reset' && remaining.length === 0) {
-    await resetDevelopment(loadServerConfig(process.env));
+    await resetDevelopment(loadServerConfig(process.env, { loadModels: false }));
     console.info(JSON.stringify({ status: 'ready', reset: true }));
     return;
   }

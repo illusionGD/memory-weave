@@ -1,0 +1,223 @@
+{
+  "providers": [],
+  "hardLimits": {
+    "dailyBudget": {
+      "requests": 10000,
+      "tokens": 10000000,
+      "costMicros": 10000000
+    },
+    "maxConcurrent": 4,
+    "backgroundConcurrent": 1
+  },
+  "configuration": {
+    "currency": "USD",
+    "window": "utc_day",
+    "dailyBudget": {
+      "requests": 1000,
+      "tokens": 1000000,
+      "costMicros": 1000000
+    },
+    "maxConcurrent": 2,
+    "backgroundConcurrent": 1,
+    "tasks": {
+      "chat": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-generation-v1",
+        "promptVersion": "chat",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "chat",
+        "maxInputTokens": 32768,
+        "maxOutputTokens": 512,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      },
+      "persona": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-generation-v1",
+        "promptVersion": "persona-initial-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "persona-initial-v1",
+        "maxInputTokens": 32768,
+        "maxOutputTokens": 4096,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      },
+      "memory": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-generation-v1",
+        "promptVersion": "memory-extraction-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "memory-extraction-v1",
+        "maxInputTokens": 32768,
+        "maxOutputTokens": 4096,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      },
+      "reflection": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-generation-v1",
+        "promptVersion": "probe-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "probe-v1",
+        "maxInputTokens": 8192,
+        "maxOutputTokens": 512,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      },
+      "growth": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-generation-v1",
+        "promptVersion": "probe-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "probe-v1",
+        "maxInputTokens": 8192,
+        "maxOutputTokens": 512,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      },
+      "growth_validation": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-generation-v1",
+        "promptVersion": "probe-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "probe-v1",
+        "maxInputTokens": 8192,
+        "maxOutputTokens": 512,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      },
+      "relationship": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-generation-v1",
+        "promptVersion": "probe-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "probe-v1",
+        "maxInputTokens": 8192,
+        "maxOutputTokens": 512,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      },
+      "retrieval": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-generation-v1",
+        "promptVersion": "probe-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "probe-v1",
+        "maxInputTokens": 8192,
+        "maxOutputTokens": 512,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      },
+      "embedding": {
+        "enabled": false,
+        "providerId": "test",
+        "model": "test-embedding-v1",
+        "promptVersion": "probe-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "vector-v1",
+        "maxInputTokens": 8192,
+        "maxOutputTokens": 0,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": 4,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 100,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
+      }
+    }
+  }
+}

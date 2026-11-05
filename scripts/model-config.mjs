@@ -1,46 +1,44 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import {
-  modelConfigurationVersionSchema,
-  updateModelConfigurationSchema,
-} from '../packages/contracts/dist/index.js';
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { createModelClient, ModelClientError, reportModelClientError } from './model-client.mjs';
 
-/** 导出可编辑命令，保留 expectedVersion 和 requestId；重复发布不产生额外版本。 */
+/** 检查本地配置或读取服务当前状态，不通过 HTTP 发布另一份配置。 */
 async function main() {
-  const [action = 'show', file = 'model-config.local.json'] = process.argv.slice(2);
-  if (!['show', 'export', 'apply', 'providers', 'usage'].includes(action))
+  const [action = 'check', ...argumentsList] = process.argv.slice(2);
+  if (['check', 'show'].includes(action)) {
+    if (argumentsList.length > 1) throw new ModelClientError('最多提供一个配置文件路径。');
+    const serverRequire = createRequire(new URL('../apps/server/package.json', import.meta.url));
+    const child = spawn(
+      process.execPath,
+      [
+        serverRequire.resolve('tsx/cli'),
+        '--conditions=memory-weave-source',
+        fileURLToPath(
+          new URL('../apps/server/src/modules/models/model-config-cli.ts', import.meta.url),
+        ),
+        action,
+        ...argumentsList,
+      ],
+      { stdio: 'inherit' },
+    );
+    for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));
+    child.on('error', () => {
+      console.error('模型配置命令无法启动，请先安装依赖。');
+      process.exitCode = 1;
+    });
+    child.on('exit', (code) => {
+      process.exitCode = code ?? 1;
+    });
+    return;
+  }
+  if (!['status', 'providers', 'usage'].includes(action) || argumentsList.length)
     throw new ModelClientError(
-      '用法：pnpm models:config [show|export|apply|providers|usage] [配置文件]',
+      '用法：pnpm models:config [check|show] [文件]，或 [status|providers|usage]；修改 JSON 后重启生效，已取消 apply。',
     );
-  let command;
-  if (action === 'apply')
-    command = updateModelConfigurationSchema.parse(JSON.parse(await readFile(file, 'utf8')));
   const api = await createModelClient();
-  if (action === 'providers' || action === 'usage') {
-    console.log(JSON.stringify(await api(`/models/${action}`), null, 2));
-    return;
-  }
-  if (command) {
-    const saved = modelConfigurationVersionSchema.parse(
-      await api('/models/config', { method: 'PUT', body: command }),
-    );
-    console.log(`模型配置已发布为 v${saved.version}，已有用量保留。`);
-    return;
-  }
-  const current = modelConfigurationVersionSchema.parse(await api('/models/config'));
-  if (action === 'show') {
-    console.log(JSON.stringify(current, null, 2));
-    return;
-  }
-  await writeFile(
-    file,
-    `${JSON.stringify({ requestId: randomUUID(), expectedVersion: current.version, config: current.config, evaluationNote: '请填写本次修改与模型评估说明。' }, null, 2)}\n`,
-    { flag: 'wx', mode: 0o600 },
-  );
   console.log(
-    `已导出当前 v${current.version} 配置；编辑后执行 pnpm models:config apply。导出不会覆盖已有文件。`,
+    JSON.stringify(await api(`/models/${action === 'status' ? 'config' : action}`), null, 2),
   );
 }
-
 await main().catch(reportModelClientError);

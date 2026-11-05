@@ -1,0 +1,12 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "/config/models.development.json",
+        "/config/models.production.json",
+        "/config/models.*.example.json"
+      ],
+      "url": "./config/models.schema.json"
+    }
+  ]
+}

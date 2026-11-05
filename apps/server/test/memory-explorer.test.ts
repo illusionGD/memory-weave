@@ -16,7 +16,7 @@ import {
   memoryListSchema,
 } from '@memory-weave/contracts';
 import type { MemoryDocument } from '@memory-weave/contracts';
-import { loadServerConfig } from '../src/config';
+import { loadServerConfig } from './support/model-config';
 import { createApplication } from '../src/app';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { createTestDatabase } from './support/database';

@@ -12,7 +12,7 @@ import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
 import { createServer } from 'node:http';
 import type { Server, ServerResponse } from 'node:http';
-import { loadServerConfig } from '../src/config';
+import { loadServerConfig } from './support/model-config';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';

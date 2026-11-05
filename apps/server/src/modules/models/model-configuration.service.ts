@@ -1,3 +1,5 @@
+import { SERVER_CONFIG } from '../../config';
+import type { RuntimeConfig } from '../../config';
 import type {
   ModelConfiguration,
   ModelConfigurationVersion,
@@ -20,6 +22,7 @@ import { ModelProvidersService } from './model-providers.service';
 export class ModelConfigurationService {
   /** 初始化模型配置管理服务。 */
   constructor(
+    @Inject(SERVER_CONFIG) private readonly deploymentConfig: RuntimeConfig,
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(ModelProvidersService) private readonly providers: ModelProvidersService,
   ) {}
@@ -46,6 +49,11 @@ export class ModelConfigurationService {
    * 发布配置前检查版本与各字段关系；计量记录不在配置表中。
    */
   update(input: UpdateModelConfiguration): Promise<ModelConfigurationVersion> {
+    if (this.deploymentConfig.modelDeployment?.file)
+      throw new ApiException(
+        API_CODES.CONFLICT,
+        '模型配置由 JSON 文件管理，请修改文件并重启服务。',
+      );
     const hash = fingerprint({ ...input, requestId: input.requestId.toLowerCase() });
     return this.locked(async (ownerId, tx, current) => {
       const replay = await tx.modelConfigurationVersions.findOne({
@@ -80,6 +88,12 @@ export class ModelConfigurationService {
     });
   }
 
+  /** 在开始接收请求前采用本次启动的文件；相同指纹不追加历史。 */
+  async synchronizeFile(): Promise<void> {
+    if (!this.deploymentConfig.modelDeployment?.file) return;
+    await this.locked(async () => undefined, true);
+  }
+
   /**
    * 在配置锁内执行模型配置和预算操作。
    * @param operation 只读写本部署数据的事务操作。
@@ -91,6 +105,7 @@ export class ModelConfigurationService {
       tx: DatabaseTransaction,
       current: ModelConfigurationVersion,
     ) => Promise<T>,
+    synchronizeFile = false,
   ): Promise<T> {
     return this.database.transaction(
       async (tx) => {
@@ -106,16 +121,19 @@ export class ModelConfigurationService {
           .where(eq(modelConfigurationHeads.ownerId, ownerId))
           .for('update');
         if (!head) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+        const file = this.deploymentConfig.modelDeployment?.file;
         if (head.activeVersion === 0) {
           const row = {
             id: randomUUID(),
             ownerId,
             version: 1,
-            source: 'default' as const,
-            config: this.providers.effective(defaultModelConfiguration()),
-            evaluationNote: '确定性测试配置，未连接真实模型。',
+            source: file ? ('deployment' as const) : ('default' as const),
+            config: file?.configuration ?? this.providers.effective(defaultModelConfiguration()),
+            evaluationNote: file
+              ? '启动时采用模型 JSON 文件。'
+              : '确定性测试配置，未连接真实模型。',
             requestId: randomUUID(),
-            fingerprint: 'default',
+            fingerprint: file?.fingerprint ?? 'default',
             createdAt: new Date(),
           };
           await tx.sql.insert(modelConfigurationVersions).values(row);
@@ -129,6 +147,30 @@ export class ModelConfigurationService {
           where: { version: head.activeVersion },
         });
         if (!row) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+        if (file && row.fingerprint !== file.fingerprint) {
+          if (!synchronizeFile)
+            throw new ApiException(
+              API_CODES.VERSION_CONFLICT,
+              '模型生效配置已变化，请统一配置文件并重启服务。',
+            );
+          if (row.version >= 2_147_483_647) throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
+          const next = {
+            id: randomUUID(),
+            version: row.version + 1,
+            source: 'deployment' as const,
+            config: file.configuration,
+            evaluationNote: '启动时采用模型 JSON 文件。',
+            requestId: randomUUID(),
+            fingerprint: file.fingerprint,
+            createdAt: new Date(),
+          };
+          await tx.modelConfigurationVersions.insert(next);
+          await tx.modelConfigurationHeads.updateWhere({
+            where: { activeVersion: row.version },
+            set: { activeVersion: next.version },
+          });
+          return operation(ownerId, tx, toVersion({ ...next, ownerId }));
+        }
         return operation(ownerId, tx, toVersion(row));
       },
       { isolationLevel: 'read committed' },
@@ -166,6 +208,7 @@ function toVersion(row: typeof modelConfigurationVersions.$inferSelect): ModelCo
     id: row.id,
     version: row.version,
     source: row.source,
+    fingerprint: row.fingerprint,
     config: row.config,
     evaluationNote: row.evaluationNote,
     createdAt: row.createdAt.toISOString(),

@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "providers": {
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,47}$"
+          },
+          "baseUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "apiKeyEnv": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^MODEL_[A-Z0-9_]+$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capabilities": {
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["text", "structured", "embedding"]
+            }
+          },
+          "streaming": {
+            "default": false,
+            "type": "boolean"
+          },
+          "outputTokenParameter": {
+            "default": "max_completion_tokens",
+            "type": "string",
+            "enum": ["max_completion_tokens", "max_tokens"]
+          },
+          "structuredFormat": {
+            "default": "json_schema",
+            "type": "string",
+            "enum": ["json_schema", "json_object"]
+          },
+          "sendEmbeddingDimensions": {
+            "default": true,
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "baseUrl", "apiKeyEnv", "capabilities"],
+        "additionalProperties": false
+      }
+    },
+    "hardLimits": {
+      "type": "object",
+      "properties": {
+        "dailyBudget": {
+          "type": "object",
+          "properties": {
+            "requests": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "costMicros": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            }
+          },
+          "required": ["requests", "tokens", "costMicros"],
+          "additionalProperties": false
+        },
+        "maxConcurrent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "backgroundConcurrent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        }
+      },
+      "required": ["dailyBudget", "maxConcurrent", "backgroundConcurrent"],
+      "additionalProperties": false
+    },
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "currency": {
+          "type": "string",
+          "const": "USD"
+        },
+        "window": {
+          "type": "string",
+          "const": "utc_day"
+        },
+        "dailyBudget": {
+          "type": "object",
+          "properties": {
+            "requests": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "costMicros": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            }
+          },
+          "required": ["requests", "tokens", "costMicros"],
+          "additionalProperties": false
+        },
+        "maxConcurrent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        "backgroundConcurrent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        },
+        "tasks": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "enum": [
+              "chat",
+              "persona",
+              "memory",
+              "reflection",
+              "growth",
+              "growth_validation",
+              "relationship",
+              "retrieval",
+              "embedding"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "providerId": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]{0,47}$"
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "promptVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "preprocessingVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "schemaVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "maxInputTokens": {
+                "type": "integer",
+                "minimum": 128,
+                "maximum": 131072
+              },
+              "maxOutputTokens": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 16384
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 120000
+              },
+              "maxAttempts": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              },
+              "retryDelayMs": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 5000
+              },
+              "temperature": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 2
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dimensions": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4096
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "inputMicrosPerMillion": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "outputMicrosPerMillion": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dailyBudget": {
+                "type": "object",
+                "properties": {
+                  "requests": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                  },
+                  "costMicros": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  }
+                },
+                "required": ["requests", "tokens", "costMicros"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "enabled",
+              "providerId",
+              "model",
+              "promptVersion",
+              "preprocessingVersion",
+              "schemaVersion",
+              "maxInputTokens",
+              "maxOutputTokens",
+              "timeoutMs",
+              "maxAttempts",
+              "retryDelayMs",
+              "temperature",
+              "dimensions",
+              "inputMicrosPerMillion",
+              "outputMicrosPerMillion",
+              "dailyBudget"
+            ],
+            "additionalProperties": false
+          },
+          "required": [
+            "chat",
+            "persona",
+            "memory",
+            "reflection",
+            "growth",
+            "growth_validation",
+            "relationship",
+            "retrieval",
+            "embedding"
+          ]
+        }
+      },
+      "required": [
+        "currency",
+        "window",
+        "dailyBudget",
+        "maxConcurrent",
+        "backgroundConcurrent",
+        "tasks"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": ["providers", "hardLimits", "configuration"],
+  "additionalProperties": false
+}

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseEnv, promisify } from 'node:util';
@@ -14,6 +14,10 @@ async function workspace(initial?: string) {
   const directory = await mkdtemp(join(tmpdir(), 'memory-weave-setup-'));
   directories.push(directory);
   await mkdir(join(directory, 'scripts'));
+  await cp(new URL('../../../config/', import.meta.url), join(directory, 'config'), {
+    recursive: true,
+    filter: (source) => !/models\.(development|production)\.json$/.test(source),
+  });
   await writeFile(
     join(directory, 'scripts/setup-env.mjs'),
     await readFile(new URL('../../../scripts/setup-env.mjs', import.meta.url)),
@@ -63,7 +67,10 @@ describe('部署配置生成命令', () => {
   it('creates usable MySQL/Qdrant/Redis settings without printing credentials', async () => {
     const project = await workspace();
     const result = await project.run();
-    const environment = parseEnv(await project.read());
+    const environment: Record<string, string> = {
+      ...parseEnv(await project.read()),
+      MODEL_CONFIG_FILE: join(project.directory, 'config/models.development.json'),
+    };
     const config = loadServerConfig(environment);
     expect(new URL(config.databaseUrl).protocol).toBe('mysql:');
     expect(new URL(config.databaseUrl).password).toBe(environment.MYSQL_PASSWORD);
@@ -88,7 +95,10 @@ describe('部署配置生成命令', () => {
     const project = await workspace(original);
     await project.run();
     const updated = await project.read();
-    const environment = parseEnv(updated);
+    const environment: Record<string, string> = {
+      ...parseEnv(updated),
+      MODEL_CONFIG_FILE: join(project.directory, 'config/models.development.json'),
+    };
     expect(loadServerConfig(environment).databaseUrl).toMatch(/^mysql:/);
     expect(environment.ADMIN_PASSWORD).toBe('keep-this-login-password');
     expect(environment.DATA_DIR).toBe('./existing-data');

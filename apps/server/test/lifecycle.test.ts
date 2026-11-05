@@ -15,7 +15,7 @@ import request from 'supertest';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
-import { loadServerConfig } from '../src/config';
+import { loadServerConfig } from './support/model-config';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';

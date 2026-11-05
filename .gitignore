@@ -16,3 +16,7 @@ model-config.local.json
 
 # 本地调度配置发布命令
 task-config.local.json
+
+# 实际模型部署配置由本机或服务器独立维护
+config/models.development.json
+config/models.production.json

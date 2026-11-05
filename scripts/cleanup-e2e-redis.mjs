@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 
 const require = createRequire(new URL('../apps/server/package.json', import.meta.url));
@@ -30,5 +31,7 @@ export default async function cleanupBrowserSessions() {
     throw new Error('未能清理本轮 Redis 测试前缀，请检查测试 Redis 是否可连接。');
   } finally {
     if (client.isOpen) client.destroy();
+    if (process.env.MEMORY_WEAVE_E2E_MODEL_DIRECTORY)
+      await rm(process.env.MEMORY_WEAVE_E2E_MODEL_DIRECTORY, { recursive: true, force: true });
   }
 }

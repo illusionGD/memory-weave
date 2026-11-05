@@ -5,7 +5,7 @@ import type { MemoryConfiguration } from '@memory-weave/contracts';
 import { chatConfigurationSchema } from '@memory-weave/contracts';
 import type { ChatConfiguration } from '@memory-weave/contracts';
 import { resolve } from 'node:path';
-import { loadModelDeployment } from './modules/models/model-deployment';
+import { ModelFileError, loadModelDeployment } from './modules/models/model-deployment';
 import type { ModelDeployment } from './modules/models/model-deployment';
 
 /** 由部署环境提供的服务端配置。 */
@@ -70,7 +70,10 @@ export class ConfigurationError extends Error {}
  * @param environment 环境变量；其中的敏感信息仅在服务端进程内部使用。
  * @returns 经过校验的服务端配置。
  */
-export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
+export function loadServerConfig(
+  environment: NodeJS.ProcessEnv,
+  options: { loadModels?: boolean } = {},
+): ServerConfig {
   const adminPassword = environment.ADMIN_PASSWORD ?? '';
   if (adminPassword.length < 12 || adminPassword.length > 256) {
     throw new ConfigurationError('ADMIN_PASSWORD must contain 12 to 256 characters.');
@@ -200,12 +203,12 @@ export function loadServerConfig(environment: NodeJS.ProcessEnv): ServerConfig {
   const host = environment.HOST?.trim() || '127.0.0.1';
   const dataDir = resolve(environment.DATA_DIR ?? './data');
   const webDistDir = environment.WEB_DIST_DIR ? resolve(environment.WEB_DIST_DIR) : null;
-  let modelDeployment: ModelDeployment;
+  let modelDeployment: ModelDeployment | undefined;
   try {
-    modelDeployment = loadModelDeployment(environment);
-  } catch {
+    if (options.loadModels !== false) modelDeployment = loadModelDeployment(environment);
+  } catch (error) {
     throw new ConfigurationError(
-      '模型部署配置无效，请检查 MODEL_PROVIDERS_JSON、凭据引用和 MODEL_HARD_LIMITS_JSON。',
+      error instanceof ModelFileError ? error.message : '模型部署配置无效。',
     );
   }
 

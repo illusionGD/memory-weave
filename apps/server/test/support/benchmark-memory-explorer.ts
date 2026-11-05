@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createConnection } from 'mysql2/promise';
 import request from 'supertest';
 import { createApplication } from '../../src/app';
-import { loadServerConfig } from '../../src/config';
+import { loadServerConfig } from './model-config';
 import { TaskWorkerService } from '../../src/modules/tasks/task-worker.service';
 import { createTestDatabase } from './database';
 import { mysqlConnectionOptions } from '../../src/database/connection';

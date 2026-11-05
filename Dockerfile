@@ -39,6 +39,7 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
 
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ENV NODE_ENV=production
+ENV MODEL_CONFIG_FILE=/app/config/models.production.json
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV DATA_DIR=/app/data

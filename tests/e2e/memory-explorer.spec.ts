@@ -66,25 +66,7 @@ test('查看跨私聊记忆、时间线和图谱，删除来源后拒绝迟到�
   test.setTimeout(60000);
   const api = page.request;
   const current = (await (await api.get('/api/models/config')).json()).data;
-  const configured = structuredClone(current.config);
-  Object.assign(configured.tasks.memory, {
-    providerId: 'memory-explorer-fixture',
-    model: 'memory-explorer-fixture',
-    inputMicrosPerMillion: 0,
-    outputMicrosPerMillion: 0,
-  });
-  expect(
-    (
-      await api.put('/api/models/config', {
-        data: {
-          requestId: randomUUID(),
-          expectedVersion: current.version,
-          config: configured,
-          evaluationNote: '隔离浏览器协议验收，不评价真实模型。',
-        },
-      })
-    ).status(),
-  ).toBe(200);
+  expect(current.config.tasks.memory.providerId).toBe('memory-explorer-fixture');
   let release: (() => void) | undefined;
   try {
     const companion = (
@@ -250,18 +232,5 @@ test('查看跨私聊记忆、时间线和图谱，删除来源后拒绝迟到�
   } finally {
     release?.();
     await page.unrouteAll({ behavior: 'wait' });
-    const latest = (await (await api.get('/api/models/config')).json()).data;
-    expect(
-      (
-        await api.put('/api/models/config', {
-          data: {
-            requestId: randomUUID(),
-            expectedVersion: latest.version,
-            config: current.config,
-            evaluationNote: '恢复浏览器验收前的模型配置。',
-          },
-        })
-      ).status(),
-    ).toBe(200);
   }
 });
