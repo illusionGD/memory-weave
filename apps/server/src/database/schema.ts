@@ -39,7 +39,7 @@ import type {
 /** 创建时保留的初始设定，与后续当前人格版本分开存储。 */
 export interface InitialSnapshot {
   id: string;
-  schemaVersion: 1;
+
   profileText: string;
   sourceKind: 'initial_setting';
   createdAt: string;
@@ -512,7 +512,6 @@ export const messages = mysqlTable(
     ownerId: uuid('owner_id').notNull(),
     conversationId: uuid('conversation_id').notNull(),
     speakerMembershipId: uuid('speaker_membership_id').notNull(),
-    schemaVersion: int('schema_version').notNull().default(1),
     contentVersion: int('content_version').notNull().default(1),
     revision: int('revision').notNull().default(1),
     text: text('text').notNull(),
@@ -542,6 +541,10 @@ export const messages = mysqlTable(
       enum: ['user_input', 'admin_companion_input', 'model_output'],
     }).notNull(),
     replyToMessageId: uuid('reply_to_message_id'),
+    /** 已发布聊天片段所属的回复轮次；普通消息为空。 */
+    chatRunId: uuid('chat_run_id'),
+    /** 轮次内的片段位置，与轮次标识同时存在。 */
+    chatPosition: int('chat_position'),
     requestId: uuid('request_id').notNull(),
     fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
     publishRequestId: uuid('publish_request_id'),
@@ -564,6 +567,16 @@ export const messages = mysqlTable(
       table.conversationId,
       table.publishRequestId,
     ),
+    unique('messages_chat_position').on(table.ownerId, table.chatRunId, table.chatPosition),
+    foreignKey({
+      name: 'messages_chat_run_ref',
+      columns: [table.ownerId, table.conversationId, table.chatRunId],
+      foreignColumns: [chatRuns.ownerId, chatRuns.conversationId, chatRuns.id],
+    }),
+    check(
+      'messages_chat_pair',
+      sql`(${table.chatRunId} IS NULL AND ${table.chatPosition} IS NULL) OR (${table.chatRunId} IS NOT NULL AND ${table.chatPosition} IS NOT NULL AND ${table.chatPosition} > 0)`,
+    ),
     foreignKey({
       name: 'messages_ref_1',
       columns: [table.ownerId, table.conversationId],
@@ -583,10 +596,7 @@ export const messages = mysqlTable(
       columns: [table.ownerId, table.conversationId, table.replyToMessageId],
       foreignColumns: [table.ownerId, table.conversationId, table.id],
     }),
-    check(
-      'messages_versions_positive',
-      sql`${table.schemaVersion} > 0 AND ${table.contentVersion} > 0 AND ${table.revision} > 0`,
-    ),
+    check('messages_versions_positive', sql`${table.contentVersion} > 0 AND ${table.revision} > 0`),
     check(
       'messages_text_length',
       sql`(${table.deletedAt} IS NULL AND char_length(${table.text}) BETWEEN 1 AND 4000) OR (${table.deletedAt} IS NOT NULL AND char_length(${table.text}) = 0)`,
@@ -972,6 +982,7 @@ export const chatRuns = mysqlTable(
   },
   (table) => [
     unique('chat_runs_owner_id').on(table.ownerId, table.id),
+    unique('chat_runs_conversation_id').on(table.ownerId, table.conversationId, table.id),
     unique('chat_runs_request').on(table.ownerId, table.conversationId, table.requestId),
     foreignKey({
       name: 'chat_runs_thread_ref',
@@ -988,31 +999,6 @@ export const chatRuns = mysqlTable(
       columns: [table.ownerId, table.conversationId, table.triggerMessageId],
       foreignColumns: [messages.ownerId, messages.conversationId, messages.id],
     }),
-  ],
-);
-
-/** 片段只引用正式原文，同轮片段可合并展示，不能覆盖已经发布的文字。 */
-export const chatSegments = mysqlTable(
-  'chat_segments',
-  {
-    messageId: uuid('message_id').primaryKey(),
-    ownerId: uuid('owner_id').notNull(),
-    runId: uuid('run_id').notNull(),
-    position: int('position').notNull(),
-  },
-  (table) => [
-    unique('chat_segments_run_position').on(table.ownerId, table.runId, table.position),
-    foreignKey({
-      name: 'chat_segments_run_ref',
-      columns: [table.ownerId, table.runId],
-      foreignColumns: [chatRuns.ownerId, chatRuns.id],
-    }),
-    foreignKey({
-      name: 'chat_segments_message_ref',
-      columns: [table.ownerId, table.messageId],
-      foreignColumns: [messages.ownerId, messages.id],
-    }),
-    check('chat_segments_position_positive', sql`${table.position} > 0`),
   ],
 );
 
@@ -1054,7 +1040,6 @@ export const lifecycleOperations = mysqlTable(
       .references(() => owners.id),
     requestId: uuid('request_id').notNull(),
     taskId: uuid('task_id').notNull(),
-    protocolVersion: int('protocol_version').notNull().default(1),
     fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
     kind: varchar('kind', { length: 32 })
       .$type<'reset_companion' | 'delete_companion' | 'delete_messages'>()

@@ -163,7 +163,7 @@ export class CompanionPersonasService {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return;
       }
-      const companion = await this.instances.readInTransaction(tx, ownerId, id);
+      const companion = await this.instances.readInTransaction(tx, id);
       await requireCompanion(ownerId, id, input.runtimeEpoch, tx);
       if (
         companion.runtimeEpoch !== input.runtimeEpoch ||
@@ -253,7 +253,7 @@ export class CompanionPersonasService {
    */
   get(id: string): Promise<CompanionPersonaState> {
     return this.store.locked(async (ownerId, tx) => {
-      const companion = await this.instances.readInTransaction(tx, ownerId, id);
+      const companion = await this.instances.readInTransaction(tx, id);
       const foundation = await tx.personaFoundations.findOne({
         where: { companionId: id, runtimeEpoch: companion.runtimeEpoch },
       });
@@ -285,15 +285,16 @@ export class CompanionPersonasService {
    *
    * 精确查询所属实例、代次与版本，不能仅凭版本标识跨实例读取。
    */
-  version(id: string, runtimeEpoch: number, version: number): Promise<PersonaVersion> {
-    return this.database.withOwner(async (ownerId, db) => {
-      await requireCompanion(ownerId, id, runtimeEpoch, db);
-      const row = await db.personaVersions.findOne({
-        where: { companionId: id, runtimeEpoch: runtimeEpoch, version: version },
-      });
-      if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-      return toPersonaVersion(row);
+  async version(id: string, runtimeEpoch: number, version: number): Promise<PersonaVersion> {
+    const db = await this.database.current();
+    const ownerId = db.ownerId;
+
+    await requireCompanion(ownerId, id, runtimeEpoch, db);
+    const row = await db.personaVersions.findOne({
+      where: { companionId: id, runtimeEpoch: runtimeEpoch, version: version },
     });
+    if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    return toPersonaVersion(row);
   }
 
   /**
@@ -313,7 +314,7 @@ export class CompanionPersonasService {
           throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return toPersonaVersion(replay);
       }
-      const companion = await this.instances.readInTransaction(tx, ownerId, id);
+      const companion = await this.instances.readInTransaction(tx, id);
       const parent = companion.currentPersonaVersion;
       if (
         companion.runtimeEpoch !== input.runtimeEpoch ||
@@ -437,7 +438,6 @@ export class CompanionPersonasService {
           .map((text) => ({ text, source: 'profile' as const })),
       ];
       const document = personaDocumentSchema.parse({
-        schemaVersion: 1,
         sourceKind: 'initial_setting',
         name,
         core: result.core,

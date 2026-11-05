@@ -15,6 +15,10 @@ export async function checkRepositoryTypes(
 ): Promise<void> {
   const direct = await database.conversations.findOne({ fields: { name: conversations.title } });
   expectTypeOf(direct).toEqualTypeOf<{ name: string } | null>();
+  const named = await database.conversations.findMany({ fields: ['id', 'title'], limit: 20 });
+  expectTypeOf(named).toEqualTypeOf<{ id: string; title: string }[]>();
+  // @ts-expect-error 字段名投影也拒绝不存在的列。
+  await database.conversations.findOne({ fields: ['titlle'] });
   // @ts-expect-error 普通服务入口不能请求事务行锁。
   await database.conversations.findOne({ lock: 'update' });
   const rows = db.conversations;

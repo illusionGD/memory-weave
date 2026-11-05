@@ -6,7 +6,7 @@ import type {
 } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { idCursorPage } from '../../database/cursor-pagination';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
@@ -15,6 +15,7 @@ import { companions, personaVersions } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { lockTaskScheduler } from '../tasks/task-store';
+import { CompanionRepository } from './companion.repository';
 import { publicAvatar } from './avatar-files';
 import { toPersonaVersion } from './persona-version';
 
@@ -22,21 +23,24 @@ import { toPersonaVersion } from './persona-version';
 @Injectable()
 export class CompanionsService {
   /** 初始化伴侣实例的数据访问服务。 */
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(CompanionRepository) private readonly repository: CompanionRepository,
+  ) {}
 
   /**
    * 根据初始文本创建伴侣及人格记录。
    *
    * 将初始文本直接保存到独立快照和当前版本，不调用模型。
    */
-  create(input: CreateCompanionRequest): Promise<CompanionDetail> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(
-        async (tx) => {
-          return this.createInTransaction(ownerId, tx, input);
-        },
-        { isolationLevel: 'read committed' },
-      ),
+  async create(input: CreateCompanionRequest): Promise<CompanionDetail> {
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+
+        return this.createInTransaction(ownerId, tx, input);
+      },
+      { isolationLevel: 'read committed' },
     );
   }
 
@@ -68,7 +72,7 @@ export class CompanionsService {
         version: 1,
         initialSnapshot: {
           id: randomUUID(),
-          schemaVersion: 1,
+
           profileText: input.initialProfile,
           sourceKind: 'initial_setting',
           createdAt: createdAt.toISOString(),
@@ -90,7 +94,7 @@ export class CompanionsService {
     if (stored.id !== id) {
       if (stored.fingerprint !== requestFingerprint)
         throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-      return this.readInTransaction(tx, ownerId, stored.id);
+      return this.readInTransaction(tx, stored.id);
     }
     await tx.personaVersions.insert({
       id: personaId,
@@ -104,7 +108,7 @@ export class CompanionsService {
       where: { id: id },
       set: { currentPersonaVersionId: personaId },
     });
-    return this.readInTransaction(tx, ownerId, id);
+    return this.readInTransaction(tx, id);
   }
 
   /**
@@ -112,8 +116,9 @@ export class CompanionsService {
    *
    * 按当前部署归属查找实例，不能跨管理者查询。
    */
-  get(id: string): Promise<CompanionDetail> {
-    return this.database.withOwner((ownerId, db) => this.readInTransaction(db, ownerId, id));
+  async get(id: string): Promise<CompanionDetail> {
+    const db = await this.database.current();
+    return this.readInTransaction(db, id);
   }
 
   /**
@@ -121,34 +126,13 @@ export class CompanionsService {
    *
    * 按稳定 UUID 查询多一条，以判断下一页是否实际存在。
    */
-  list(query: IdPaginationQuery): Promise<CompanionListResponse> {
-    return this.database.withOwner(async (ownerId, db) => {
-      const rows = await db.sql
-        .select({ companion: companions, persona: personaVersions })
-        .from(companions)
-        .innerJoin(
-          personaVersions,
-          and(
-            eq(personaVersions.ownerId, companions.ownerId),
-            eq(personaVersions.companionId, companions.id),
-            eq(personaVersions.id, companions.currentPersonaVersionId),
-          ),
-        )
-        .where(
-          and(
-            eq(companions.ownerId, ownerId),
-            isNull(companions.deletedAt),
-            query.afterId ? gt(companions.id, query.afterId) : undefined,
-          ),
-        )
-        .orderBy(asc(companions.id))
-        .limit(query.limit + 1);
-      const page = idCursorPage(rows, query.limit, (row) => row.companion.id);
-      return {
-        items: page.items.map((row) => this.toDetail(row)),
-        nextAfterId: page.nextAfterId,
-      };
-    });
+  async list(query: IdPaginationQuery): Promise<CompanionListResponse> {
+    const rows = await this.repository.list(query);
+    const page = idCursorPage(rows, query.limit, (row) => row.companion.id);
+    return {
+      items: page.items.map((row) => this.toDetail(row)),
+      nextAfterId: page.nextAfterId,
+    };
   }
 
   /**
@@ -158,24 +142,9 @@ export class CompanionsService {
    */
   async readInTransaction(
     db: Database | DatabaseTransaction,
-    ownerId: string,
     id: string,
   ): Promise<CompanionDetail> {
-    const [row] = await db.sql
-      .select({ companion: companions, persona: personaVersions })
-      .from(companions)
-      .innerJoin(
-        personaVersions,
-        and(
-          eq(personaVersions.ownerId, companions.ownerId),
-          eq(personaVersions.companionId, companions.id),
-          eq(personaVersions.id, companions.currentPersonaVersionId),
-        ),
-      )
-      .where(
-        and(eq(companions.ownerId, ownerId), eq(companions.id, id), isNull(companions.deletedAt)),
-      )
-      .limit(1);
+    const row = await this.repository.get(id, db);
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return this.toDetail(row);
   }

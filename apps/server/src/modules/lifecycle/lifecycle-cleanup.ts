@@ -5,7 +5,6 @@ import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatRuns,
   chatRunSources,
-  chatSegments,
   chatThreads,
   conversationMembers,
   lifecycleMessageTargets,
@@ -25,14 +24,21 @@ import { cleanupMemoryPage } from '../memories/memory-cleanup';
 import { cleanupSearchPage, propagateRecallDeletion } from '../retrieval/retrieval-cleanup';
 import { lifecycleConversationScope } from './lifecycle-scope';
 
-/** 清理协议 v1 的有序阶段，新增派生模块必须增加自己的清理阶段与读取围栏。 */
-const LIFECYCLE_STAGES_V1 = [
+/** 当前完整清理流程，检查点和每批变更在同一事务提交。 */
+export const LIFECYCLE_STAGES = [
+  'recall_propagation',
   'propagation',
   'outbox',
   'tasks',
   'calls',
   'contexts',
   'receipts',
+  'memory_versions',
+  'memory_requeue',
+  'search_terms',
+  'vector_points',
+  'memory_evidence',
+  'memory_batches',
   'processing',
   'receiving_batches',
   'foundations',
@@ -40,38 +46,8 @@ const LIFECYCLE_STAGES_V1 = [
   'personas',
   'drafts',
   'messages',
+  'avatar_files',
 ] as const;
-/** v1 的阶段编号保持不变，v2 在擦除原文前清理新增派生模块。 */
-const LIFECYCLE_STAGES_V2 = [
-  ...LIFECYCLE_STAGES_V1.slice(0, 6),
-  'memory_versions',
-  'memory_requeue',
-  'memory_evidence',
-  'memory_batches',
-  ...LIFECYCLE_STAGES_V1.slice(6),
-] as const;
-/** v3 在原清理前传播跨会话回忆，增加词法与外部向量清理。 */
-const LIFECYCLE_STAGES_V3 = [
-  'recall_propagation',
-  ...LIFECYCLE_STAGES_V2.slice(0, 8),
-  'search_terms',
-  'vector_points',
-  ...LIFECYCLE_STAGES_V2.slice(8),
-] as const;
-/** v4 追加头像文件阶段，不改变 v1–v3 的检查点含义。 */
-export const LIFECYCLE_STAGES = [...LIFECYCLE_STAGES_V3, 'avatar_files'] as const;
-/**
- * 获取指定生命周期协议的清理阶段列表。
- *
- * 按操作创建时的协议恢复，升级不能重解释旧检查点。
- */
-export function lifecycleStages(version: number): readonly string[] {
-  if (version === 1) return LIFECYCLE_STAGES_V1;
-  if (version === 2) return LIFECYCLE_STAGES_V2;
-  if (version === 3) return LIFECYCLE_STAGES_V3;
-  if (version === 4) return LIFECYCLE_STAGES;
-  throw new Error('不支持的生命周期协议版本。');
-}
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */
 export type LifecycleRecord = typeof lifecycleOperations.$inferSelect;
 /** 每批只报告已提交数量和是否完成，失败时与进度一起回滚。 */
@@ -111,7 +87,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
         eq(lifecycleMessageTargets.operationId, operation.id),
       ),
     );
-  const stage = lifecycleStages(operation.protocolVersion)[operation.stage];
+  const stage = LIFECYCLE_STAGES[operation.stage];
   if (stage === 'search_terms') return cleanupSearchPage(ownerId, tx, operation, limit);
   if (stage === 'recall_propagation') {
     const memory = await propagateRecallDeletion(ownerId, tx, operation, limit);
@@ -176,8 +152,13 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
           eq(chatRunSources.contentVersion, source.contentVersion),
         ),
       )
-      .innerJoin(chatSegments, eq(chatSegments.runId, chatRunSources.runId))
-      .innerJoin(messages, eq(messages.id, chatSegments.messageId))
+      .innerJoin(
+        messages,
+        and(
+          eq(messages.ownerId, chatRunSources.ownerId),
+          eq(messages.chatRunId, chatRunSources.runId),
+        ),
+      )
       .leftJoin(
         known,
         and(

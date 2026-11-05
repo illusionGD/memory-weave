@@ -4,6 +4,8 @@ import { and, asc, eq, gt } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
 import { companions } from '../../database/schema';
 import { AvatarFiles } from './avatar-files';
+import { IdentityContext } from '../../database/identity-context';
+import { DeploymentIdentity } from '../auth/deployment-identity';
 
 /** 有界巡检替换/恢复默认及崩溃遗留的未引用文件，进程重启后自然重新扫描。 */
 @Injectable()
@@ -14,6 +16,8 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
   private stopped = false;
   /** 初始化头像文件巡检服务。 */
   constructor(
+    @Inject(IdentityContext) private readonly identity: IdentityContext,
+    @Inject(DeploymentIdentity) private readonly deployment: DeploymentIdentity,
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(AvatarFiles) private readonly files: AvatarFiles,
   ) {}
@@ -29,7 +33,9 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
   private schedule(): void {
     if (this.stopped) return;
     this.timer = setTimeout(() => {
-      this.pending = this.sweep()
+      this.pending = this.deployment
+        .ownerId()
+        .then((ownerId) => this.identity.run(ownerId, () => this.sweep()))
         .catch(() => {
           console.error(JSON.stringify({ event: 'avatars.cleanup.failed' }));
         })
@@ -39,7 +45,10 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
   }
   /** 清理当前批次中未被引用的头像文件。 */
   private async sweep(): Promise<void> {
-    await this.database.withOwner(async (ownerId, db) => {
+    {
+      const db = await this.database.current();
+      const ownerId = db.ownerId;
+
       const rows = await db.sql
         .select({ id: companions.id })
         .from(companions)
@@ -69,7 +78,7 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
         this.afterId = row.id;
       }
       if (rows.length < 20) this.afterId = null;
-    });
+    }
   }
   /**
    * 停止头像巡检并等待当前清理完成。

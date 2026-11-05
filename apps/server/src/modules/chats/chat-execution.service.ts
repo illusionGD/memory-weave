@@ -5,13 +5,7 @@ import { and, asc, desc, eq, isNull, lte } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { DatabaseTransaction } from '../../database/database.service';
-import {
-  chatMemorySources,
-  chatRuns,
-  chatRunSources,
-  chatSegments,
-  messages,
-} from '../../database/schema';
+import { chatMemorySources, chatRuns, chatRunSources, messages } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import {
   assertVisible,
@@ -28,7 +22,7 @@ import { TaskStore } from '../tasks/task-store';
 import type { TaskLease } from '../tasks/task-types';
 import { TasksService } from '../tasks/tasks.service';
 import { ChatContextService } from './chat-context.service';
-import { CHAT_DEFINITION_VERSION, chatDefinition, chatDefinitionV1 } from './chat-definition';
+import { CHAT_DEFINITION_VERSION, chatDefinition } from './chat-definition';
 
 /** 持久任务执行聊天；每次发布均重查当前轮次和租约，迟到输出无法写入。 */
 @Injectable()
@@ -56,8 +50,7 @@ export class ChatExecutionService {
       saved.context && saved.modelConfigVersion
         ? await this.configuration.getVersion(saved.modelConfigVersion)
         : await this.activateDefinition();
-    const definition =
-      config.config.tasks.chat.promptVersion === 'chat-v1' ? chatDefinitionV1 : chatDefinition;
+    const definition = chatDefinition;
     const recall = !saved.context ? await this.recall(lease, saved) : undefined;
     const prepared = await this.store.locked(async (ownerId, tx) => {
       const run = await this.guard(ownerId, tx, lease);
@@ -346,22 +339,12 @@ export class ChatExecutionService {
           sources: [],
         },
         true,
+        { runId: run.id, position: expectedOffset + 1 },
       );
-      const message = await this.originals.publishInTransaction(
-        ownerId,
-        tx,
-        run.conversationId,
-        draft.id,
-        {
-          requestId,
-          expectedConversationVersion: conversation.version,
-          expectedRevision: draft.revision,
-        },
-      );
-      await tx.chatSegments.insert({
-        messageId: message.id,
-        runId: run.id,
-        position: expectedOffset + 1,
+      await this.originals.publishInTransaction(ownerId, tx, run.conversationId, draft.id, {
+        requestId,
+        expectedConversationVersion: conversation.version,
+        expectedRevision: draft.revision,
       });
       await this.guard(ownerId, tx, lease);
     });
@@ -373,16 +356,12 @@ export class ChatExecutionService {
     tx: DatabaseTransaction,
     runId: string,
   ): Promise<string> {
-    const rows = await tx.sql
-      .select({ text: messages.text })
-      .from(chatSegments)
-      .innerJoin(
-        messages,
-        and(eq(messages.ownerId, chatSegments.ownerId), eq(messages.id, chatSegments.messageId)),
-      )
-      .where(and(eq(chatSegments.ownerId, ownerId), eq(chatSegments.runId, runId)))
-      .orderBy(asc(chatSegments.position))
-      .limit(16384);
+    const rows = await tx.messages.findMany({
+      fields: ['text'],
+      where: { chatRunId: runId, state: 'published' },
+      orderBy: [asc(messages.chatPosition)],
+      limit: 16384,
+    });
     return rows.map((row) => row.text).join('');
   }
 
@@ -402,8 +381,8 @@ export class ChatExecutionService {
       )
         return current;
       if (
-        !['probe-v1', 'chat-v1'].includes(chat.promptVersion) ||
-        !['probe-v1', 'chat-v1'].includes(chat.schemaVersion) ||
+        !['probe-v1'].includes(chat.promptVersion) ||
+        !['probe-v1'].includes(chat.schemaVersion) ||
         chat.preprocessingVersion !== 'utf8-v1'
       )
         throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED, '聊天定义与 chat 模型配置不一致。');

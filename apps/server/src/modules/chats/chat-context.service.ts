@@ -20,7 +20,7 @@ import {
 import { modelInputReservation } from '../models/model-runtime.service';
 import { validateRecallSnapshot } from '../retrieval/retrieval-snapshot';
 import type { TaskLease } from '../tasks/task-types';
-import { chatDefinition, chatDefinitionV1 } from './chat-definition';
+import { chatDefinition } from './chat-definition';
 
 /** 选取有界的当前会话原文，固定来源后才能派发模型；不依赖记忆整理。 */
 @Injectable()
@@ -179,11 +179,8 @@ export class ChatContextService {
       if (!selected.some((row) => row.sequence === run.firstUserSequence))
         throw new ApiException(API_CODES.CHAT_CONTEXT_LIMIT);
       while (
-        modelInputReservation(
-          inputText,
-          config.config.tasks.chat.promptVersion === 'chat-v1' ? chatDefinitionV1 : chatDefinition,
-          'text',
-        ) > config.config.tasks.chat.maxInputTokens ||
+        modelInputReservation(inputText, chatDefinition, 'text') >
+          config.config.tasks.chat.maxInputTokens ||
         inputText.length > 65536
       ) {
         const next = selected.findIndex(

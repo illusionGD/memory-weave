@@ -53,11 +53,15 @@ export class ConversationsService {
    *
    * 一次建立初始成员和独立可见授权，不开放邀请及成员变更。
    */
-  create(input: CreateConversationRequest): Promise<ConversationDetail> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction((tx) => this.createInTransaction(ownerId, tx, input), {
+  async create(input: CreateConversationRequest): Promise<ConversationDetail> {
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+        return this.createInTransaction(ownerId, tx, input);
+      },
+      {
         isolationLevel: 'read committed',
-      }),
+      },
     );
   }
 
@@ -141,8 +145,10 @@ export class ConversationsService {
    *
    * 管理者按归属查询会话及成员，不改变任何接收状态。
    */
-  get(id: string): Promise<ConversationDetail> {
-    return this.database.withOwner((ownerId, db) => this.detail(ownerId, id, db));
+  async get(id: string): Promise<ConversationDetail> {
+    const db = await this.database.current();
+    const ownerId = db.ownerId;
+    return this.detail(ownerId, id, db);
   }
 
   /**
@@ -150,19 +156,19 @@ export class ConversationsService {
    *
    * 按稳定标识分页查询部署内会话，避免一次加载全部历史。
    */
-  list(input: IdPaginationQuery): Promise<ConversationListResponse> {
-    return this.database.withOwner(async (ownerId, db) => {
-      const rows = await db.conversations.findMany({
-        where: input.afterId ? gt(conversations.id, input.afterId) : undefined,
-        orderBy: [asc(conversations.id)],
-        limit: input.limit + 1,
-      });
-      const page = idCursorPage(rows, input.limit, (row) => row.id);
-      return {
-        items: page.items.map(toConversation),
-        nextAfterId: page.nextAfterId,
-      };
+  async list(input: IdPaginationQuery): Promise<ConversationListResponse> {
+    const db = await this.database.current();
+
+    const rows = await db.conversations.findMany({
+      where: input.afterId ? gt(conversations.id, input.afterId) : undefined,
+      orderBy: [asc(conversations.id)],
+      limit: input.limit + 1,
     });
+    const page = idCursorPage(rows, input.limit, (row) => row.id);
+    return {
+      items: page.items.map(toConversation),
+      nextAfterId: page.nextAfterId,
+    };
   }
 
   /**
@@ -170,18 +176,18 @@ export class ConversationsService {
    *
    * 只保存单份草稿；验证真实成员及来源后再允许进入共享存储。
    */
-  save(conversationId: string, input: SaveMessageRequest): Promise<Message> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(
-        async (tx) => {
-          await lockTaskScheduler(ownerId, tx);
-          await this.assertUnmanaged(ownerId, tx, conversationId);
-          return this.saveInTransaction(ownerId, tx, conversationId, input);
-        },
-        {
-          isolationLevel: 'read committed',
-        },
-      ),
+  async save(conversationId: string, input: SaveMessageRequest): Promise<Message> {
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+
+        await lockTaskScheduler(ownerId, tx);
+        await this.assertUnmanaged(ownerId, tx, conversationId);
+        return this.saveInTransaction(ownerId, tx, conversationId, input);
+      },
+      {
+        isolationLevel: 'read committed',
+      },
     );
   }
 
@@ -196,11 +202,14 @@ export class ConversationsService {
     conversationId: string,
     input: SaveMessageRequest,
     generated = false,
+    chat?: { runId: string; position: number },
   ): Promise<Message> {
+    if (chat && !generated) throw new TypeError('只有生成的聊天消息可以关联回复轮次。');
     const conversation = await requireConversation(ownerId, conversationId, tx, true);
     const member = await this.speaker(ownerId, conversationId, input.speaker, tx);
     const requestFingerprint = fingerprint({
       ...input,
+      chat: chat ?? null,
       requestId: undefined,
       speaker:
         input.speaker.kind === 'companion'
@@ -255,6 +264,8 @@ export class ConversationsService {
             ? 'model_output'
             : 'admin_companion_input',
       replyToMessageId: input.replyToMessageId ?? null,
+      chatRunId: chat?.runId ?? null,
+      chatPosition: chat?.position ?? null,
     });
     const row = await tx.messages.findOne({ where: { id: messageId } });
     if (!row) throw new ApiException(API_CODES.CONFLICT);
@@ -276,32 +287,33 @@ export class ConversationsService {
    *
    * 管理查询可查看草稿，但不会使草稿正式发布或登记接收。
    */
-  getMessage(conversationId: string, messageId: string): Promise<Message> {
-    return this.database.withOwner(async (ownerId, db) => {
-      await requireConversation(ownerId, conversationId, db);
-      const row = await db.messages.findOne({
-        where: { conversationId: conversationId, id: messageId },
-      });
-      if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-      return toMessage(row, db);
+  async getMessage(conversationId: string, messageId: string): Promise<Message> {
+    const db = await this.database.current();
+    const ownerId = db.ownerId;
+
+    await requireConversation(ownerId, conversationId, db);
+    const row = await db.messages.findOne({
+      where: { conversationId: conversationId, id: messageId },
     });
+    if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    return toMessage(row, db);
   }
 
   /** 发布消息并登记可见伴侣的待整理范围。 */
-  publish(
+  async publish(
     conversationId: string,
     messageId: string,
     input: PublishMessageRequest,
   ): Promise<Message> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(
-        async (tx) => {
-          await lockTaskScheduler(ownerId, tx);
-          await this.assertUnmanaged(ownerId, tx, conversationId);
-          return this.publishInTransaction(ownerId, tx, conversationId, messageId, input);
-        },
-        { isolationLevel: 'read committed' },
-      ),
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+
+        await lockTaskScheduler(ownerId, tx);
+        await this.assertUnmanaged(ownerId, tx, conversationId);
+        return this.publishInTransaction(ownerId, tx, conversationId, messageId, input);
+      },
+      { isolationLevel: 'read committed' },
     );
   }
 
@@ -439,28 +451,29 @@ export class ConversationsService {
    *
    * 管理历史只返回正式发布消息，按服务端序号分页。
    */
-  listMessages(
+  async listMessages(
     conversationId: string,
     input: SequencePaginationQuery,
   ): Promise<MessageListResponse> {
-    return this.database.withOwner(async (ownerId, db) => {
-      await requireConversation(ownerId, conversationId, db);
-      const rows = await db.messages.findMany({
-        where: and(
-          eq(messages.conversationId, conversationId),
-          eq(messages.state, 'published'),
-          gt(messages.sequence, input.afterSequence),
-        ),
-        orderBy: [asc(messages.sequence)],
-        limit: input.limit + 1,
-      });
-      const selected = rows.slice(0, input.limit);
-      const mapped = await Promise.all(selected.map((row) => toMessage(row, db)));
-      return {
-        items: mapped.filter((row) => row.state === 'published'),
-        nextAfterSequence: rows.length > input.limit ? (selected.at(-1)?.sequence ?? null) : null,
-      };
+    const db = await this.database.current();
+    const ownerId = db.ownerId;
+
+    await requireConversation(ownerId, conversationId, db);
+    const rows = await db.messages.findMany({
+      where: and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.state, 'published'),
+        gt(messages.sequence, input.afterSequence),
+      ),
+      orderBy: [asc(messages.sequence)],
+      limit: input.limit + 1,
     });
+    const selected = rows.slice(0, input.limit);
+    const mapped = await Promise.all(selected.map((row) => toMessage(row, db)));
+    return {
+      items: mapped.filter((row) => row.state === 'published'),
+      nextAfterSequence: rows.length > input.limit ? (selected.at(-1)?.sequence ?? null) : null,
+    };
   }
 
   /**

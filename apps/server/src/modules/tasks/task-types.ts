@@ -32,6 +32,8 @@ export interface MessageOutboxInput {
 
 /** 仅供服务端 worker 使用，令牌不通过 HTTP 导出。 */
 export interface TaskLease {
+  /** 从已领取的数据库记录取得的归属，不由客户端输入决定。 */
+  ownerId: string;
   /** 领取时的持久视图，检查点更新后以数据库为准。 */
   task: import('@memory-weave/contracts').Task;
   /** 当前执行代号。 */

@@ -199,7 +199,7 @@ export async function toMessage(
             companionId: member.companionId,
             runtimeEpoch: member.runtimeEpoch,
           },
-    schemaVersion: 1 as const,
+
     contentVersion: row.contentVersion,
     revision: row.revision,
     text: row.deletedAt ? '内容已删除' : row.text,

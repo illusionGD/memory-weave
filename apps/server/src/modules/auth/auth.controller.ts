@@ -16,6 +16,7 @@ import { ZodValidationPipe } from '../../http/zod-validation.pipe';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
 import { AuthService } from './auth.service';
+import { DeploymentIdentity } from './deployment-identity';
 import { PublicRoute } from './public-route';
 import { readSessionCookie, SESSION_COOKIE_NAME, sessionCookieOptions } from './session-cookie';
 import { ApiException } from '../../http/api-exception';
@@ -26,6 +27,7 @@ export class AuthController {
   /** 初始化认证接口所需的服务和配置。 */
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(DeploymentIdentity) private readonly identity: DeploymentIdentity,
     @Inject(SERVER_CONFIG) private readonly config: RuntimeConfig,
   ) {}
 
@@ -48,7 +50,7 @@ export class AuthController {
     if (!(await this.auth.verifyPassword(body.password))) {
       throw new ApiException(API_CODES.INVALID_CREDENTIALS);
     }
-    const token = await this.auth.createSession();
+    const token = await this.auth.createSession(await this.identity.ownerId());
     response.cookie(SESSION_COOKIE_NAME, token, {
       ...sessionCookieOptions(this.config.cookieSecure),
       maxAge: this.auth.sessionLifetimeMs,

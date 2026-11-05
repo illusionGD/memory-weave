@@ -13,6 +13,8 @@ import { TasksService } from './tasks.service';
 import { TaskOutboxService } from './task-outbox.service';
 import { TaskConfigurationService, defaultTaskConfiguration } from './task-configuration.service';
 import type { TaskLease } from './task-types';
+import { IdentityContext } from '../../database/identity-context';
+import { DeploymentIdentity } from '../auth/deployment-identity';
 import { CompanionPersonasService } from '../companions/companion-personas.service';
 
 /** 进程仅负责唤醒与执行，队列、租约、检查点和计量始终以数据库为准。 */
@@ -25,6 +27,8 @@ export class TaskWorkerService implements OnModuleDestroy {
 
   /** 初始化后台任务执行器。 */
   constructor(
+    @Inject(IdentityContext) private readonly identity: IdentityContext,
+    @Inject(DeploymentIdentity) private readonly deployment: DeploymentIdentity,
     @Inject(RetrievalIndexService) private readonly indexes: RetrievalIndexService,
     @Inject(MemoryExecutionService) private readonly memoryExecution: MemoryExecutionService,
     @Inject(MemoriesService) private readonly memories: MemoriesService,
@@ -72,31 +76,8 @@ export class TaskWorkerService implements OnModuleDestroy {
     let pollMs = defaultTaskConfiguration.pollMs;
     while (!signal.aborted) {
       try {
-        const current = await this.configuration.get();
-        pollMs = current.config.pollMs;
-        if (current.config.enabled) {
-          await this.outbox.dispatch();
-          await this.memories.schedule();
-          if (!this.indexing)
-            this.indexing = this.indexes
-              .schedule()
-              .catch(() => {
-                console.warn(JSON.stringify({ event: 'indexes.poll.unavailable' }));
-              })
-              .finally(() => {
-                this.indexing = null;
-              });
-          while (!signal.aborted && this.active.size < current.config.maxConcurrent + 2) {
-            const lease = await this.tasks.claim();
-            if (!lease) break;
-            const execution = this.execute(lease);
-            this.active.add(execution);
-            void execution.then(
-              () => this.active.delete(execution),
-              () => this.active.delete(execution),
-            );
-          }
-        }
+        const ownerId = await this.deployment.ownerId();
+        pollMs = await this.identity.run(ownerId, () => this.poll(signal));
       } catch {
         // 不打印连接串、任务正文或外部错误；持续失败会保留持久任务等待恢复。
         console.warn(JSON.stringify({ event: 'tasks.poll.unavailable' }));
@@ -109,6 +90,36 @@ export class TaskWorkerService implements OnModuleDestroy {
     }
   }
 
+  /** 在单次调度的身份上下文中领取任务，任务执行另建独立上下文。 */
+  private async poll(signal: AbortSignal): Promise<number> {
+    const current = await this.configuration.get();
+
+    if (current.config.enabled) {
+      await this.outbox.dispatch();
+      await this.memories.schedule();
+      if (!this.indexing)
+        this.indexing = this.indexes
+          .schedule()
+          .catch(() => {
+            console.warn(JSON.stringify({ event: 'indexes.poll.unavailable' }));
+          })
+          .finally(() => {
+            this.indexing = null;
+          });
+      while (!signal.aborted && this.active.size < current.config.maxConcurrent + 2) {
+        const lease = await this.tasks.claim();
+        if (!lease) break;
+        const execution = this.identity.run(lease.ownerId, () => this.execute(lease));
+        this.active.add(execution);
+        void execution.then(
+          () => this.active.delete(execution),
+          () => this.active.delete(execution),
+        );
+      }
+    }
+    return current.config.pollMs;
+  }
+
   /** 分派并执行已领取的后台任务。 */
   private async execute(lease: TaskLease): Promise<void> {
     let heartbeatPending: Promise<void> | null = null;
@@ -116,8 +127,8 @@ export class TaskWorkerService implements OnModuleDestroy {
     const heartbeat = setInterval(
       () => {
         if (heartbeatPending || leaseLost) return;
-        heartbeatPending = this.tasks
-          .heartbeat(lease)
+        heartbeatPending = this.identity
+          .run(lease.ownerId, () => this.tasks.heartbeat(lease))
           .catch(() => {
             leaseLost = true;
           })

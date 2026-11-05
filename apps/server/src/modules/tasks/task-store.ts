@@ -15,16 +15,16 @@ export class TaskStore {
    *
    * 配置、领取和提交共用锁顺序；数据库时间避免不同 worker 的本地时钟差异。
    */
-  locked<T>(
+  async locked<T>(
     operation: (ownerId: string, tx: DatabaseTransaction, now: Date) => Promise<T>,
   ): Promise<T> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(
-        async (tx) => {
-          return operation(ownerId, tx, await lockTaskScheduler(ownerId, tx));
-        },
-        { isolationLevel: 'read committed' },
-      ),
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+
+        return operation(ownerId, tx, await lockTaskScheduler(ownerId, tx));
+      },
+      { isolationLevel: 'read committed' },
     );
   }
 }

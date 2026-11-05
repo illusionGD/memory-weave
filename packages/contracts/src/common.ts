@@ -99,8 +99,6 @@ const workspaceResponseShape = {
   ownerId: uuidSchema,
   /** 当前用户的可修改显示名称，长度 1～80，默认“用户”；不作为登录凭据或消息身份。 */
   displayName: z.string().min(1).max(80),
-  /** 工作区公共结构版本，当前固定为 1。 */
-  schemaVersion: z.literal(1),
 };
 
 /** 当前已认证管理者所属部署的工作区信息。 */

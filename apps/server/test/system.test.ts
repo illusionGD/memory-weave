@@ -88,12 +88,18 @@ describe('observable service health', () => {
   });
 
   it('keeps an unmigrated MySQL database live but not ready, then recovers after migration', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: config.adminPassword })
+      .expect(200);
+    const cookie = String(login.headers['set-cookie']?.[0]).split(';')[0]!;
     const legacy = await createTestDatabase({ migrate: false });
     let legacyApp: INestApplication | undefined;
     try {
       legacyApp = await createApplication({ ...config, databaseUrl: legacy.databaseUrl });
       const agent = request.agent(legacyApp.getHttpServer());
-      await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
+      agent.set('Cookie', cookie);
+      await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(503);
       const status = await agent.get('/api/system/status').expect(200);
       expect(status.body.data.database.status).toBe('connected');
       expect(status.body.data.schema).toEqual({ status: 'pending', version: null });
@@ -103,7 +109,10 @@ describe('observable service health', () => {
       expectApiError(unavailable, 503, 50301);
       await runMigrations(legacy.databaseUrl);
       await request(legacyApp.getHttpServer()).get('/api/health/ready').expect(200);
-      await agent.get('/api/workspace').expect(200);
+      // 新建数据库生成了新 owner，旧会话不能自动切换到新身份。
+      const fresh = request.agent(legacyApp.getHttpServer());
+      await fresh.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
+      await fresh.get('/api/workspace').expect(200);
     } finally {
       await legacyApp?.close();
       await legacy.dispose();
@@ -127,13 +136,19 @@ describe('observable service health', () => {
   });
 
   it('reports database unavailability without crashing the HTTP process or disclosing credentials', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: config.adminPassword })
+      .expect(200);
+    const cookie = String(login.headers['set-cookie']?.[0]).split(';')[0]!;
     await app.close();
     app = await createApplication({
       ...config,
       databaseUrl: 'mysql://private:do-not-echo@127.0.0.1:1/unavailable',
     });
     const agent = request.agent(app.getHttpServer());
-    await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
+    agent.set('Cookie', cookie);
+    await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(503);
     const status = await agent.get('/api/system/status').expect(200);
     expect(status.body.data.database).toEqual({
       engine: 'mysql',

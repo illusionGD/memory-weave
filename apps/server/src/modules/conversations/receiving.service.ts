@@ -39,28 +39,29 @@ export class ReceivingService {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   /** 分页查询伴侣有权读取的正式消息。 */
-  listMessages(
+  async listMessages(
     companionId: string,
     conversationId: string,
     input: CompanionSequenceQuery,
   ): Promise<MessageListResponse> {
-    return this.database.withOwner(async (ownerId, db) => {
-      await requireConversation(ownerId, conversationId, db);
-      const member = await requireCompanionMember(
-        ownerId,
-        companionId,
-        input.runtimeEpoch,
-        conversationId,
-        db,
-      );
-      const rows = await this.visibleRows(member, input.afterSequence, input.limit + 1, db);
-      const page = rows.slice(0, input.limit);
-      const items = await Promise.all(page.map((row) => this.publishedMessage(row, db)));
-      return {
-        items,
-        nextAfterSequence: rows.length > input.limit ? (items.at(-1)?.sequence ?? null) : null,
-      };
-    });
+    const db = await this.database.current();
+    const ownerId = db.ownerId;
+
+    await requireConversation(ownerId, conversationId, db);
+    const member = await requireCompanionMember(
+      ownerId,
+      companionId,
+      input.runtimeEpoch,
+      conversationId,
+      db,
+    );
+    const rows = await this.visibleRows(member, input.afterSequence, input.limit + 1, db);
+    const page = rows.slice(0, input.limit);
+    const items = await Promise.all(page.map((row) => this.publishedMessage(row, db)));
+    return {
+      items,
+      nextAfterSequence: rows.length > input.limit ? (items.at(-1)?.sequence ?? null) : null,
+    };
   }
 
   /**
@@ -68,34 +69,35 @@ export class ReceivingService {
    *
    * 按确切版本回查有权查看的正式原文，引用本身不授予额外访问权。
    */
-  source(
+  async source(
     companionId: string,
     messageId: string,
     input: SourceLookupQuery,
   ): Promise<PublishedMessage> {
-    return this.database.withOwner(async (ownerId, db) => {
-      await requireCompanion(ownerId, companionId, input.runtimeEpoch, db);
-      const row = await db.messages.findOne({
-        where: {
-          id: messageId,
-          contentVersion: input.contentVersion,
-          state: 'published',
-          deletedAt: null,
-        },
-      });
-      if (!row || row.sequence === null) {
-        throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-      }
-      const member = await requireCompanionMember(
-        ownerId,
-        companionId,
-        input.runtimeEpoch,
-        row.conversationId,
-        db,
-      );
-      await assertVisible(member, row.sequence, db);
-      return this.publishedMessage(row, db);
+    const db = await this.database.current();
+    const ownerId = db.ownerId;
+
+    await requireCompanion(ownerId, companionId, input.runtimeEpoch, db);
+    const row = await db.messages.findOne({
+      where: {
+        id: messageId,
+        contentVersion: input.contentVersion,
+        state: 'published',
+        deletedAt: null,
+      },
     });
+    if (!row || row.sequence === null) {
+      throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    }
+    const member = await requireCompanionMember(
+      ownerId,
+      companionId,
+      input.runtimeEpoch,
+      row.conversationId,
+      db,
+    );
+    await assertVisible(member, row.sequence, db);
+    return this.publishedMessage(row, db);
   }
 
   /**
@@ -103,94 +105,95 @@ export class ReceivingService {
    *
    * 从各实例持久记录展示读取与待整理状态，查询本身不推进任何进度。
    */
-  progress(
+  async progress(
     companionId: string,
     conversationId: string,
     input: CompanionSequenceQuery,
   ): Promise<ConversationProgressResponse> {
-    return this.database.withOwner(async (ownerId, db) => {
-      await requireConversation(ownerId, conversationId, db);
-      const member = await requireCompanionMember(
-        ownerId,
-        companionId,
-        input.runtimeEpoch,
-        conversationId,
-        db,
+    const db = await this.database.current();
+    const ownerId = db.ownerId;
+
+    await requireConversation(ownerId, conversationId, db);
+    const member = await requireCompanionMember(
+      ownerId,
+      companionId,
+      input.runtimeEpoch,
+      conversationId,
+      db,
+    );
+    const rows = await this.visibleRows(member, input.afterSequence, input.limit + 1, db);
+    const page = rows.slice(0, input.limit);
+    if (page.length === 0) return { items: [], nextAfterSequence: null };
+    const ids = page.map((row) => row.id);
+    const receipts = await db.sql
+      .select()
+      .from(readReceipts)
+      .where(
+        and(
+          eq(readReceipts.ownerId, ownerId),
+          eq(readReceipts.companionId, companionId),
+          eq(readReceipts.runtimeEpoch, input.runtimeEpoch),
+          eq(readReceipts.conversationId, conversationId),
+          inArray(readReceipts.messageId, ids),
+        ),
       );
-      const rows = await this.visibleRows(member, input.afterSequence, input.limit + 1, db);
-      const page = rows.slice(0, input.limit);
-      if (page.length === 0) return { items: [], nextAfterSequence: null };
-      const ids = page.map((row) => row.id);
-      const receipts = await db.sql
-        .select()
-        .from(readReceipts)
-        .where(
-          and(
-            eq(readReceipts.ownerId, ownerId),
-            eq(readReceipts.companionId, companionId),
-            eq(readReceipts.runtimeEpoch, input.runtimeEpoch),
-            eq(readReceipts.conversationId, conversationId),
-            inArray(readReceipts.messageId, ids),
-          ),
-        );
-      const pending = await db.sql
-        .select()
-        .from(processingRanges)
-        .where(
-          and(
-            eq(processingRanges.ownerId, ownerId),
-            eq(processingRanges.companionId, companionId),
-            eq(processingRanges.runtimeEpoch, input.runtimeEpoch),
-            eq(processingRanges.conversationId, conversationId),
-            eq(processingRanges.stage, 'memory_extraction'),
-            inArray(processingRanges.messageId, ids),
-          ),
-        );
-      const items = page.map((row) => {
-        const processing = pending.find(
-          (entry) => entry.messageId === row.id && entry.contentVersion === row.contentVersion,
-        );
-        if (
-          !processing ||
-          row.sequence === null ||
-          processing.startSequence !== row.sequence ||
-          processing.endSequence !== row.sequence
-        ) {
-          throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-        }
-        const receipt = receipts.find(
-          (entry) => entry.messageId === row.id && entry.contentVersion === row.contentVersion,
-        );
-        if (receipt && (receipt.startOffset !== 0 || receipt.endOffset !== row.text.length)) {
-          throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-        }
-        return {
-          messageId: row.id,
-          contentVersion: row.contentVersion,
-          sequence: row.sequence,
-          readReceipt: receipt
-            ? {
-                id: receipt.id,
-                ownerId: receipt.ownerId,
-                companionId: receipt.companionId,
-                runtimeEpoch: receipt.runtimeEpoch,
-                conversationId: receipt.conversationId,
-                messageId: receipt.messageId,
-                contentVersion: receipt.contentVersion,
-                acquiredAt: receipt.acquiredAt.toISOString(),
-                startOffset: 0 as const,
-                endOffset: receipt.endOffset,
-              }
-            : null,
-          processing: processing.status,
-          delivery: 'not_recorded' as const,
-        };
-      });
+    const pending = await db.sql
+      .select()
+      .from(processingRanges)
+      .where(
+        and(
+          eq(processingRanges.ownerId, ownerId),
+          eq(processingRanges.companionId, companionId),
+          eq(processingRanges.runtimeEpoch, input.runtimeEpoch),
+          eq(processingRanges.conversationId, conversationId),
+          eq(processingRanges.stage, 'memory_extraction'),
+          inArray(processingRanges.messageId, ids),
+        ),
+      );
+    const items = page.map((row) => {
+      const processing = pending.find(
+        (entry) => entry.messageId === row.id && entry.contentVersion === row.contentVersion,
+      );
+      if (
+        !processing ||
+        row.sequence === null ||
+        processing.startSequence !== row.sequence ||
+        processing.endSequence !== row.sequence
+      ) {
+        throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+      }
+      const receipt = receipts.find(
+        (entry) => entry.messageId === row.id && entry.contentVersion === row.contentVersion,
+      );
+      if (receipt && (receipt.startOffset !== 0 || receipt.endOffset !== row.text.length)) {
+        throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+      }
       return {
-        items,
-        nextAfterSequence: rows.length > input.limit ? (items.at(-1)?.sequence ?? null) : null,
+        messageId: row.id,
+        contentVersion: row.contentVersion,
+        sequence: row.sequence,
+        readReceipt: receipt
+          ? {
+              id: receipt.id,
+              ownerId: receipt.ownerId,
+              companionId: receipt.companionId,
+              runtimeEpoch: receipt.runtimeEpoch,
+              conversationId: receipt.conversationId,
+              messageId: receipt.messageId,
+              contentVersion: receipt.contentVersion,
+              acquiredAt: receipt.acquiredAt.toISOString(),
+              startOffset: 0 as const,
+              endOffset: receipt.endOffset,
+            }
+          : null,
+        processing: processing.status,
+        delivery: 'not_recorded' as const,
       };
     });
+    return {
+      items,
+      nextAfterSequence: rows.length > input.limit ? (items.at(-1)?.sequence ?? null) : null,
+    };
   }
 
   /**
@@ -198,104 +201,104 @@ export class ReceivingService {
    *
    * 原子保存确切接收批次及逐条首次取得记录，重试先复核当前权限。
    */
-  receive(
+  async receive(
     companionId: string,
     conversationId: string,
     input: ReceiveMessagesRequest,
   ): Promise<ReceiveMessagesResponse> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(
-        async (tx) => {
-          await lockTaskScheduler(ownerId, tx);
-          // 与发布共用会话锁，使并发重试取得同一份批次和首次读取时间。
-          await requireConversation(ownerId, conversationId, tx, true);
-          const member = await requireCompanionMember(
-            ownerId,
-            companionId,
-            input.runtimeEpoch,
-            conversationId,
-            tx,
-          );
-          if (member.permissionVersion !== input.expectedPermissionVersion) {
-            throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
-          }
-          const requestFingerprint = fingerprint({
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+
+        await lockTaskScheduler(ownerId, tx);
+        // 与发布共用会话锁，使并发重试取得同一份批次和首次读取时间。
+        await requireConversation(ownerId, conversationId, tx, true);
+        const member = await requireCompanionMember(
+          ownerId,
+          companionId,
+          input.runtimeEpoch,
+          conversationId,
+          tx,
+        );
+        if (member.permissionVersion !== input.expectedPermissionVersion) {
+          throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
+        }
+        const requestFingerprint = fingerprint({
+          runtimeEpoch: input.runtimeEpoch,
+          expectedPermissionVersion: input.expectedPermissionVersion,
+          afterSequence: input.afterSequence,
+          limit: input.limit,
+        });
+        const existing = await tx.receiveBatches.findOne({
+          where: {
+            companionId: companionId,
             runtimeEpoch: input.runtimeEpoch,
-            expectedPermissionVersion: input.expectedPermissionVersion,
-            afterSequence: input.afterSequence,
-            limit: input.limit,
-          });
-          const existing = await tx.receiveBatches.findOne({
-            where: {
-              companionId: companionId,
-              runtimeEpoch: input.runtimeEpoch,
-              conversationId: conversationId,
-              requestId: input.requestId,
-            },
-          });
-          if (existing) {
-            if (existing.fingerprint !== requestFingerprint) {
-              throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-            }
-            const rows: (typeof messages.$inferSelect)[] = [];
-            for (const reference of existing.messages) {
-              const row = await tx.messages.findOne({
-                where: {
-                  conversationId: conversationId,
-                  id: reference.messageId,
-                  contentVersion: reference.contentVersion,
-                  state: 'published',
-                  deletedAt: null,
-                },
-              });
-              if (!row || row.sequence === null) {
-                throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-              }
-              await assertVisible(member, row.sequence, tx);
-              rows.push(row);
-            }
-            return this.batchResponse(existing, rows, tx);
-          }
-          const rows = await this.visibleRows(member, input.afterSequence, input.limit, tx);
-          const acquiredAt = new Date();
-          const batchId = randomUUID();
-          await tx.receiveBatches.insert({
-            id: batchId,
-            companionId,
-            runtimeEpoch: input.runtimeEpoch,
-            conversationId,
+            conversationId: conversationId,
             requestId: input.requestId,
-            fingerprint: requestFingerprint,
-            messages: rows.map((row) => ({
-              messageId: row.id,
-              contentVersion: row.contentVersion,
-            })),
-            acquiredAt,
-          });
-          const batch = await tx.receiveBatches.findOne({ where: { id: batchId } });
-          if (!batch) throw new Error('Failed to persist the receive batch.');
-          if (rows.length > 0) {
-            await tx.sql
-              .insert(readReceipts)
-              .values(
-                rows.map((row) => ({
-                  ownerId,
-                  companionId,
-                  runtimeEpoch: input.runtimeEpoch,
-                  conversationId,
-                  messageId: row.id,
-                  contentVersion: row.contentVersion,
-                  acquiredAt,
-                  startOffset: 0,
-                  endOffset: row.text.length,
-                })),
-              )
-              .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
+          },
+        });
+        if (existing) {
+          if (existing.fingerprint !== requestFingerprint) {
+            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
           }
-          return this.batchResponse(batch, rows, tx);
-        },
-        { isolationLevel: 'read committed' },
-      ),
+          const rows: (typeof messages.$inferSelect)[] = [];
+          for (const reference of existing.messages) {
+            const row = await tx.messages.findOne({
+              where: {
+                conversationId: conversationId,
+                id: reference.messageId,
+                contentVersion: reference.contentVersion,
+                state: 'published',
+                deletedAt: null,
+              },
+            });
+            if (!row || row.sequence === null) {
+              throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+            }
+            await assertVisible(member, row.sequence, tx);
+            rows.push(row);
+          }
+          return this.batchResponse(existing, rows, tx);
+        }
+        const rows = await this.visibleRows(member, input.afterSequence, input.limit, tx);
+        const acquiredAt = new Date();
+        const batchId = randomUUID();
+        await tx.receiveBatches.insert({
+          id: batchId,
+          companionId,
+          runtimeEpoch: input.runtimeEpoch,
+          conversationId,
+          requestId: input.requestId,
+          fingerprint: requestFingerprint,
+          messages: rows.map((row) => ({
+            messageId: row.id,
+            contentVersion: row.contentVersion,
+          })),
+          acquiredAt,
+        });
+        const batch = await tx.receiveBatches.findOne({ where: { id: batchId } });
+        if (!batch) throw new Error('Failed to persist the receive batch.');
+        if (rows.length > 0) {
+          await tx.sql
+            .insert(readReceipts)
+            .values(
+              rows.map((row) => ({
+                ownerId,
+                companionId,
+                runtimeEpoch: input.runtimeEpoch,
+                conversationId,
+                messageId: row.id,
+                contentVersion: row.contentVersion,
+                acquiredAt,
+                startOffset: 0,
+                endOffset: row.text.length,
+              })),
+            )
+            .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
+        }
+        return this.batchResponse(batch, rows, tx);
+      },
+      { isolationLevel: 'read committed' },
     );
   }
 

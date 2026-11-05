@@ -356,7 +356,6 @@ describe('伴侣初始人格的公开命令与查询', () => {
     await app.get(TaskWorkerService).start();
     const ready = await waitReady(agent, created.companion.id);
     expect(ready.companion.currentPersonaVersion.document).toEqual({
-      schemaVersion: 1,
       sourceKind: 'initial_setting',
       name: '小夜',
       core: output.core,

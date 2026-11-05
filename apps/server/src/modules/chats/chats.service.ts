@@ -20,13 +20,7 @@ import { randomUUID } from 'node:crypto';
 import type { RuntimeConfig } from '../../config';
 import { SERVER_CONFIG } from '../../config';
 import type { DatabaseTransaction } from '../../database/database.service';
-import {
-  chatDeliveries,
-  chatRuns,
-  chatSegments,
-  chatThreads,
-  messages,
-} from '../../database/schema';
+import { chatDeliveries, chatRuns, chatThreads, messages } from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { publicAvatar } from '../companions/avatar-files';
 import {
@@ -362,10 +356,6 @@ export class ChatsService {
   ): Promise<ChatMessage[]> {
     if (!rows.length) return [];
     const ids = rows.map((row) => row.id);
-    const segments = await tx.sql
-      .select()
-      .from(chatSegments)
-      .where(and(eq(chatSegments.ownerId, ownerId), inArray(chatSegments.messageId, ids)));
     const deliveries = await tx.sql
       .select({
         messageId: chatDeliveries.messageId,
@@ -379,7 +369,7 @@ export class ChatsService {
     return Promise.all(
       rows.map(async (row) => ({
         message: await toMessage(row, tx),
-        runId: segments.find((item) => item.messageId === row.id)?.runId ?? null,
+        runId: row.chatRunId,
         deliveredAt:
           deliveries.find((item) => item.messageId === row.id)?.deliveredAt.toISOString() ?? null,
       })),

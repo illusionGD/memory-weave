@@ -6,9 +6,10 @@ import type {
   SelectedFields,
 } from 'drizzle-orm/mysql-core';
 import { MySqlTransaction } from 'drizzle-orm/mysql-core';
-import type { SelectResultFields } from 'drizzle-orm/query-builders/select.types';
 import type { ResultSetHeader } from 'mysql2';
 import type {
+  Fields,
+  SelectedRow,
   FindManyOptions,
   FindOneOptions,
   InsertValues,
@@ -45,14 +46,7 @@ export function defineTable<T extends MySqlTable, K extends ScopeKey<T>, A exten
       | (A extends 'cleanup' ? 'deleteWhere' : never)
     >;
   }
-  return {
-    connect,
-    /** 为底层独立测试固定连接和归属，业务通过数据库表属性访问。 */
-    bind<C extends QueryConnection>(db: C, ownerId: string) {
-      if (!ownerId) throw new TypeError('表访问必须指定数据归属。');
-      return connect<C>((operation) => operation(db, ownerId));
-    },
-  };
+  return { connect };
 }
 
 /** 使用同一数据库连接执行表的基础读写操作。 */
@@ -70,22 +64,22 @@ class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends Que
   }
 
   /** 查询一条记录，缺失时返回 null，并按投影推导类型。 */
-  async findOne<F extends SelectedFields = T['_']['columns']>(
+  async findOne<const F extends Fields<T> = T['_']['columns']>(
     options: FindOneOptions<T, K, F, C> = {},
-  ): Promise<SelectResultFields<F> | null> {
+  ): Promise<SelectedRow<T, F> | null> {
     const rows = await this.findMany({ ...options, limit: 1 });
     return rows[0] ?? null;
   }
 
   /** 按筛选、排序和条数读取列表，不额外统计或回读。 */
-  async findMany<F extends SelectedFields = T['_']['columns']>(
+  async findMany<const F extends Fields<T> = T['_']['columns']>(
     options: FindManyOptions<T, K, F, C>,
-  ): Promise<SelectResultFields<F>[]> {
+  ): Promise<SelectedRow<T, F>[]> {
     return this.execute(async (db, ownerId) => {
       if (!Number.isSafeInteger(options.limit) || options.limit < 1)
         throw new TypeError('查询条数必须是正整数。');
       const query = db
-        .select(options.fields ?? this.columns)
+        .select(this.selectFields(options.fields))
         .from(this.table)
         .where(this.condition(options.where, ownerId))
         .orderBy(...(options.orderBy ?? []))
@@ -96,8 +90,21 @@ class TableRepository<T extends MySqlTable, K extends ScopeKey<T>, C extends Que
       }
       const rows = await query;
       // Drizzle 的泛型 from 条件类型无法跨封装还原；投影与结果保持同一个 F。
-      return rows as unknown as SelectResultFields<F>[];
+      return rows as unknown as SelectedRow<T, F>[];
     });
+  }
+
+  /** 将字段名投影转换为查询列，拒绝空投影及不存在的字段。 */
+  private selectFields(fields?: Fields<T>): SelectedFields {
+    if (!fields) return this.columns;
+    if (!Array.isArray(fields)) return fields as SelectedFields;
+    if (!fields.length) throw new TypeError('查询字段不能为空。');
+    const selected: SelectedFields = {};
+    for (const name of fields) {
+      if (!Object.hasOwn(this.columns, name)) throw new TypeError('查询字段不存在。');
+      selected[name] = this.columns[name]!;
+    }
+    return selected;
   }
 
   /** 插入一条记录，附加固定归属，不额外查询或覆盖已有行。 */

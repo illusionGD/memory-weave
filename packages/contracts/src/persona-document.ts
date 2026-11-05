@@ -21,8 +21,6 @@ export const personaLockSchema: z.ZodObject<typeof lockShape, z.core.$strict> = 
   .object(lockShape)
   .strict();
 const documentShape = {
-  /** 人格文档结构版本。 */
-  schemaVersion: z.literal(1),
   /** 初始设定的来源，不混入对话经历。 */
   sourceKind: z.literal('initial_setting'),
   /** 名称来自明确填写或原稿整理；未指定时可生成。 */

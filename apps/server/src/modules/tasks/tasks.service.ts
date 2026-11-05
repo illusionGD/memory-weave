@@ -242,6 +242,7 @@ export class TasksService {
       });
       return {
         task: await this.getInTransaction(ownerId, row.id, tx),
+        ownerId,
         token,
         fence,
         input: row.input,
@@ -506,6 +507,7 @@ export class TasksService {
     lease: TaskLease,
     verifyScope = true,
   ): Promise<TaskRow> {
+    if (lease.ownerId !== ownerId) throw new ApiException(API_CODES.TASK_LEASE_LOST);
     const row = await this.row(ownerId, lease.task.id, tx);
     if (
       row.status !== 'running' ||

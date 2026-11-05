@@ -1,3 +1,4 @@
+import { asOwner } from './identity';
 import { createApplication } from '../../src/app';
 import { loadServerConfig } from '../../src/config';
 import { TasksService } from '../../src/modules/tasks/tasks.service';
@@ -8,9 +9,9 @@ const app = await createApplication(loadServerConfig(process.env));
 await app.listen(0, '127.0.0.1');
 if (process.env.TASK_TEST_MODE === 'checkpoint') {
   const tasks = app.get(TasksService);
-  const lease = await tasks.claim();
+  const lease = await asOwner(app, () => tasks.claim());
   if (!lease) throw new Error('没有可领取的测试任务。');
-  await tasks.checkpoint(lease, { completedSteps: 1, stage: 'steps' });
+  await asOwner(app, () => tasks.checkpoint(lease, { completedSteps: 1, stage: 'steps' }));
   process.stdout.write(`${JSON.stringify({ taskId: lease.task.id, checkpoint: 1 })}\n`);
 } else {
   await app.get(TaskWorkerService).start();

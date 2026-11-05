@@ -244,10 +244,7 @@ async function main() {
     body: { password: process.env.ADMIN_PASSWORD },
   });
   const workspace = await api('读取持久工作区', '/workspace');
-  check(
-    uuidPattern.test(workspace.ownerId) && workspace.schemaVersion === 1,
-    '工作区身份结构错误。',
-  );
+  check(uuidPattern.test(workspace.ownerId), '工作区身份结构错误。');
   check(
     (await api('再次读取工作区', '/workspace')).ownerId === workspace.ownerId,
     '工作区 owner 不稳定。',

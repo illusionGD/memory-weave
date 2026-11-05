@@ -1,4 +1,6 @@
 import { getSchemaStatus, MigrationError, runMigrations } from './migrations';
+import { loadServerConfig } from '../config';
+import { resetDevelopment } from './reset-development';
 
 /**
  * 执行数据库迁移或状态查询命令。
@@ -9,6 +11,11 @@ async function main(): Promise<void> {
   const argumentsList = process.argv.slice(2);
   const command = argumentsList[0] ?? 'migrate';
   const remaining = argumentsList.slice(1);
+  if (command === 'reset' && remaining.length === 0) {
+    await resetDevelopment(loadServerConfig(process.env));
+    console.info(JSON.stringify({ status: 'ready', reset: true }));
+    return;
+  }
   if (
     !['migrate', 'status'].includes(command) ||
     (remaining.length !== 0 && (remaining.length !== 2 || remaining[0] !== '--migrations-dir'))

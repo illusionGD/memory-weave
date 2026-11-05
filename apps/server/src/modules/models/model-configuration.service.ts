@@ -85,53 +85,53 @@ export class ModelConfigurationService {
    * @param operation 只读写本部署数据的事务操作。
    * @returns 当前配置版本下完成的操作结果。
    */
-  locked<T>(
+  async locked<T>(
     operation: (
       ownerId: string,
       tx: DatabaseTransaction,
       current: ModelConfigurationVersion,
     ) => Promise<T>,
   ): Promise<T> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(
-        async (tx) => {
-          await tx.sql
-            .insert(modelConfigurationHeads)
-            .values({ ownerId, activeVersion: 0 })
-            .onDuplicateKeyUpdate({ set: { ownerId } });
-          const [head] = await tx.sql
-            .select()
-            .from(modelConfigurationHeads)
-            .where(eq(modelConfigurationHeads.ownerId, ownerId))
-            .for('update');
-          if (!head) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-          if (head.activeVersion === 0) {
-            const row = {
-              id: randomUUID(),
-              ownerId,
-              version: 1,
-              source: 'default' as const,
-              config: this.providers.effective(defaultModelConfiguration()),
-              evaluationNote: '确定性测试配置，未连接真实模型。',
-              requestId: randomUUID(),
-              fingerprint: 'default',
-              createdAt: new Date(),
-            };
-            await tx.sql.insert(modelConfigurationVersions).values(row);
-            await tx.modelConfigurationHeads.updateWhere({
-              where: eq(modelConfigurationHeads.ownerId, ownerId),
-              set: { activeVersion: 1 },
-            });
-            return operation(ownerId, tx, toVersion(row));
-          }
-          const row = await tx.modelConfigurationVersions.findOne({
-            where: { version: head.activeVersion },
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+
+        await tx.sql
+          .insert(modelConfigurationHeads)
+          .values({ ownerId, activeVersion: 0 })
+          .onDuplicateKeyUpdate({ set: { ownerId } });
+        const [head] = await tx.sql
+          .select()
+          .from(modelConfigurationHeads)
+          .where(eq(modelConfigurationHeads.ownerId, ownerId))
+          .for('update');
+        if (!head) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+        if (head.activeVersion === 0) {
+          const row = {
+            id: randomUUID(),
+            ownerId,
+            version: 1,
+            source: 'default' as const,
+            config: this.providers.effective(defaultModelConfiguration()),
+            evaluationNote: '确定性测试配置，未连接真实模型。',
+            requestId: randomUUID(),
+            fingerprint: 'default',
+            createdAt: new Date(),
+          };
+          await tx.sql.insert(modelConfigurationVersions).values(row);
+          await tx.modelConfigurationHeads.updateWhere({
+            where: eq(modelConfigurationHeads.ownerId, ownerId),
+            set: { activeVersion: 1 },
           });
-          if (!row) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
           return operation(ownerId, tx, toVersion(row));
-        },
-        { isolationLevel: 'read committed' },
-      ),
+        }
+        const row = await tx.modelConfigurationVersions.findOne({
+          where: { version: head.activeVersion },
+        });
+        if (!row) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+        return operation(ownerId, tx, toVersion(row));
+      },
+      { isolationLevel: 'read committed' },
     );
   }
 }

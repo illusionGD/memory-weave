@@ -3,7 +3,6 @@ import { alias } from 'drizzle-orm/mysql-core';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatMemorySources,
-  chatSegments,
   lifecycleMemoryTargets,
   lifecycleMessageTargets,
   memoryDependencies,
@@ -125,8 +124,13 @@ export async function propagateRecallDeletion(
         eq(chatMemorySources.versionId, lifecycleMemoryTargets.versionId),
       ),
     )
-    .innerJoin(chatSegments, eq(chatSegments.runId, chatMemorySources.runId))
-    .innerJoin(messages, eq(messages.id, chatSegments.messageId))
+    .innerJoin(
+      messages,
+      and(
+        eq(messages.ownerId, chatMemorySources.ownerId),
+        eq(messages.chatRunId, chatMemorySources.runId),
+      ),
+    )
     .leftJoin(
       knownMessage,
       and(eq(knownMessage.operationId, operation.id), eq(knownMessage.messageId, messages.id)),

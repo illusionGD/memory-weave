@@ -1,3 +1,9 @@
+import { createTestDatabase } from './support/database';
+import { createConnection } from 'mysql2/promise';
+import { randomUUID } from 'node:crypto';
+import { mysqlConnectionOptions } from '../src/database/connection';
+import { AuthService } from '../src/modules/auth/auth.service';
+import type { TestDatabase } from './support/database';
 import { createTestAuthConfig, disposeTestAuth } from './support/redis';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,7 +13,7 @@ import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import type { ServerConfig } from '../src/config';
 import { createRedisFaultProxy } from './support/redis-proxy';
@@ -15,6 +21,13 @@ import { createRedisFaultProxy } from './support/redis-proxy';
 afterAll(disposeTestAuth);
 
 describe('single-owner HTTP access', () => {
+  let database: TestDatabase;
+  beforeAll(async () => {
+    database = await createTestDatabase();
+  });
+  afterAll(async () => {
+    await database?.dispose();
+  });
   let app: INestApplication;
   let dataDir: string;
   let config: ServerConfig;
@@ -28,7 +41,7 @@ describe('single-owner HTTP access', () => {
       qdrantApiKey: process.env.TEST_QDRANT_API_KEY ?? 'test-vector-key',
       host: '127.0.0.1',
       port: 0,
-      databaseUrl: process.env.TEST_DATABASE_URL ?? 'mysql://unused:unused@127.0.0.1:1/unused',
+      databaseUrl: database.databaseUrl,
       adminPassword: 'test-password-for-foundation',
       appOrigin: 'http://localhost:5173',
       cookieSecure: false,
@@ -56,6 +69,44 @@ describe('single-owner HTTP access', () => {
       data: null,
     });
     expect(response.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('两个会话并发访问时按服务端身份隔离，客户端身份请求头不能切换用户', async () => {
+    const otherOwner = randomUUID();
+    const seed = await createConnection(mysqlConnectionOptions(database.databaseUrl));
+    try {
+      await seed.execute('INSERT INTO owners (id, deployment_key) VALUES (?, ?)', [
+        otherOwner,
+        otherOwner.slice(0, 32),
+      ]);
+    } finally {
+      await seed.end();
+    }
+    const first = request.agent(app.getHttpServer());
+    await first.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
+    // 多用户登录界面尚未开放；fixture 从真实认证服务建立第二个已验证会话。
+    const token = await app.get(AuthService).createSession(otherOwner);
+    const second = request
+      .agent(app.getHttpServer())
+      .set('Cookie', `memory_weave_session=${token}`);
+    const [a, b] = await Promise.all(
+      [first, second].map((agent, index) =>
+        agent
+          .post('/api/companions')
+          .send({
+            requestId: randomUUID(),
+            name: `隔离伴侣 ${index}`,
+            initialProfile: '身份隔离测试',
+          })
+          .expect(201),
+      ),
+    );
+    await Promise.all([
+      first.get(`/api/companions/${b!.body.data.id}`).set('X-Owner-Id', otherOwner).expect(404),
+      second.get(`/api/companions/${a!.body.data.id}`).expect(404),
+      first.get(`/api/companions/${a!.body.data.id}`).expect(200),
+      second.get(`/api/companions/${b!.body.data.id}`).expect(200),
+    ]);
   });
 
   it('signs in with the configured password and reuses an HttpOnly session cookie', async () => {

@@ -1,0 +1,87 @@
+{
+  "note": "合成布局实验；不等于完整业务压测或锁竞争验证。",
+  "results": [
+    {
+      "size": 10000,
+      "reads": [
+        {
+          "label": "消息+片段分表",
+          "medianMs": 0.437,
+          "p95Ms": 0.617,
+          "plan": "-> Limit: 20 row(s)  (cost=70 rows=20) (actual time=0.0563..0.0902 rows=20 loops=1)\n    -> Nested loop left join  (cost=70 rows=100) (actual time=0.0542..0.0872 rows=20 loops=1)\n        -> Index lookup on m using owner_id (owner_id=1, conversation_id=50) (reverse)  (cost=35 rows=100) (actual time=0.027..0.043 rows=20 loops=1)\n        -> Filter: (s.owner_id = 1)  (cost=0.251 rows=1) (actual time=821e-6..860e-6 rows=0.5 loops=20)\n            -> Single-row index lookup on s using PRIMARY (message_id=m.id)  (cost=0.251 rows=1) (actual time=699e-6..714e-6 rows=0.5 loops=20)\n"
+        },
+        {
+          "label": "片段合入消息",
+          "medianMs": 0.351,
+          "p95Ms": 0.558,
+          "plan": "-> Limit: 20 row(s)  (cost=35 rows=20) (actual time=0.00483..0.0209 rows=20 loops=1)\n    -> Index lookup on merged_messages using owner_id (owner_id=1, conversation_id=50) (reverse)  (cost=35 rows=100) (actual time=0.00441..0.0195 rows=20 loops=1)\n"
+        },
+        {
+          "label": "会话+聊天分表",
+          "medianMs": 0.261,
+          "p95Ms": 0.407,
+          "plan": "-> Limit: 20 row(s)  (cost=27.4 rows=20) (actual time=0.0155..0.0346 rows=20 loops=1)\n    -> Nested loop inner join  (cost=27.4 rows=20) (actual time=0.0147..0.0328 rows=20 loops=1)\n        -> Filter: (t.owner_id = 1)  (cost=0.45 rows=20) (actual time=0.0116..0.0141 rows=20 loops=1)\n            -> Index scan on t using PRIMARY  (cost=0.45 rows=20) (actual time=0.00345..0.00487 rows=20 loops=1)\n        -> Filter: (c.owner_id = 1)  (cost=0.251 rows=1) (actual time=669e-6..740e-6 rows=1 loops=20)\n            -> Single-row index lookup on c using PRIMARY (id=t.conversation_id)  (cost=0.251 rows=1) (actual time=560e-6..585e-6 rows=1 loops=20)\n"
+        },
+        {
+          "label": "聊天合入会话",
+          "medianMs": 0.249,
+          "p95Ms": 0.655,
+          "plan": "-> Limit: 20 row(s)  (cost=1.89 rows=2) (actual time=0.00496..0.00993 rows=20 loops=1)\n    -> Filter: ((merged_conversations.chat_enabled = true) and (merged_conversations.owner_id = 1))  (cost=1.89 rows=2) (actual time=0.00437..0.00839 rows=20 loops=1)\n        -> Index scan on merged_conversations using PRIMARY  (cost=1.89 rows=20) (actual time=0.00355..0.00623 rows=20 loops=1)\n"
+        }
+      ],
+      "writes": [
+        {
+          "label": "分表写入",
+          "medianMs": 0.986,
+          "p95Ms": 2.571
+        },
+        {
+          "label": "合并写入",
+          "medianMs": 0.758,
+          "p95Ms": 1.533
+        }
+      ]
+    },
+    {
+      "size": 100000,
+      "reads": [
+        {
+          "label": "消息+片段分表",
+          "medianMs": 0.473,
+          "p95Ms": 0.56,
+          "plan": "-> Limit: 20 row(s)  (cost=166 rows=20) (actual time=0.0117..0.0512 rows=20 loops=1)\n    -> Nested loop left join  (cost=166 rows=100) (actual time=0.011..0.0496 rows=20 loops=1)\n        -> Index lookup on m using owner_id (owner_id=1, conversation_id=50) (reverse)  (cost=89.3 rows=100) (actual time=0.00584..0.0255 rows=20 loops=1)\n        -> Filter: (s.owner_id = 1)  (cost=0.666 rows=1) (actual time=917e-6..957e-6 rows=0.5 loops=20)\n            -> Single-row index lookup on s using PRIMARY (message_id=m.id)  (cost=0.666 rows=1) (actual time=789e-6..801e-6 rows=0.5 loops=20)\n"
+        },
+        {
+          "label": "片段合入消息",
+          "medianMs": 0.383,
+          "p95Ms": 0.454,
+          "plan": "-> Limit: 20 row(s)  (cost=35 rows=20) (actual time=0.00797..0.0359 rows=20 loops=1)\n    -> Index lookup on merged_messages using owner_id (owner_id=1, conversation_id=50) (reverse)  (cost=35 rows=100) (actual time=0.00699..0.0338 rows=20 loops=1)\n"
+        },
+        {
+          "label": "会话+聊天分表",
+          "medianMs": 0.332,
+          "p95Ms": 0.566,
+          "plan": "-> Limit: 20 row(s)  (cost=252 rows=20) (actual time=0.0125..0.0433 rows=20 loops=1)\n    -> Nested loop inner join  (cost=252 rows=20) (actual time=0.0118..0.0416 rows=20 loops=1)\n        -> Filter: (t.owner_id = 1)  (cost=0.045 rows=20) (actual time=0.00727..0.0109 rows=20 loops=1)\n            -> Index scan on t using PRIMARY  (cost=0.045 rows=20) (actual time=0.00601..0.00815 rows=20 loops=1)\n        -> Filter: (c.owner_id = 1)  (cost=0.25 rows=1) (actual time=0.00124..0.00132 rows=1 loops=20)\n            -> Single-row index lookup on c using PRIMARY (id=t.conversation_id)  (cost=0.25 rows=1) (actual time=0.0011..0.00113 rows=1 loops=20)\n"
+        },
+        {
+          "label": "聊天合入会话",
+          "medianMs": 0.405,
+          "p95Ms": 0.458,
+          "plan": "-> Limit: 20 row(s)  (cost=100 rows=20) (actual time=0.102..0.106 rows=20 loops=1)\n    -> Filter: (merged_conversations.chat_enabled = true)  (cost=100 rows=100) (actual time=0.101..0.105 rows=20 loops=1)\n        -> Index range scan on merged_conversations using owner_id over (owner_id = 1), with index condition: (merged_conversations.owner_id = 1)  (cost=100 rows=1000) (actual time=0.0918..0.0942 rows=20 loops=1)\n"
+        }
+      ],
+      "writes": [
+        {
+          "label": "分表写入",
+          "medianMs": 0.873,
+          "p95Ms": 1.495
+        },
+        {
+          "label": "合并写入",
+          "medianMs": 0.531,
+          "p95Ms": 0.73
+        }
+      ]
+    }
+  ]
+}

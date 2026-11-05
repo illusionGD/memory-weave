@@ -5,71 +5,8 @@
     {
       "idx": 0,
       "version": "5",
-      "when": 1793113023870,
-      "tag": "0000_mysql_foundation",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1793157635155,
-      "tag": "0001_model_runtime",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1793189882946,
-      "tag": "0002_durable_tasks",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "5",
-      "when": 1793198278282,
-      "tag": "0003_persona_foundations",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "5",
-      "when": 1793248673248,
-      "tag": "0004_private_chat",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "5",
-      "when": 1793260846130,
-      "tag": "0005_lifecycle",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "5",
-      "when": 1793269085467,
-      "tag": "0006_memory_organization",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "5",
-      "when": 1793277332435,
-      "tag": "0007_memory_retrieval",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "5",
-      "when": 1793335823965,
-      "tag": "0008_companion_avatars",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "5",
-      "when": 1793454784220,
-      "tag": "0009_memory_explorer",
+      "when": 1793852745685,
+      "tag": "0000_development_baseline",
       "breakpoints": true
     }
   ]

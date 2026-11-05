@@ -79,11 +79,12 @@ export class AuthService implements OnModuleDestroy {
    * 创建登录会话及其访问令牌。
    *
    * 创建随机会话令牌，服务端仅保存令牌摘要。
+   * @param ownerId 服务端认证确定的数据归属。
    * @returns 仅通过 HttpOnly Cookie 发送给浏览器的会话令牌。
    */
-  async createSession(): Promise<string> {
+  async createSession(ownerId: string): Promise<string> {
     const token = randomBytes(32).toString('hex');
-    await this.store.createSession(this.digest(token), this.sessionLifetimeMs);
+    await this.store.createSession(this.digest(token), this.sessionLifetimeMs, ownerId);
     return token;
   }
 
@@ -95,8 +96,13 @@ export class AuthService implements OnModuleDestroy {
    * @returns 令牌是否对应有效会话。
    */
   async hasSession(token: string | null): Promise<boolean> {
-    if (!token || !/^[a-f0-9]{64}$/.test(token)) return false;
-    return this.store.hasSession(this.digest(token));
+    return (await this.sessionOwner(token)) !== null;
+  }
+
+  /** 从未过期的服务端会话读取归属，不信任请求中的用户标识。 */
+  async sessionOwner(token: string | null): Promise<string | null> {
+    if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
+    return this.store.sessionOwner(this.digest(token));
   }
 
   /**

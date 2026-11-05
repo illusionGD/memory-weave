@@ -15,7 +15,7 @@ import { ApiException } from '../../http/api-exception';
 import { ModelConfigurationService } from '../models/model-configuration.service';
 import { TasksService } from '../tasks/tasks.service';
 import type { TaskLease } from '../tasks/task-types';
-import { cleanupLifecyclePage, lifecycleStages } from './lifecycle-cleanup';
+import { cleanupLifecyclePage, LIFECYCLE_STAGES } from './lifecycle-cleanup';
 import { vectorCleanupRows } from '../retrieval/retrieval-cleanup';
 import { RetrievalVector } from '../retrieval/retrieval-vector';
 
@@ -50,7 +50,7 @@ export class LifecycleExecutionService {
           );
         if (!operation) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
         if (operation.taskId !== lease.task.id) throw new ApiException(API_CODES.TASK_LEASE_LOST);
-        const stages = lifecycleStages(operation.protocolVersion);
+        const stages = LIFECYCLE_STAGES;
         if (operation.stage >= stages.length) return true;
         if (stages[operation.stage] === 'avatar_files')
           return { kind: 'avatar' as const, operation, ownerId };

@@ -1,3 +1,4 @@
+import { asOwner } from './support/identity';
 import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import type { ModelConfiguration } from '@memory-weave/contracts';
 import { randomUUID } from 'node:crypto';
@@ -174,17 +175,19 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
       systemPrompt: '协议测试。',
     };
     const chunks: string[] = [];
-    const result = await runtime.executeStreaming(command, definition, async (delta: string) => {
-      chunks.push(delta);
-      if (chunks.length === 1) {
-        expect(ended).toBe(false);
-        expect(delta).toBe('你好，');
-        ended = true;
-        response!.end(
-          'data: {"choices":[{"index":0,"delta":{"content":"世界。"},"finish_reason":"stop"}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":6}}\n\ndata: [DONE]\n\n',
-        );
-      }
-    });
+    const result = await asOwner(app, () =>
+      runtime.executeStreaming(command, definition, async (delta: string) => {
+        chunks.push(delta);
+        if (chunks.length === 1) {
+          expect(ended).toBe(false);
+          expect(delta).toBe('你好，');
+          ended = true;
+          response!.end(
+            'data: {"choices":[{"index":0,"delta":{"content":"世界。"},"finish_reason":"stop"}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":20,"completion_tokens":6}}\n\ndata: [DONE]\n\n',
+          );
+        }
+      }),
+    );
     expect(chunks).toEqual(['你好，', '世界。']);
     expect(result).toMatchObject({
       status: 'succeeded',
@@ -195,9 +198,11 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
       inputTokens: 20,
       outputTokens: 6,
     });
-    const replay = await runtime.executeStreaming(command, definition, async () => {
-      throw new Error('重放不能再次发送片段');
-    });
+    const replay = await asOwner(app, () =>
+      runtime.executeStreaming(command, definition, async () => {
+        throw new Error('重放不能再次发送片段');
+      }),
+    );
     expect(replay).toEqual(result);
     expect(requests).toBe(1);
   });
@@ -538,23 +543,25 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
         .send({ requestId: randomUUID(), name: '候选验证', initialProfile: '保留初始人生。' })
         .expect(201)
     ).body.data;
-    const output = await app.get(ModelRuntimeService).execute(
-      {
-        requestId: randomUUID(),
-        expectedConfigVersion: current.version,
-        role: 'persona',
-        operation: 'structured',
-        inputText: '解析初始设定',
-        lane: 'background',
-      },
-      {
-        promptVersion: 'persona-fixture-v1',
-        schemaVersion: 'traits-v1',
-        preprocessingVersion: 'utf8-v1',
-        systemPrompt: '将人设解析为 traits 字符串数组。',
-        outputSchema: z.object({ traits: z.array(z.string()).min(1) }).strict(),
-      },
-      { companionId: companion.id, runtimeEpoch: 1, conversationId: null },
+    const output = await asOwner(app, () =>
+      app.get(ModelRuntimeService).execute(
+        {
+          requestId: randomUUID(),
+          expectedConfigVersion: current.version,
+          role: 'persona',
+          operation: 'structured',
+          inputText: '解析初始设定',
+          lane: 'background',
+        },
+        {
+          promptVersion: 'persona-fixture-v1',
+          schemaVersion: 'traits-v1',
+          preprocessingVersion: 'utf8-v1',
+          systemPrompt: '将人设解析为 traits 字符串数组。',
+          outputSchema: z.object({ traits: z.array(z.string()).min(1) }).strict(),
+        },
+        { companionId: companion.id, runtimeEpoch: 1, conversationId: null },
+      ),
     );
     expect(output).toMatchObject({
       status: 'succeeded',

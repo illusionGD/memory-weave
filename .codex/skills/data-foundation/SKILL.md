@@ -5,6 +5,8 @@ description: 维护 F02 实例、人格版本、共享会话、原文来源、�
 
 # F02 数据基础
 
+2026-11-05 用户明确允许开发阶段删除旧数据并简化旧版本分支。本次已改为 `0000_development_baseline`，下文原迁移编号/旧协议兼容要求仅为历史背景，不适用于此次已授权重建。当前以 [数据库访问说明](../../../docs/features/crud-repositories.md) 为准：普通查询直接用表入口，身份由请求/任务上下文提供，事务采用回调；禁止重新引入 withOwner 或旧协议解释。后续常规结构变更仍追加迁移，新的重建按用户授权范围执行。
+
 先读 [功能说明](../../../docs/features/f02-data-foundation.md)、[架构](../../../docs/architecture.md) 和 [进度](../../../docs/progress.md)。遵循 coding、tdd 和现有 frontend/server 约束。
 
 ## 入口与边界

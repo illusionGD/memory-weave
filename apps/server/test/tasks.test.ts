@@ -1,3 +1,4 @@
+import { asOwner } from './support/identity';
 import { createTestAuthConfig, disposeTestAuth, testAuthEnvironment } from './support/redis';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -294,32 +295,37 @@ describe('持久任务的公开控制与恢复边界', () => {
         .expect(201)
     ).body.data;
     const runtime = app.get(TasksService);
-    const claims = await Promise.all([runtime.claim(), runtime.claim()]);
+    const claims = await Promise.all([
+      asOwner(app, () => runtime.claim()),
+      asOwner(app, () => runtime.claim()),
+    ]);
     expect(claims.filter(Boolean)).toHaveLength(1);
     const original = claims.find(Boolean)!;
-    await runtime.checkpoint(original, { completedSteps: 1, stage: 'steps' });
+    await asOwner(app, () => runtime.checkpoint(original, { completedSteps: 1, stage: 'steps' }));
     await delay(1100);
-    expect(await runtime.claim()).toBeNull();
+    expect(await asOwner(app, () => runtime.claim())).toBeNull();
     await delay(150);
-    const successor = (await runtime.claim())!;
+    const successor = (await asOwner(app, () => runtime.claim()))!;
     expect(successor.task).toMatchObject({
       id: created.id,
       progress: { completedSteps: 1 },
       attempts: [{ status: 'expired' }, { status: 'running' }],
     });
     await expect(
-      runtime.checkpoint(original, { completedSteps: 3, stage: 'steps' }),
+      asOwner(app, () => runtime.checkpoint(original, { completedSteps: 3, stage: 'steps' })),
     ).rejects.toMatchObject({ code: 40910 });
-    await expect(runtime.complete(original)).rejects.toMatchObject({ code: 40910 });
-    await runtime.checkpoint(successor, { completedSteps: 3, stage: 'steps' });
-    const completed = await runtime.complete(successor);
+    await expect(asOwner(app, () => runtime.complete(original))).rejects.toMatchObject({
+      code: 40910,
+    });
+    await asOwner(app, () => runtime.checkpoint(successor, { completedSteps: 3, stage: 'steps' }));
+    const completed = await asOwner(app, () => runtime.complete(successor));
     expect(completed).toMatchObject({
       status: 'succeeded',
       progress: { completedSteps: 3 },
       attempts: [{ status: 'expired' }, { status: 'succeeded' }],
     });
-    expect(await runtime.complete(successor)).toEqual(completed);
-    expect(await runtime.claim()).toBeNull();
+    expect(await asOwner(app, () => runtime.complete(successor))).toEqual(completed);
+    expect(await asOwner(app, () => runtime.claim())).toBeNull();
   });
 
   it('暂停和取消立即阻止旧提交，恢复保持检查点且取消不可恢复', async () => {
@@ -328,12 +334,16 @@ describe('持久任务的公开控制与恢复边界', () => {
     const created = (
       await agent.post('/api/tasks/diagnostics').send({ requestId: randomUUID(), steps: 2 })
     ).body.data;
-    const lease = (await runtime.claim())!;
-    await runtime.checkpoint(lease, { completedSteps: 1, stage: 'steps' });
+    const lease = (await asOwner(app, () => runtime.claim()))!;
+    await asOwner(app, () => runtime.checkpoint(lease, { completedSteps: 1, stage: 'steps' }));
     await agent.post(`/api/tasks/${created.id}/pause`).send({}).expect(200);
-    await expect(runtime.heartbeat(lease)).rejects.toMatchObject({ code: 40910 });
-    await expect(runtime.complete(lease)).rejects.toMatchObject({ code: 40910 });
-    expect(await runtime.claim()).toBeNull();
+    await expect(asOwner(app, () => runtime.heartbeat(lease))).rejects.toMatchObject({
+      code: 40910,
+    });
+    await expect(asOwner(app, () => runtime.complete(lease))).rejects.toMatchObject({
+      code: 40910,
+    });
+    expect(await asOwner(app, () => runtime.claim())).toBeNull();
     await app.close();
     app = await createApplication(config);
     agent = await login();
@@ -342,7 +352,7 @@ describe('持久任务的公开控制与恢复边界', () => {
       progress: { completedSteps: 1 },
     });
     await agent.post(`/api/tasks/${created.id}/resume`).send({}).expect(200);
-    const resumed = (await app.get(TasksService).claim())!;
+    const resumed = (await asOwner(app, () => app.get(TasksService).claim()))!;
     expect(resumed.task.progress.completedSteps).toBe(1);
     const cancelled = (await agent.post(`/api/tasks/${created.id}/cancel`).send({}).expect(200))
       .body.data;
@@ -351,7 +361,9 @@ describe('持久任务的公开控制与恢复边界', () => {
       attempts: [{ status: 'paused' }, { status: 'cancelled' }],
     });
     await expect(
-      app.get(TasksService).checkpoint(resumed, { completedSteps: 2, stage: 'steps' }),
+      asOwner(app, () =>
+        app.get(TasksService).checkpoint(resumed, { completedSteps: 2, stage: 'steps' }),
+      ),
     ).rejects.toMatchObject({ code: 40910 });
     expect(
       (await agent.post(`/api/tasks/${created.id}/cancel`).send({}).expect(200)).body.data,
@@ -374,26 +386,26 @@ describe('持久任务的公开控制与恢复边界', () => {
       await agent.post('/api/tasks/diagnostics').send({ requestId: randomUUID(), steps: 1 })
     ).body.data;
     const runtime = app.get(TasksService);
-    const lease = (await runtime.claim())!;
-    expect(await runtime.fail(lease, 'transient_failure', true)).toMatchObject({
+    const lease = (await asOwner(app, () => runtime.claim()))!;
+    expect(await asOwner(app, () => runtime.fail(lease, 'transient_failure', true))).toMatchObject({
       status: 'waiting',
       reason: 'transient_failure',
       attempts: [{ status: 'failed' }],
     });
-    expect(await runtime.claim()).toBeNull();
+    expect(await asOwner(app, () => runtime.claim())).toBeNull();
     await app.close();
     app = await createApplication(config);
     agent = await login();
     await delay(120);
-    const next = (await app.get(TasksService).claim())!;
+    const next = (await asOwner(app, () => app.get(TasksService).claim()))!;
     expect(next.fence).toBe(2);
-    await app.get(TasksService).fail(next, 'transient_failure', true);
+    await asOwner(app, () => app.get(TasksService).fail(next, 'transient_failure', true));
     expect((await agent.get(`/api/tasks/${created.id}`)).body.data).toMatchObject({
       status: 'failed',
       reason: 'attempt_limit',
       attempts: [{ number: 1 }, { number: 2 }],
     });
-    expect(await app.get(TasksService).claim()).toBeNull();
+    expect(await asOwner(app, () => app.get(TasksService).claim())).toBeNull();
   });
 
   it('发布原文与 outbox 一起保存，重复发布不重复登记，各伴侣保持独立待整理状态', async () => {
@@ -458,8 +470,8 @@ describe('持久任务的公开控制与恢复边界', () => {
     });
     const { TaskOutboxService } = await import('../src/modules/tasks/task-outbox.service');
     await Promise.all([
-      app.get(TaskOutboxService).dispatch(),
-      app.get(TaskOutboxService).dispatch(),
+      asOwner(app, () => app.get(TaskOutboxService).dispatch()),
+      asOwner(app, () => app.get(TaskOutboxService).dispatch()),
     ]);
     // F08 由持久范围组成批次，outbox 转交本身不再创建逐条模型任务。
     expect((await agent.get('/api/tasks').expect(200)).body.data.items).toEqual([]);
@@ -477,7 +489,7 @@ describe('持久任务的公开控制与恢复边界', () => {
     expect((await agent.get('/api/tasks/outbox')).body.data.items[0]).toMatchObject({
       status: 'dispatched',
     });
-    expect(await app.get(TasksService).claim()).toBeNull();
+    expect(await asOwner(app, () => app.get(TasksService).claim())).toBeNull();
     expect((await agent.get('/api/models/usage')).body.data.global.charged.requests).toBe(0);
   });
 
@@ -501,7 +513,7 @@ describe('持久任务的公开控制与恢复边界', () => {
       progress: { completedSteps: 3 },
       attempts: [{ number: 1, status: 'succeeded' }],
     });
-    expect(await app.get(TasksService).claim()).toBeNull();
+    expect(await asOwner(app, () => app.get(TasksService).claim())).toBeNull();
   });
 
   it('模型任务使用后台额度且重启重放不再调用模型，任务完成与模型结果分别可查', async () => {
@@ -541,7 +553,7 @@ describe('持久任务的公开控制与恢复边界', () => {
     expect(
       (await agent.post('/api/tasks/model-probes').send(command).expect(201)).body.data,
     ).toEqual(finished);
-    expect(await app.get(TasksService).claim()).toBeNull();
+    expect(await asOwner(app, () => app.get(TasksService).claim())).toBeNull();
     expect((await agent.get('/api/models/usage')).body.data.global.charged.requests).toBe(1);
   });
 
@@ -574,13 +586,14 @@ describe('持久任务的公开控制与恢复边界', () => {
       inputText: '结果恢复',
     };
     const created = (await agent.post('/api/tasks/model-probes').send(command)).body.data;
-    const lease = (await app.get(TasksService).claim())!;
+    const lease = (await asOwner(app, () => app.get(TasksService).claim()))!;
     if (lease.input.kind !== 'model_probe') throw new Error('任务类型不匹配。');
-    const call = await app
-      .get(ModelRuntimeService)
-      .probe(lease.input.probe, (ownerId, tx) =>
-        app.get(TasksService).guardDispatch(ownerId, tx, lease),
-      );
+    const probe = lease.input.probe;
+    const call = await asOwner(app, () =>
+      app
+        .get(ModelRuntimeService)
+        .probe(probe, (ownerId, tx) => app.get(TasksService).guardDispatch(ownerId, tx, lease)),
+    );
     expect(call.status).toBe('succeeded');
     await app.close();
     app = await createApplication(config);
@@ -700,15 +713,16 @@ describe('持久任务的公开控制与恢复边界', () => {
         inputText: '取消前置检查',
       })
     ).body.data;
-    const lease = (await app.get(TasksService).claim())!;
+    const lease = (await asOwner(app, () => app.get(TasksService).claim()))!;
     if (lease.input.kind !== 'model_probe') throw new Error('任务类型不匹配。');
+    const probe = lease.input.probe;
     await agent.post(`/api/tasks/${created.id}/cancel`).send({}).expect(200);
     await expect(
-      app
-        .get(ModelRuntimeService)
-        .probe(lease.input.probe, (ownerId, tx) =>
-          app.get(TasksService).guardDispatch(ownerId, tx, lease),
-        ),
+      asOwner(app, () =>
+        app
+          .get(ModelRuntimeService)
+          .probe(probe, (ownerId, tx) => app.get(TasksService).guardDispatch(ownerId, tx, lease)),
+      ),
     ).rejects.toMatchObject({ code: 40910 });
     expect((await agent.get('/api/models/usage')).body.data.global.charged.requests).toBe(0);
   });
@@ -731,9 +745,9 @@ describe('持久任务的公开控制与恢复边界', () => {
     const other = await createApplication(config);
     try {
       const leases = await Promise.all([
-        app.get(TasksService).claim(),
-        other.get(TasksService).claim(),
-        app.get(TasksService).claim(),
+        asOwner(app, () => app.get(TasksService).claim()),
+        asOwner(other, () => other.get(TasksService).claim()),
+        asOwner(app, () => app.get(TasksService).claim()),
       ]);
       expect(leases.filter(Boolean)).toHaveLength(2);
       expect(new Set(leases.filter(Boolean).map((lease) => lease!.task.id)).size).toBe(2);
@@ -746,13 +760,17 @@ describe('持久任务的公开控制与恢复边界', () => {
         })
         .expect(200);
       const first = leases.find(Boolean)!;
-      await app.get(TasksService).checkpoint(first, { completedSteps: 1, stage: 'steps' });
-      await app.get(TasksService).complete(first);
-      expect(await other.get(TasksService).claim()).toBeNull();
+      await asOwner(app, () =>
+        app.get(TasksService).checkpoint(first, { completedSteps: 1, stage: 'steps' }),
+      );
+      await asOwner(app, () => app.get(TasksService).complete(first));
+      expect(await asOwner(other, () => other.get(TasksService).claim())).toBeNull();
       const second = leases.find((lease) => lease && lease.task.id !== first.task.id)!;
-      await other.get(TasksService).checkpoint(second, { completedSteps: 1, stage: 'steps' });
-      await other.get(TasksService).complete(second);
-      const next = (await app.get(TasksService).claim())!;
+      await asOwner(other, () =>
+        other.get(TasksService).checkpoint(second, { completedSteps: 1, stage: 'steps' }),
+      );
+      await asOwner(other, () => other.get(TasksService).complete(second));
+      const next = (await asOwner(app, () => app.get(TasksService).claim()))!;
       expect(next.task.attempts[0]?.configVersion).toBe(3);
     } finally {
       await other.close();
@@ -765,8 +783,8 @@ describe('持久任务的公开控制与恢复边界', () => {
       await agent.post('/api/tasks/diagnostics').send({ requestId: randomUUID(), steps: 1 })
     ).body.data;
     const runtime = app.get(TasksService);
-    const lease = (await runtime.claim())!;
-    await runtime.checkpoint(lease, { completedSteps: 1, stage: 'steps' });
+    const lease = (await asOwner(app, () => runtime.claim()))!;
+    await asOwner(app, () => runtime.checkpoint(lease, { completedSteps: 1, stage: 'steps' }));
     const { stageMessageOutbox } = await import('../src/modules/tasks/task-outbox.service');
     // 故障夹具只登记不存在的来源引用；转交时必须显示来源失效，不能形成记忆。
     const event = {
@@ -777,25 +795,29 @@ describe('持久任务的公开控制与恢复边界', () => {
       recipients: [],
     };
     await expect(
-      runtime.complete(lease, async (ownerId, tx) => {
-        await stageMessageOutbox(ownerId, tx, event);
-        throw new Error('注入领域提交中断');
-      }),
+      asOwner(app, () =>
+        runtime.complete(lease, async (ownerId, tx) => {
+          await stageMessageOutbox(ownerId, tx, event);
+          throw new Error('注入领域提交中断');
+        }),
+      ),
     ).rejects.toThrow('注入领域提交中断');
     expect((await agent.get(`/api/tasks/${created.id}`)).body.data.status).toBe('running');
     expect((await agent.get('/api/tasks/outbox')).body.data.items).toEqual([]);
-    const completed = await runtime.complete(lease, (ownerId, tx) =>
-      stageMessageOutbox(ownerId, tx, event),
+    const completed = await asOwner(app, () =>
+      runtime.complete(lease, (ownerId, tx) => stageMessageOutbox(ownerId, tx, event)),
     );
     expect(completed.status).toBe('succeeded');
     expect((await agent.get('/api/tasks/outbox')).body.data.items).toHaveLength(1);
     expect(
-      await runtime.complete(lease, async () => {
-        throw new Error('重复执行了已提交回调');
-      }),
+      await asOwner(app, () =>
+        runtime.complete(lease, async () => {
+          throw new Error('重复执行了已提交回调');
+        }),
+      ),
     ).toEqual(completed);
     const { TaskOutboxService } = await import('../src/modules/tasks/task-outbox.service');
-    await app.get(TaskOutboxService).dispatch();
+    await asOwner(app, () => app.get(TaskOutboxService).dispatch());
     expect((await agent.get('/api/tasks/outbox')).body.data.items[0]).toMatchObject({
       status: 'blocked',
       reason: 'source_changed',
@@ -808,21 +830,23 @@ describe('持久任务的公开控制与恢复边界', () => {
     const created = (
       await agent.post('/api/tasks/diagnostics').send({ requestId: randomUUID(), steps: 1 })
     ).body.data;
-    const lease = (await runtime.claim())!;
-    await runtime.checkpoint(lease, { completedSteps: 1, stage: 'steps' });
+    const lease = (await asOwner(app, () => runtime.claim()))!;
+    await asOwner(app, () => runtime.checkpoint(lease, { completedSteps: 1, stage: 'steps' }));
     const { stageMessageOutbox } = await import('../src/modules/tasks/task-outbox.service');
     await expect(
-      runtime.complete(lease, async (ownerId, tx) => {
-        await stageMessageOutbox(ownerId, tx, {
-          conversationId: randomUUID(),
-          messageId: randomUUID(),
-          contentVersion: 1,
-          sequence: 1,
-          recipients: [],
-        });
-        // 模拟异常缓慢的领域提交；正常回调禁止任何外部等待。
-        await delay(1100);
-      }),
+      asOwner(app, () =>
+        runtime.complete(lease, async (ownerId, tx) => {
+          await stageMessageOutbox(ownerId, tx, {
+            conversationId: randomUUID(),
+            messageId: randomUUID(),
+            contentVersion: 1,
+            sequence: 1,
+            recipients: [],
+          });
+          // 模拟异常缓慢的领域提交；正常回调禁止任何外部等待。
+          await delay(1100);
+        }),
+      ),
     ).rejects.toMatchObject({ code: 40910 });
     expect((await agent.get('/api/tasks/outbox')).body.data.items).toEqual([]);
     expect((await agent.get(`/api/tasks/${created.id}`)).body.data).toMatchObject({

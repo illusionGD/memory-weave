@@ -22,7 +22,7 @@ export class WorkspaceService {
       fields: { ownerId: owners.id, displayName: owners.displayName },
     });
     if (!owner) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-    return { ...owner, schemaVersion: 1 };
+    return { ...owner };
   }
 
   /**
@@ -30,14 +30,15 @@ export class WorkspaceService {
    *
    * 仅更新当前部署的显示字段，重复提交相同名称不会改变任何关联标识。
    */
-  update(input: UpdateWorkspaceRequest): Promise<WorkspaceResponse> {
-    return this.database.withOwner(async (ownerId, db) => {
-      const result = await db.owners.updateWhere({
-        where: eq(owners.id, ownerId),
-        set: { displayName: input.displayName },
-      });
-      if (result.affectedRows === 0) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-      return { ownerId, displayName: input.displayName, schemaVersion: 1 };
+  async update(input: UpdateWorkspaceRequest): Promise<WorkspaceResponse> {
+    const db = await this.database.current();
+    const ownerId = db.ownerId;
+
+    const result = await db.owners.updateWhere({
+      where: eq(owners.id, ownerId),
+      set: { displayName: input.displayName },
     });
+    if (result.affectedRows === 0) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+    return { ownerId, displayName: input.displayName };
   }
 }

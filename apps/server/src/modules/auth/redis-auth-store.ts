@@ -16,7 +16,7 @@ local expired = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', now)
 for _, digest in ipairs(expired) do redis.call('DEL', ARGV[3] .. digest) end
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
 local expires = now + tonumber(ARGV[1])
-redis.call('SET', KEYS[2], cjson.encode({createdAt=now, expiresAt=expires}), 'PX', ARGV[1])
+redis.call('SET', KEYS[2], cjson.encode({ownerId=ARGV[5], createdAt=now, expiresAt=expires}), 'PX', ARGV[1])
 redis.call('ZADD', KEYS[1], expires, ARGV[2])
 local excess = redis.call('ZCARD', KEYS[1]) - tonumber(ARGV[4])
 if excess > 0 then
@@ -105,14 +105,21 @@ export class RedisAuthStore {
    * 保存会话摘要及到期时间，使用 Redis TTL 执行绝对过期。
    * @param digest 随机会话令牌的摘要。
    * @param lifetimeMs 会话自创建起的固定有效时长。
+   * @param ownerId 已验证的持久用户标识。
    */
-  async createSession(digest: string, lifetimeMs: number): Promise<void> {
+  async createSession(digest: string, lifetimeMs: number, ownerId: string): Promise<void> {
     await this.execute(async () => {
       await this.client
         .withCommandOptions({ abortSignal: AbortSignal.timeout(COMMAND_TIMEOUT_MS) })
         .eval(CREATE_SESSION_SCRIPT, {
           keys: [`${this.prefix}:sessions`, `${this.prefix}:session:${digest}`],
-          arguments: [String(lifetimeMs), digest, `${this.prefix}:session:`, String(MAX_SESSIONS)],
+          arguments: [
+            String(lifetimeMs),
+            digest,
+            `${this.prefix}:session:`,
+            String(MAX_SESSIONS),
+            ownerId,
+          ],
         });
     });
   }
@@ -120,15 +127,25 @@ export class RedisAuthStore {
   /**
    * 查询尚未到期的会话，不延长其 Redis TTL。
    * @param digest 待验证会话令牌的摘要。
-   * @returns 会话是否仍然存在且未过期。
+   * @returns 有效会话的数据归属；缺失或旧格式返回 null。
    */
-  async hasSession(digest: string): Promise<boolean> {
-    return this.execute(
-      async () =>
-        (await this.client
-          .withCommandOptions({ abortSignal: AbortSignal.timeout(COMMAND_TIMEOUT_MS) })
-          .exists(`${this.prefix}:session:${digest}`)) === 1,
-    );
+  async sessionOwner(digest: string): Promise<string | null> {
+    return this.execute(async () => {
+      const value = await this.client
+        .withCommandOptions({ abortSignal: AbortSignal.timeout(COMMAND_TIMEOUT_MS) })
+        .get(`${this.prefix}:session:${digest}`);
+      if (!value) return null;
+      const session: unknown = JSON.parse(value);
+      if (
+        !session ||
+        typeof session !== 'object' ||
+        !('ownerId' in session) ||
+        typeof session.ownerId !== 'string' ||
+        !/^[a-f0-9-]{36}$/i.test(session.ownerId)
+      )
+        return null;
+      return session.ownerId;
+    });
   }
 
   /**

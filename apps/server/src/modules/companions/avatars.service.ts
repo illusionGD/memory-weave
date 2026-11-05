@@ -46,9 +46,11 @@ export class AvatarsService {
       throw new ApiException(API_CODES.INVALID_REQUEST, '请选择有效图片。');
     if (body.length > AVATAR_MAX_BYTES) throw new ApiException(API_CODES.REQUEST_BODY_TOO_LARGE);
     // 解码前检查实例与版本，处理后仍在事务内再次检查，防止迟到上传跨越重置。
-    await this.database.withOwner((owner, db) =>
-      db.transaction(async (tx) => this.validate(await this.lock(owner, id, tx), input)),
-    );
+    {
+      const db = await this.database.current();
+      const owner = db.ownerId;
+      await db.transaction(async (tx) => this.validate(await this.lock(owner, id, tx), input));
+    }
     if (this.processing >= 2)
       throw new ApiException(API_CODES.RATE_LIMITED, '正在处理图片，请稍后重试。');
     this.processing++;
@@ -84,32 +86,29 @@ export class AvatarsService {
       byteLength: bytes.length,
       updatedAt: new Date().toISOString(),
     };
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(
-        async (tx) => {
-          const row = await this.lock(ownerId, id, tx);
-          this.validate(row, input);
-          if (row.avatar?.requestId === avatar.requestId) {
-            if (
-              row.avatar.inputHash !== inputHash ||
-              row.avatarVersion !== input.expectedVersion + 1
-            )
-              throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-            return { avatar: publicAvatar(id, row.avatar), avatarVersion: row.avatarVersion };
-          }
-          if (row.avatarVersion !== input.expectedVersion)
-            throw new ApiException(API_CODES.VERSION_CONFLICT);
-          if (row.avatarVersion === 2147483647)
-            throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
-          await this.files.save(ownerId, id, avatar, bytes);
-          await tx.companions.updateWhere({
-            where: { id: id },
-            set: { avatar, avatarVersion: row.avatarVersion + 1 },
-          });
-          return { avatar: publicAvatar(id, avatar), avatarVersion: row.avatarVersion + 1 };
-        },
-        { isolationLevel: 'read committed' },
-      ),
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+
+        const row = await this.lock(ownerId, id, tx);
+        this.validate(row, input);
+        if (row.avatar?.requestId === avatar.requestId) {
+          if (row.avatar.inputHash !== inputHash || row.avatarVersion !== input.expectedVersion + 1)
+            throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
+          return { avatar: publicAvatar(id, row.avatar), avatarVersion: row.avatarVersion };
+        }
+        if (row.avatarVersion !== input.expectedVersion)
+          throw new ApiException(API_CODES.VERSION_CONFLICT);
+        if (row.avatarVersion === 2147483647)
+          throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
+        await this.files.save(ownerId, id, avatar, bytes);
+        await tx.companions.updateWhere({
+          where: { id: id },
+          set: { avatar, avatarVersion: row.avatarVersion + 1 },
+        });
+        return { avatar: publicAvatar(id, avatar), avatarVersion: row.avatarVersion + 1 };
+      },
+      { isolationLevel: 'read committed' },
     );
   }
   /**
@@ -117,25 +116,25 @@ export class AvatarsService {
    *
    * 恢复默认允许安全重放；旧版本不能覆盖已经更换的新图片。
    */
-  clear(id: string, input: ChangeAvatar): Promise<AvatarState> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(
-        async (tx) => {
-          const row = await this.lock(ownerId, id, tx);
-          this.validate(row, input);
-          if (!row.avatar) return { avatar: null, avatarVersion: row.avatarVersion };
-          if (row.avatarVersion !== input.expectedVersion)
-            throw new ApiException(API_CODES.VERSION_CONFLICT);
-          if (row.avatarVersion === 2147483647)
-            throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
-          await tx.companions.updateWhere({
-            where: { id: id },
-            set: { avatar: null, avatarVersion: row.avatarVersion + 1 },
-          });
-          return { avatar: null, avatarVersion: row.avatarVersion + 1 };
-        },
-        { isolationLevel: 'read committed' },
-      ),
+  async clear(id: string, input: ChangeAvatar): Promise<AvatarState> {
+    return this.database.transaction(
+      async (tx) => {
+        const ownerId = tx.ownerId;
+
+        const row = await this.lock(ownerId, id, tx);
+        this.validate(row, input);
+        if (!row.avatar) return { avatar: null, avatarVersion: row.avatarVersion };
+        if (row.avatarVersion !== input.expectedVersion)
+          throw new ApiException(API_CODES.VERSION_CONFLICT);
+        if (row.avatarVersion === 2147483647)
+          throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
+        await tx.companions.updateWhere({
+          where: { id: id },
+          set: { avatar: null, avatarVersion: row.avatarVersion + 1 },
+        });
+        return { avatar: null, avatarVersion: row.avatarVersion + 1 };
+      },
+      { isolationLevel: 'read committed' },
     );
   }
   /**
@@ -143,15 +142,15 @@ export class AvatarsService {
    *
    * 旧图片 URL 在替换或删除后立即失效；持锁避免检查后读到被替换文件。
    */
-  read(id: string, assetId: string): Promise<Buffer> {
-    return this.database.withOwner((ownerId, db) =>
-      db.transaction(async (tx) => {
-        const row = await this.lock(ownerId, id, tx);
-        if (!row.avatar || row.avatar.id !== assetId.toLowerCase())
-          throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-        return this.files.read(ownerId, id, row.avatar);
-      }),
-    );
+  async read(id: string, assetId: string): Promise<Buffer> {
+    return this.database.transaction(async (tx) => {
+      const ownerId = tx.ownerId;
+
+      const row = await this.lock(ownerId, id, tx);
+      if (!row.avatar || row.avatar.id !== assetId.toLowerCase())
+        throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+      return this.files.read(ownerId, id, row.avatar);
+    });
   }
 }
 

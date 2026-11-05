@@ -5,10 +5,8 @@ import type { LifecycleRecord } from './lifecycle-cleanup';
 /**
  * 计算生命周期操作需要限制的会话范围。
  *
- * v3 在命令时限制所有可能跨私聊依赖的会话；旧协议仍只使用原会话。
+ * 命令时限制所有可能跨私聊依赖的会话，清理时始终使用这一固定范围。
  */
 export function lifecycleConversationScope(column: unknown, operation: LifecycleRecord): SQL {
-  return operation.protocolVersion >= 3
-    ? sql`${column} IN (SELECT id FROM conversations WHERE owner_id = ${operation.ownerId} AND lifecycle_operation_id = ${operation.id})`
-    : sql`${column} = ${operation.conversationId}`;
+  return sql`${column} IN (SELECT id FROM conversations WHERE owner_id = ${operation.ownerId} AND lifecycle_operation_id = ${operation.id})`;
 }

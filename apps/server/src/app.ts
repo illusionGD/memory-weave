@@ -1,3 +1,5 @@
+import { CompanionRepository } from './modules/companions/companion.repository';
+import { PersonaTemplateRepository } from './modules/companions/persona-template.repository';
 import { MemoryExplorerController } from './modules/memory-explorer/memory-explorer.controller';
 import { MemoryExplorerService } from './modules/memory-explorer/memory-explorer.service';
 import { AvatarCleanupService } from './modules/companions/avatar-cleanup.service';
@@ -39,6 +41,8 @@ import { SystemController } from './modules/system/system.controller';
 import { SystemService } from './modules/system/system.service';
 import { attachWebAssets } from './web-assets';
 import { DatabaseService } from './database/database.service';
+import { IdentityContext } from './database/identity-context';
+import { DeploymentIdentity } from './modules/auth/deployment-identity';
 import { CompanionsController } from './modules/companions/companions.controller';
 import { CompanionsService } from './modules/companions/companions.service';
 import { PersonaTemplatesController } from './modules/companions/persona-templates.controller';
@@ -113,7 +117,11 @@ class ApplicationModule {
         ChatEventsService,
         ChatContextService,
         DatabaseService,
+        IdentityContext,
+        DeploymentIdentity,
         CompanionsService,
+        CompanionRepository,
+        PersonaTemplateRepository,
         AvatarsService,
         AvatarFiles,
         AvatarCleanupService,
@@ -185,6 +193,10 @@ export async function createApplication(config: ServerConfig): Promise<INestAppl
   app.use(express.json({ limit: '16kb' }));
   app.use(handleBodyError);
   app.use(cookieParser());
+  // 每个请求先建立独立容器，鉴权守卫仅在校验会话后填入身份。
+  app.use((_request: express.Request, _response: express.Response, next: express.NextFunction) =>
+    app.get(IdentityContext).run(null, next),
+  );
   try {
     if (config.adminDistDir) await attachWebAssets(app, config.adminDistDir, '/admin');
     if (config.webDistDir) await attachWebAssets(app, config.webDistDir);

@@ -160,8 +160,6 @@ const messageCommonShape = {
   speakerMembershipId: uuidSchema,
   /** 服务端确定的实际发言身份，用户响应包含 userId。 */
   speaker: actorSchema,
-  /** 公共消息结构版本，当前固定为 1。 */
-  schemaVersion: z.literal(1),
   /** 正文内容版本，来源引用及读取记录绑定此值；发布不改变此版本。 */
   contentVersion: positiveIntegerSchema,
   /** 消息保存修订号，草稿初始为 1，发布后为 2；与内容版本独立。 */

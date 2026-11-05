@@ -1,314 +1,229 @@
 import * as schema from './schema';
-import type { QueryConnection } from './crud-types';
+import type { MySqlTable } from 'drizzle-orm/mysql-core';
+import type { QueryConnection, ScopeKey } from './crud-types';
 import { defineTable } from './table-repository';
-import type { TableExecutor } from './table-repository';
+import type { TableAccess, TableExecutor } from './table-repository';
 
-/** 为普通数据库和事务提供相同的具名表入口，保留每张表的字段与访问能力。 */
+/** 集中声明表能力，普通入口和每个事务各自按需缓存表操作对象。 */
 export class DatabaseTables<C extends QueryConnection> {
-  /** 保存本次表操作使用的连接执行器，不持有可变事务状态。 */
+  private readonly cache = new Map<MySqlTable, unknown>();
+
+  /** 保存当前入口的连接执行器，不持有可变的用户或事务连接。 */
   constructor(private readonly executeTable: TableExecutor<C>) {}
 
-  /** 访问 modelConfigurationHeads 表，沿用当前连接、归属和写入能力。 */
+  /** 首次访问时创建表入口，后续访问复用相同对象及字段类型。 */
+  private table<T extends MySqlTable, K extends ScopeKey<T>, A extends TableAccess>(
+    table: T,
+    scope: K,
+    access: A,
+  ) {
+    const create = () => defineTable(table, { scope, access }).connect(this.executeTable);
+    if (!this.cache.has(table)) this.cache.set(table, create());
+    return this.cache.get(table) as ReturnType<typeof create>;
+  }
+
+  /** 访问 modelConfigurationHeads，自动限定当前归属。 */
   get modelConfigurationHeads() {
-    return defineTable(schema.modelConfigurationHeads, {
-      scope: 'ownerId',
-      access: 'write',
-    }).connect(this.executeTable);
+    return this.table(schema.modelConfigurationHeads, 'ownerId', 'write');
   }
 
-  /** 访问 modelConfigurationVersions 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 modelConfigurationVersions，自动限定当前归属。 */
   get modelConfigurationVersions() {
-    return defineTable(schema.modelConfigurationVersions, {
-      scope: 'ownerId',
-      access: 'append',
-    }).connect(this.executeTable);
+    return this.table(schema.modelConfigurationVersions, 'ownerId', 'append');
   }
 
-  /** 访问 modelCalls 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 modelCalls，自动限定当前归属。 */
   get modelCalls() {
-    return defineTable(schema.modelCalls, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.modelCalls, 'ownerId', 'write');
   }
 
-  /** 访问 modelAttempts 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 modelAttempts，自动限定当前归属。 */
   get modelAttempts() {
-    return defineTable(schema.modelAttempts, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.modelAttempts, 'ownerId', 'write');
   }
 
-  /** 访问 modelUsageWindows 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 modelUsageWindows，自动限定当前归属。 */
   get modelUsageWindows() {
-    return defineTable(schema.modelUsageWindows, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.modelUsageWindows, 'ownerId', 'write');
   }
 
-  /** 访问 owners 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 owners，自动限定当前归属。 */
   get owners() {
-    return defineTable(schema.owners, { scope: 'id', access: 'write' }).connect(this.executeTable);
+    return this.table(schema.owners, 'id', 'write');
   }
 
-  /** 访问 companions 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 companions，自动限定当前归属。 */
   get companions() {
-    return defineTable(schema.companions, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.companions, 'ownerId', 'write');
   }
 
-  /** 访问 personaVersions 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 personaVersions，自动限定当前归属。 */
   get personaVersions() {
-    return defineTable(schema.personaVersions, { scope: 'ownerId', access: 'append' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.personaVersions, 'ownerId', 'append');
   }
 
-  /** 访问 personaTemplates 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 personaTemplates，自动限定当前归属。 */
   get personaTemplates() {
-    return defineTable(schema.personaTemplates, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.personaTemplates, 'ownerId', 'write');
   }
 
-  /** 访问 personaTemplateVersions 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 personaTemplateVersions，自动限定当前归属。 */
   get personaTemplateVersions() {
-    return defineTable(schema.personaTemplateVersions, {
-      scope: 'ownerId',
-      access: 'append',
-    }).connect(this.executeTable);
+    return this.table(schema.personaTemplateVersions, 'ownerId', 'append');
   }
 
-  /** 访问 personaFoundations 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 personaFoundations，自动限定当前归属。 */
   get personaFoundations() {
-    return defineTable(schema.personaFoundations, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.personaFoundations, 'ownerId', 'write');
   }
 
-  /** 访问 conversations 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 conversations，自动限定当前归属。 */
   get conversations() {
-    return defineTable(schema.conversations, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.conversations, 'ownerId', 'write');
   }
 
-  /** 访问 conversationMembers 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 conversationMembers，自动限定当前归属。 */
   get conversationMembers() {
-    return defineTable(schema.conversationMembers, {
-      scope: 'ownerId',
-      access: 'write',
-    }).connect(this.executeTable);
+    return this.table(schema.conversationMembers, 'ownerId', 'write');
   }
 
-  /** 访问 visibilityGrants 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 visibilityGrants，自动限定当前归属。 */
   get visibilityGrants() {
-    return defineTable(schema.visibilityGrants, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.visibilityGrants, 'ownerId', 'write');
   }
 
-  /** 访问 messages 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 messages，自动限定当前归属。 */
   get messages() {
-    return defineTable(schema.messages, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.messages, 'ownerId', 'write');
   }
 
-  /** 访问 messageSources 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 messageSources，自动限定当前归属。 */
   get messageSources() {
-    return defineTable(schema.messageSources, { scope: 'ownerId', access: 'append' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.messageSources, 'ownerId', 'append');
   }
 
-  /** 访问 readReceipts 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 readReceipts，自动限定当前归属。 */
   get readReceipts() {
-    return defineTable(schema.readReceipts, { scope: 'ownerId', access: 'append' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.readReceipts, 'ownerId', 'append');
   }
 
-  /** 访问 processingRanges 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 processingRanges，自动限定当前归属。 */
   get processingRanges() {
-    return defineTable(schema.processingRanges, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.processingRanges, 'ownerId', 'write');
   }
 
-  /** 访问 receiveBatches 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 receiveBatches，自动限定当前归属。 */
   get receiveBatches() {
-    return defineTable(schema.receiveBatches, { scope: 'ownerId', access: 'append' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.receiveBatches, 'ownerId', 'append');
   }
 
-  /** 访问 tasks 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 tasks，自动限定当前归属。 */
   get tasks() {
-    return defineTable(schema.tasks, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.tasks, 'ownerId', 'write');
   }
 
-  /** 访问 taskConfigurationVersions 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 taskConfigurationVersions，自动限定当前归属。 */
   get taskConfigurationVersions() {
-    return defineTable(schema.taskConfigurationVersions, {
-      scope: 'ownerId',
-      access: 'append',
-    }).connect(this.executeTable);
+    return this.table(schema.taskConfigurationVersions, 'ownerId', 'append');
   }
 
-  /** 访问 taskAttempts 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 taskAttempts，自动限定当前归属。 */
   get taskAttempts() {
-    return defineTable(schema.taskAttempts, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.taskAttempts, 'ownerId', 'write');
   }
 
-  /** 访问 taskSchedulerHeads 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 taskSchedulerHeads，自动限定当前归属。 */
   get taskSchedulerHeads() {
-    return defineTable(schema.taskSchedulerHeads, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.taskSchedulerHeads, 'ownerId', 'write');
   }
 
-  /** 访问 taskOutbox 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 taskOutbox，自动限定当前归属。 */
   get taskOutbox() {
-    return defineTable(schema.taskOutbox, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.taskOutbox, 'ownerId', 'write');
   }
 
-  /** 访问 chatThreads 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 chatThreads，自动限定当前归属。 */
   get chatThreads() {
-    return defineTable(schema.chatThreads, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.chatThreads, 'ownerId', 'write');
   }
 
-  /** 访问 chatRuns 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 chatRuns，自动限定当前归属。 */
   get chatRuns() {
-    return defineTable(schema.chatRuns, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.chatRuns, 'ownerId', 'write');
   }
 
-  /** 访问 chatSegments 表，沿用当前连接、归属和写入能力。 */
-  get chatSegments() {
-    return defineTable(schema.chatSegments, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
-  }
-
-  /** 访问 chatDeliveries 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 chatDeliveries，自动限定当前归属。 */
   get chatDeliveries() {
-    return defineTable(schema.chatDeliveries, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.chatDeliveries, 'ownerId', 'write');
   }
 
-  /** 访问 lifecycleOperations 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 lifecycleOperations，自动限定当前归属。 */
   get lifecycleOperations() {
-    return defineTable(schema.lifecycleOperations, {
-      scope: 'ownerId',
-      access: 'write',
-    }).connect(this.executeTable);
+    return this.table(schema.lifecycleOperations, 'ownerId', 'write');
   }
 
-  /** 访问 lifecycleMessageTargets 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 lifecycleMessageTargets，自动限定当前归属。 */
   get lifecycleMessageTargets() {
-    return defineTable(schema.lifecycleMessageTargets, {
-      scope: 'ownerId',
-      access: 'append',
-    }).connect(this.executeTable);
+    return this.table(schema.lifecycleMessageTargets, 'ownerId', 'append');
   }
 
-  /** 访问 chatRunSources 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 chatRunSources，自动限定当前归属。 */
   get chatRunSources() {
-    return defineTable(schema.chatRunSources, { scope: 'ownerId', access: 'append' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.chatRunSources, 'ownerId', 'append');
   }
 
-  /** 访问 memoryBatches 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memoryBatches，自动限定当前归属。 */
   get memoryBatches() {
-    return defineTable(schema.memoryBatches, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.memoryBatches, 'ownerId', 'write');
   }
 
-  /** 访问 memoryEntries 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memoryEntries，自动限定当前归属。 */
   get memoryEntries() {
-    return defineTable(schema.memoryEntries, { scope: 'ownerId', access: 'write' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.memoryEntries, 'ownerId', 'write');
   }
 
-  /** 访问 memoryVersions 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memoryVersions，自动限定当前归属。 */
   get memoryVersions() {
-    return defineTable(schema.memoryVersions, { scope: 'ownerId', access: 'append' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.memoryVersions, 'ownerId', 'append');
   }
 
-  /** 访问 memoryEvidence 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memoryEvidence，自动限定当前归属。 */
   get memoryEvidence() {
-    return defineTable(schema.memoryEvidence, { scope: 'ownerId', access: 'append' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.memoryEvidence, 'ownerId', 'append');
   }
 
-  /** 访问 memoryDependencies 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memoryDependencies，自动限定当前归属。 */
   get memoryDependencies() {
-    return defineTable(schema.memoryDependencies, {
-      scope: 'ownerId',
-      access: 'append',
-    }).connect(this.executeTable);
+    return this.table(schema.memoryDependencies, 'ownerId', 'append');
   }
 
-  /** 访问 memorySearchDocuments 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memorySearchDocuments，自动限定当前归属。 */
   get memorySearchDocuments() {
-    return defineTable(schema.memorySearchDocuments, {
-      scope: 'ownerId',
-      access: 'cleanup',
-    }).connect(this.executeTable);
+    return this.table(schema.memorySearchDocuments, 'ownerId', 'cleanup');
   }
 
-  /** 访问 memorySearchTerms 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memorySearchTerms，自动限定当前归属。 */
   get memorySearchTerms() {
-    return defineTable(schema.memorySearchTerms, { scope: 'ownerId', access: 'cleanup' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.memorySearchTerms, 'ownerId', 'cleanup');
   }
 
-  /** 访问 memoryVectorIndexes 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memoryVectorIndexes，自动限定当前归属。 */
   get memoryVectorIndexes() {
-    return defineTable(schema.memoryVectorIndexes, {
-      scope: 'ownerId',
-      access: 'write',
-    }).connect(this.executeTable);
+    return this.table(schema.memoryVectorIndexes, 'ownerId', 'write');
   }
 
-  /** 访问 chatMemorySources 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 chatMemorySources，自动限定当前归属。 */
   get chatMemorySources() {
-    return defineTable(schema.chatMemorySources, { scope: 'ownerId', access: 'append' }).connect(
-      this.executeTable,
-    );
+    return this.table(schema.chatMemorySources, 'ownerId', 'append');
   }
 
-  /** 访问 memoryOriginalSources 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 memoryOriginalSources，自动限定当前归属。 */
   get memoryOriginalSources() {
-    return defineTable(schema.memoryOriginalSources, {
-      scope: 'ownerId',
-      access: 'append',
-    }).connect(this.executeTable);
+    return this.table(schema.memoryOriginalSources, 'ownerId', 'append');
   }
 
-  /** 访问 lifecycleMemoryTargets 表，沿用当前连接、归属和写入能力。 */
+  /** 访问 lifecycleMemoryTargets，自动限定当前归属。 */
   get lifecycleMemoryTargets() {
-    return defineTable(schema.lifecycleMemoryTargets, {
-      scope: 'ownerId',
-      access: 'append',
-    }).connect(this.executeTable);
+    return this.table(schema.lifecycleMemoryTargets, 'ownerId', 'append');
   }
 }

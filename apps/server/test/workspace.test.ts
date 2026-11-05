@@ -51,7 +51,7 @@ describe('部署管理者通过 HTTP 维护显示名称', () => {
     const response = await agent.get('/api/workspace').expect(200);
     expect(response.body.data).toEqual({
       ownerId: expect.any(String),
-      schemaVersion: 1,
+
       displayName: '用户',
     });
   });

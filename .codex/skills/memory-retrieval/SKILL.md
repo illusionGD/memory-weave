@@ -5,6 +5,8 @@ description: 维护 F09 检索、新原文补读、Qdrant 空间、索引任务�
 
 # 记忆检索维护
 
+2026-11-05 用户明确允许开发阶段删除旧数据并简化旧版本分支。本次已改为 `0000_development_baseline`，下文原迁移编号/旧协议兼容要求仅为历史背景，不适用于此次已授权重建。当前以 [数据库访问说明](../../../docs/features/crud-repositories.md) 为准：普通查询直接用表入口，身份由请求/任务上下文提供，事务采用回调；禁止重新引入 withOwner 或旧协议解释。后续常规结构变更仍追加迁移，新的重建按用户授权范围执行。
+
 先读 `docs/features/f09-memory-retrieval.md`、`evaluations/retrieval/f09-corpus.json`、当前 contracts 和 plan §7；同时遵循 coding、tdd、memory-organization、private-chat、model-runtime、durable-tasks、lifecycle。测试边界已有授权，无须重复确认。
 
 - 检索适用于普通陈述，不靠问号触发。原始查询与有限前文分开；不得把查询改写生成的实体当事实。

@@ -1,2 +1,0 @@
-CREATE INDEX `memory_version_time` ON `memory_versions` (`owner_id`,`created_at`,`id`);--> statement-breakpoint
-CREATE INDEX `memory_version_previous` ON `memory_versions` (`owner_id`,`previous_version_id`,`id`);

@@ -21,8 +21,6 @@ export const createCompanionRequestSchema: z.ZodObject<
 const initialSnapshotShape = {
   /** 创建时冻结的初始快照标识，与当前人格版本标识不同。 */
   id: uuidSchema,
-  /** 初始快照的数据结构版本，当前固定为 1。 */
-  schemaVersion: z.literal(1),
   /** 创建时的人格原文；后续当前人格变化不会覆盖此内容。 */
   profileText: z.string().min(1).max(4000),
   /** 快照来源固定为初始设定，不能将其冒充实例亲历。 */

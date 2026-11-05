@@ -48,7 +48,7 @@ describe('类型化表访问入口连接真实 MySQL', () => {
 
   it('创建后按同一归属读取默认值，其他归属不能读取或通过 SQL 条件绕过隔离', async () => {
     const id = randomUUID();
-    const repo = conversationTable.bind(db, ownerId);
+    const repo = conversationTable.connect((operation) => operation(db, ownerId));
     await repo.insert({
       id,
       title: '散步计划',
@@ -64,16 +64,20 @@ describe('类型化表访问入口连接真实 MySQL', () => {
       lastSequence: 0,
       lifecycleOperationId: null,
     });
-    expect(await conversationTable.bind(db, otherOwner).findOne({ where: { id } })).toBeNull();
     expect(
       await conversationTable
-        .bind(db, otherOwner)
+        .connect((operation) => operation(db, otherOwner))
+        .findOne({ where: { id } }),
+    ).toBeNull();
+    expect(
+      await conversationTable
+        .connect((operation) => operation(db, otherOwner))
         .findOne({ where: eq(schema.conversations.id, id) }),
     ).toBeNull();
     expect(await repo.findOne({ where: { id: randomUUID() } })).toBeNull();
   });
   it('批量插入后按 nullable 条件分页，投影保留别名和真实字段类型', async () => {
-    const repo = conversationTable.bind(db, otherOwner);
+    const repo = conversationTable.connect((operation) => operation(db, otherOwner));
     const a = randomUUID();
     const b = randomUUID();
     const beforeInsert = statements.length;
@@ -104,7 +108,7 @@ describe('类型化表访问入口连接真实 MySQL', () => {
 
   it('更新保留原子版本条件，拒绝空条件和归属覆盖，清理仅删除指定归属的记录', async () => {
     const id = randomUUID();
-    const repo = conversationTable.bind(db, ownerId);
+    const repo = conversationTable.connect((operation) => operation(db, ownerId));
     await repo.insert({
       id,
       title: '更新前',
@@ -130,10 +134,18 @@ describe('类型化表访问入口连接真实 MySQL', () => {
     expect(await repo.count({ id })).toBe(1);
     expect((await repo.findOne({ where: { id } }))?.title).toBe('更新后');
     const cleanup = defineTable(schema.conversations, { scope: 'ownerId', access: 'cleanup' });
-    expect((await cleanup.bind(db, otherOwner).deleteWhere({ id })).affectedRows).toBe(0);
-    await expect(cleanup.bind(db, ownerId).deleteWhere({})).rejects.toThrow();
+    expect(
+      (await cleanup.connect((operation) => operation(db, otherOwner)).deleteWhere({ id }))
+        .affectedRows,
+    ).toBe(0);
+    await expect(
+      cleanup.connect((operation) => operation(db, ownerId)).deleteWhere({}),
+    ).rejects.toThrow();
     expect(await repo.exists({ id })).toBe(true);
-    expect((await cleanup.bind(db, ownerId).deleteWhere({ id })).affectedRows).toBe(1);
+    expect(
+      (await cleanup.connect((operation) => operation(db, ownerId)).deleteWhere({ id }))
+        .affectedRows,
+    ).toBe(1);
     expect(await repo.exists({ id })).toBe(false);
     expect(await repo.count({ id })).toBe(0);
   });
@@ -143,7 +155,7 @@ describe('类型化表访问入口连接真实 MySQL', () => {
     await expect(
       db.transaction(
         async (tx) => {
-          const repo = conversationTable.bind(tx, ownerId);
+          const repo = conversationTable.connect((operation) => operation(tx, ownerId));
           await repo.insert({
             id,
             title: '尚未提交',
@@ -158,14 +170,18 @@ describe('类型化表访问入口连接真实 MySQL', () => {
         { isolationLevel: 'read committed' },
       ),
     ).rejects.toThrow('触发回滚');
-    expect(await conversationTable.bind(db, ownerId).exists({ id })).toBe(false);
+    expect(
+      await conversationTable.connect((operation) => operation(db, ownerId)).exists({ id }),
+    ).toBe(false);
     await expect(
-      conversationTable.bind(db, ownerId).findOne({ where: { id }, lock: 'update' } as never),
+      conversationTable
+        .connect((operation) => operation(db, ownerId))
+        .findOne({ where: { id }, lock: 'update' } as never),
     ).rejects.toThrow('行锁');
   });
 
   it('即使绕过编译期检查也不能覆盖归属或扩大只读、只追加入口的权限', async () => {
-    const repo = conversationTable.bind(db, ownerId);
+    const repo = conversationTable.connect((operation) => operation(db, ownerId));
     const input = {
       id: randomUUID(),
       title: '只追加记录',
@@ -174,15 +190,15 @@ describe('类型化表访问入口连接真实 MySQL', () => {
       fingerprint: 'access',
     };
     await expect(repo.insert({ ...input, ownerId: otherOwner } as never)).rejects.toThrow('归属');
-    const readOnly = defineTable(schema.conversations, { scope: 'ownerId', access: 'read' }).bind(
-      db,
-      ownerId,
-    );
+    const readOnly = defineTable(schema.conversations, {
+      scope: 'ownerId',
+      access: 'read',
+    }).connect((operation) => operation(db, ownerId));
     await expect((readOnly as typeof repo).insert(input)).rejects.toThrow('未开放');
     const appendOnly = defineTable(schema.conversations, {
       scope: 'ownerId',
       access: 'append',
-    }).bind(db, ownerId);
+    }).connect((operation) => operation(db, ownerId));
     await appendOnly.insert(input);
     await expect(
       (appendOnly as typeof repo).updateWhere({ where: { id: input.id }, set: { title: '覆盖' } }),

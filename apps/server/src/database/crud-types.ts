@@ -1,3 +1,4 @@
+import type { SelectResultFields } from 'drizzle-orm/query-builders/select.types';
 import type { SQL } from 'drizzle-orm';
 import type {
   MySqlColumn,
@@ -25,11 +26,23 @@ export type InsertValues<T extends MySqlTable, K extends ScopeKey<T>> = Omit<
 > & {
   [P in K]?: never;
 };
+/** 可用字段名数组，也可使用带别名的 Drizzle 投影。 */
+export type Fields<T extends MySqlTable> =
+  SelectedFields | readonly (keyof T['$inferSelect'] & string)[];
+/** 按实际字段投影推导查询结果。 */
+export type SelectedRow<
+  T extends MySqlTable,
+  F extends Fields<T>,
+> = F extends readonly (keyof T['$inferSelect'])[]
+  ? Pick<T['$inferSelect'], F[number]>
+  : F extends SelectedFields
+    ? { -readonly [P in keyof SelectResultFields<F>]: SelectResultFields<F>[P] }
+    : never;
 /** 查询一行的筛选与投影。 */
 export interface FindOneOptions<
   T extends MySqlTable,
   K extends ScopeKey<T>,
-  F extends SelectedFields,
+  F extends Fields<T>,
   C extends QueryConnection = QueryConnection,
 > {
   /** 不传条件时只限定当前归属。 */
@@ -44,7 +57,7 @@ export interface FindOneOptions<
 export interface FindManyOptions<
   T extends MySqlTable,
   K extends ScopeKey<T>,
-  F extends SelectedFields,
+  F extends Fields<T>,
   C extends QueryConnection = QueryConnection,
 > extends FindOneOptions<T, K, F, C> {
   /** 必须显式给出需要的条数，避免默认读取整表。 */

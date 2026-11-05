@@ -59,7 +59,7 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
     const workspace = await agent.get('/api/workspace').expect(200);
     expect(workspace.body.data).toEqual({
       ownerId: expect.any(String),
-      schemaVersion: 1,
+
       displayName: '用户',
     });
     const created = await agent
@@ -76,7 +76,6 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
       runtimeEpoch: 1,
       version: 1,
       initialSnapshot: {
-        schemaVersion: 1,
         sourceKind: 'initial_setting',
         profileText: '我喜欢一起看星星。\n保留未经模型处理的原始设定。',
       },
@@ -277,13 +276,19 @@ describe('部署管理者通过 HTTP 管理伴侣实例', () => {
   });
 
   it('数据服务不可用时返回脱敏的503，同时保持HTTP进程存活', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ password: config.adminPassword })
+      .expect(200);
+    const cookie = String(login.headers['set-cookie']?.[0]).split(';')[0]!;
     await app.close();
     app = await createApplication({
       ...config,
       databaseUrl: 'mysql://private:must-not-appear@127.0.0.1:1/unavailable',
     });
     const agent = request.agent(app.getHttpServer());
-    await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(200);
+    agent.set('Cookie', cookie);
+    await agent.post('/api/auth/login').send({ password: config.adminPassword }).expect(503);
     for (const path of ['/api/workspace', '/api/companions', `/api/companions/${randomUUID()}`]) {
       const response = await agent.get(path).expect(503);
       expect(JSON.stringify(response.body)).not.toContain('must-not-appear');

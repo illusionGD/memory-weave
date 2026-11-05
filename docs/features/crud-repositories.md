@@ -1,114 +1,123 @@
-# 后端基础 CRUD 与模块 Repository
+# 后端数据库访问
 
-用户已确认「统一基础 CRUD，复杂查询按需整理」。继续使用 Drizzle + MySQL，初版 C01–C04 已完成。2026-11-05 按用户要求将表入口集中到 `DatabaseService`，本次比较基线 `13664f0`。没有新增依赖、HTTP 接口或数据库迁移，拉取后重启后端即可使用。
+普通业务直接使用 `database.表.操作`，事务使用 `database.transaction`。不需要 `withOwner` 或手动绑定 owner。继续使用 Drizzle + mysql2，没有新增 ORM 或运行时依赖。
 
-## 入口与选择
-
-- `database/tables.ts`：通过 `DatabaseTables` 集中声明 42 张表的属性、schema、归属字段和日常访问能力；基础方法仍共用一套实现。
-- `database/database.service.ts`、`database-context.ts`：提供 `database.表.操作` 及事务内的 `tx.表.操作`；自动取得归属，普通连接与每个事务独立。
-- `database/table-repository.ts`、`crud-types.ts`：共用查询、插入、更新及受控清理，类型由现有 Drizzle schema 推导。
-- `database/cursor-pagination.ts`：整理现有按 UUID 排序的查询结果，不改变排序、不额外查询。
-- `modules/companions/persona-template.repository.ts`：复用模板身份与历史版本的联表条件，是按需增加模块 Repository 的实例。
-
-资料、伴侣、模板、会话、聊天、模型、任务、记忆、检索和生命周期模块已接入适合的普通读写。涉及行锁的读取、幂等重复键处理、关联查询、批量来源传播和受控历史清理继续明确保留在所属模块。本轮不要求所有数据库访问都搬进 Repository，不将领域权限和任务调度做成通用 CRUD 参数。
-
-## 字段提示和返回类型
-
-注入 `DatabaseService` 后可以直接查询，不需要导入 `tables` 或逐表调用 `bind`：
+## 普通操作与类型
 
 ```ts
-const row = await database.companions.findOne({ where: { id: companionId } });
-// row：typeof companions.$inferSelect | null
-// 输入 where、set 时提示该表字段；访问 row 时提示具体属性。
-
-await database.companions.updateWhere({
-  where: { id: companionId, version: expectedVersion },
-  set: { name: '星遥', version: expectedVersion + 1 },
-});
-```
-
-只选取部分字段时，返回类型也只有实际选择的字段，别名保留：
-
-```ts
-const rows = await database.conversations.findMany({
-  where: { kind: 'private', lifecycleOperationId: null },
-  fields: { label: conversations.title, at: conversations.createdAt },
-  orderBy: [asc(conversations.id)],
+const companion = await database.companions.findOne({ where: { id: companionId } });
+const rows = await database.companions.findMany({
+  where: { deletedAt: null },
+  fields: ['id', 'name'],
   limit: 20,
 });
-// rows：{ label: string; at: Date }[]
-```
+// rows: { id: string; name: string }[]
 
-拼错字段、把 `version` 写成字符串、给枚举字段传非法值、插入缺少必填字段或更新 `ownerId`，都会在类型检查时报错。输入和返回值不使用 `any`。模块 Repository 的返回类型也保留具体 schema 类型；不另外手写一套与表结构重复的通用行定义。
-
-## 方法约定
-
-| 方法                                                    | 行为                                                   |
-| ------------------------------------------------------- | ------------------------------------------------------ |
-| `findOne({ where?, fields?, lock? })`                   | 读取一行，缺失返回 `null`；调用方决定对应业务含义      |
-| `findMany({ where?, fields?, orderBy?, limit, lock? })` | 必须指定正整数条数，支持现有 Drizzle 条件和排序        |
-| `exists(where?)` / `count(where?)`                      | 数据库侧查询，不载入全部记录正文后判断                 |
-| `insert(values)` / `insertMany(values)`                 | 自动附加归属；保留默认值、约束；批量插入只发送一条 SQL |
-| `updateWhere({ where, set })`                           | 原子执行条件更新，保留版本条件；不先查再更新           |
-| `deleteWhere(where)`                                    | 仅 `cleanup` 能力开放；用于明确的物理清理              |
-
-所有写入返回 mysql2 的 `ResultSetHeader`，例如 `result.affectedRows`。不会自动回读新行、统计总量或把 0 行转成统一 HTTP 异常。需要回读的业务显式查询；版本冲突、找不到、幂等冲突继续由领域代码判断。
-
-等值对象表示 AND：`{ id, state: 'published', deletedAt: null }`。`null` 变成 `IS NULL`，显式 `undefined` 条件会拒绝，避免意外扩大更新范围。复杂筛选继续使用 Drizzle 表达式：
-
-```ts
-const pageRows = await tx.messages.findMany({
-  where: and(eq(messages.conversationId, conversationId), gt(messages.sequence, afterSequence)),
-  orderBy: [asc(messages.sequence)],
-  limit: limit + 1,
+const result = await database.companions.updateWhere({
+  where: { id: companionId, version: expectedVersion },
+  set: { name: newName, version: expectedVersion + 1 },
 });
+// 用 affectedRows 判断原子更新是否成功，不先查再写。
 ```
 
-可选筛选使用 Drizzle 的条件组合，或只在参数存在时添加对象属性；不要传 `{ id: undefined }`。写入必须有明确且非空的 `where`。该保护不能判断受信任代码自行构造的恒真 SQL，不能把客户端的任意字段/条件原样转入 Repository。
+| 方法                | 行为                                                |
+| ------------------- | --------------------------------------------------- |
+| findOne             | 缺失返回 null                                       |
+| findMany            | 必填正整数 limit，支持排序、投影与现有游标          |
+| exists / count      | 在数据库侧判断或计数，不读取全部正文                |
+| insert / insertMany | 自动附加归属，批量插入只发送一条 SQL                |
+| updateWhere         | 必须有明确的 where 和更新内容                       |
+| deleteWhere         | 仅用于声明为 cleanup 的表；业务删除仍走生命周期协议 |
 
-`idCursorPage(rows, limit, row => row.id)` 只用于已按该 ID 排序且多取一条的结果。消息序号、时间线复合游标和图谱仍使用各自的分页规则。
+条件对象表示 AND，null 对应 IS NULL，显式 undefined 条件会被拒绝。复杂范围、排序、表达式和别名继续支持 Drizzle，例如 `fields: { label: conversations.title }` 返回 `{ label: string }`。
 
-## 归属、事务和访问能力
+类型从表结构推导，不另写一套实体定义。条件字段、枚举、插入必填字段和返回投影都有提示；不能插入或修改绑定的归属字段。写操作返回驱动结果，不自动回读、自动 count、自动 upsert 或隐式重试。0 行更新的业务含义由调用方判断。
 
-`database.companions` 等属性不会立即查询数据库；调用方法时，服务沿用原有结构就绪检查、持久 owner 查询和错误码转换。`database.withOwner` 可以让一组普通操作复用一次检查，其回调参数 `db` 也支持 `db.表.操作`；它本身不创建事务。含 `ownerId` 的表自动追加该条件；`owners` 明确使用 `id` 作为归属列。插入不能再传归属字段，更新不能修改归属字段。
+## ownerId 如何传递
 
-owner 限定只是一层基础隔离。伴侣代次、会话成员、可见区间、来源版本及删除限制仍由现有领域方法校验；不能以基础 CRUD 替代它们。
+```text
+HTTP Cookie → Redis 会话中的 ownerId → 当前请求上下文
+任务领取记录 → TaskLease.ownerId → 当前任务上下文
+                                      ↓
+                         database.companions.findOne(...)
+                                      ↓
+                     内部强制追加 owner_id = 当前 owner
+```
 
-通过 `database.transaction` 开启事务，回调内统一使用 `tx`：
+IdentityContext 使用 Node AsyncLocalStorage 隔离异步执行链。HTTP 中间件先创建独立容器，鉴权守卫验证会话后填入身份；请求之间不会覆盖彼此。普通表对象是单例，对象不保存可变的当前 owner。
+
+目前部署密码验证通过后，DeploymentIdentity 从持久默认空间取得 ownerId 并写入 Redis 会话。local 仅在这个单用户适配器中使用，普通 CRUD 不再查询默认用户。未来账号登录应把已验证账号绑定的 owner 写入会话；当前仍未开放多用户产品能力。
+
+worker 每轮调度建立部署身份上下文，领取后使用持久记录里的 TaskLease.ownerId 建立任务上下文，心跳另建有界上下文。验证租约时再次检查归属。维护 CLI 和健康检查使用独立维护入口。
+
+缺少身份时普通 CRUD 返回认证错误，不回退默认用户；客户端传入 owner 请求头不能切换身份。Redis 会话仍固定 12 小时过期，访问和进程重启不续期。
+
+同一个执行上下文中的 `database.current()` 缓存结构检查和普通连接入口。它供需要复杂查询的 Repository 使用，普通 CRUD 无须先调用。结构维护前必须停止旧服务；长连接和任务的上下文应按有界业务步骤建立。
+
+owner 限定不替代伴侣代次、成员、可见区间、删除限制和来源版本校验。直接 Drizzle SQL 不会自动改写，模块 Repository 必须明确限制所有关联记录的归属。
+
+## 事务
 
 ```ts
 await database.transaction(
   async (tx) => {
-    const row = await tx.conversations.findOne({ where: { id }, lock: 'update' });
-    // 后续操作继续使用 tx；database 的普通入口不会自动加入这个事务。
+    const row = await tx.companions.findOne({
+      where: { id: companionId },
+      lock: 'update',
+    });
+    if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    await tx.companions.updateWhere({
+      where: { id: companionId },
+      set: { name: newName },
+    });
   },
   { isolationLevel: 'read committed' },
 );
 ```
 
-单表操作不偷偷开启事务；显式 `transaction` 回调成功时提交、抛错时回滚。每次事务创建独立上下文，不改变共享对象的连接。普通 `database` / `db` 请求行锁在编译期报错，运行期也检查实际事务对象；既有锁顺序、配置锁和调度锁保持原样。
+正常返回提交，抛异常回滚，连接自动释放。返回错误对象仍属于正常返回；要撤销必须抛异常。事务操作必须 await，不能启动脱离回调生命周期的写入。
 
-复杂联表、幂等 upsert、历史清理等通过上下文的 `db.sql` / `tx.sql` 使用原始 Drizzle；它与该上下文中的基础 CRUD 使用同一连接。原有模块 Repository 接收该上下文，复杂查询内部使用 `.sql`。不要在事务回调中用外层 `database` 执行本应参与事务的操作。
+事务固定连接和 owner，按需缓存表操作对象，回调结束后拒绝继续使用旧 tx。事务中必须使用 tx 或显式接收 tx 的 Repository；普通 database 调用不会隐式加入事务，也不允许在 tx 上嵌套开启事务。
 
-表能力分为 `read`、`append`、`write`、`cleanup`。版本/证据等历史表日常只允许读取和追加；目前仅可重建的搜索文档与词项开放通用物理删除。生命周期对历史正文的擦除继续走原有显式清理协议，不为这些表开放普通改写或删除。
+Drizzle 使用显式领取的 mysql2 连接执行回调。业务异常成功回滚后归还连接；begin/commit/rollback 异常导致状态不确定时丢弃连接，回滚失败保留最初异常。commit 网络错误可能意味着结果未知，不能自动重试或声称已经回滚。
 
-没有引入自动 upsert、软删除、重试、保存钩子或新的 HTTP 包装。数据库错误仍由 `DatabaseService` 与公共异常出口处理。表能力用于约束内部调用，不替代服务端权限验证。
+配置、调度和会话锁顺序沿用现有协议。TaskStore.locked 等有领域含义的事务方法可继续使用回调；模型调用和外部网络等待不得持有业务事务。
 
-## Review 与验证
+## 代码入口
 
-新增真实 MySQL 用例通过公共 Repository 方法观察隔离、默认值、nullable 筛选、投影、批量插入、原子版本更新、空条件拒绝、归属保护、受控清理和事务回滚。编译期用例检查字段、枚举、投影和操作能力；不 mock 内部查询链。
+| 文件                                              | 职责                                   |
+| ------------------------------------------------- | -------------------------------------- |
+| database/identity-context.ts                      | 请求、任务的归属上下文                 |
+| modules/auth/deployment-identity.ts               | 当前单用户部署的身份适配               |
+| database/database.service.ts                      | 连接池、结构检查缓存、事务与表执行入口 |
+| database/database-context.ts                      | 固定连接和归属，保护事务生命周期       |
+| database/tables.ts                                | 集中声明表能力，首次使用才创建操作对象 |
+| database/table-repository.ts、crud-types.ts       | 共用 CRUD 和字段推导                   |
+| modules/companions/companion.repository.ts        | 伴侣列表与详情共用当前人格关联         |
+| modules/companions/persona-template.repository.ts | 模板版本查询，复用单例，不反复 new     |
+| http/api-exception.ts                             | 数据库异常与统一 HTTP 错误出口         |
 
-在已取得连接和归属的上下文内，批量两行插入和列表查询的 SQL 日志分别确认只有一次查询，没有自动回读或额外 count；这不等于完成容量或性能压测。既有 HTTP 用例继续验证分页、幂等重放、历史版本、来源权限、模型计量、任务恢复和生命周期传播。
+复杂联表、幂等 upsert、领域锁和删除传播保留明确 SQL，不把所有业务规则塞进 CRUD 参数。两类常用关联查询已集中到 Repository，其他领域专用查询按实际复用需要整理。
 
-建议 review 顺序：`DatabaseService` / `DatabaseContext` / `DatabaseTables` → 基础类型与实现 → `WorkspaceService` → `PersonaTemplateRepository` 与模板服务 → 各业务模块替换。界面验收可以修改显示名称，创建伴侣与模板版本，发起聊天，再检查后台任务、记忆来源和删除/重置流程；用户可继续沿用原有 F02–F10 验收方式。
+## 开发库与表结构
 
-初版（2026-11-03）已完成以下验证：
+消息片段已合入 messages.chatRunId/chatPosition，移除 chat_segments，保留同 owner/会话的外键和位置唯一约束。聊天读取省去片段补查，来源传播少一次关联，消息创建时同时写入轮次位置。当前共 41 张业务表，逐表结论和实验见 [表盘点](database-tables.md)。
 
-- 完整后端回归 23 个文件、199 条用例全部通过，包含 5 条新增真实 MySQL Repository 用例。
-- Node 22.23.4 下格式、lint、全工程类型检查和生产构建通过；TypeScript 编辑器服务实际提供条件/更新字段补全，投影结果只补全 `label`、`at`。
-- 桌面与手机 30 条浏览器流程全部通过，覆盖资料改名、模板历史、聊天、头像、删除重置、记忆浏览与跨私聊来源。
-- `pnpm deploy --prod` 生成独立生产包，原生 Node 完成 F02 14 项与 F05 14 项 HTTP 验收；重启后伴侣/人格公开快照和 Redis 登录仍保持。
-- 语法树比较确认原有 18 处行锁查询、18 处重复键处理和 14 处事务隔离参数保持一致。基础封装没有增加领域锁或改变锁顺序。
-- 本次未重建 Docker 镜像，也未部署到用户云服务器；生产依赖打包、原生 Node 启动与数据保留已验证。
+开发阶段重建为 `0000_development_baseline`，不支持旧迁移链原地升级。生命周期只保留当前完整清理阶段；聊天只维护当前提示定义。工作区、消息、初始快照和人格文档里的固定 schemaVersion=1 标记已移除，前后端及验收脚本同步更新。
 
-2026-11-05 入口调整已完成验证：24 个后端文件、203 条用例和桌面/手机 30 条浏览器流程全部通过；新增 4 条真实 MySQL 用例覆盖直接访问与错误转换、结构未就绪、基础 CRUD 与原始 SQL 共用事务、回滚与并发事务隔离。格式、lint、全工程类型检查和构建通过；独立生产包完成 F02/F05 各 14 项验收，重启后伴侣/人格快照及登录状态保持。未新增数据库迁移，未重建 Docker 镜像或部署用户服务器。完整记录见 [开发进度](../progress.md)。
+人格/记忆修订、原文内容版本、运行代次、乐观锁、任务租约及模型配置/编码标识仍有实际用途，继续保留。没有删除人格历史或更改来源可见性规则。
+
+已有开发库更新时，在项目根目录执行：
+
+```sh
+# 先停止 pnpm dev 或 PM2 后端，保留 MySQL、Qdrant、Redis 运行。
+pnpm install --frozen-lockfile
+pnpm db:reset
+pnpm dev
+```
+
+**db:reset 删除 `.env` 指向的开发库数据、这些 owner 的向量集合与头像，以及当前 Redis 命名空间的数据，再初始化新库。** 必须先停止所有共享此库的后端/worker；需要 MySQL 对目标库的 DROP/CREATE 权限。生产模式拒绝执行。其他库、其他 owner 的集合/头像和其他 Redis 命名空间不清理。跨服务清理不具有原子性，失败后保持服务停止并重试，不能认为已恢复原数据。
+
+新安装仍执行 `pnpm db:migrate`。后续结构变更继续由迁移管理；本次重建基线不意味着取消迁移工具。旧 Cookie 失效，需要重新登录。数据库不可用时无法建立新的有归属会话，已有有效会话仍可查看系统诊断。
+
+验证与交付结果见 [开发进度](../progress.md)。

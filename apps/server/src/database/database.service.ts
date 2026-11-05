@@ -1,5 +1,5 @@
 import { API_CODES } from '@memory-weave/contracts';
-import { HttpException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { OnApplicationShutdown } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/mysql2';
@@ -14,7 +14,9 @@ import * as schema from './schema';
 import { DatabaseContext } from './database-context';
 import { DatabaseTables } from './tables';
 import type { MySqlTransactionConfig } from 'drizzle-orm/mysql-core';
-import { ApiException } from '../http/api-exception';
+import { IdentityContext } from './identity-context';
+import type { ExecutionIdentity } from './identity-context';
+import { ApiException, databaseOperation } from '../http/api-exception';
 
 /** 原始 Drizzle 查询连接，供基础实现和显式 SQL 使用。 */
 export type SqlDatabase = MySql2Database<typeof schema>;
@@ -34,10 +36,18 @@ export type QueryDatabase = Database | DatabaseTransaction;
 export class DatabaseService extends DatabaseTables<SqlDatabase> implements OnApplicationShutdown {
   private readonly pool: Pool;
   private readonly sql: SqlDatabase;
+  private shutdown: Promise<void> | undefined;
+  private readonly contexts = new WeakMap<ExecutionIdentity, Promise<Database>>();
 
   /** 初始化数据库连接与查询服务。 */
-  constructor(@Inject(SERVER_CONFIG) config: RuntimeConfig) {
-    super((operation) => this.withOwner((ownerId, database) => operation(database.sql, ownerId)));
+  constructor(
+    @Inject(SERVER_CONFIG) config: RuntimeConfig,
+    @Inject(IdentityContext) readonly identity = new IdentityContext(),
+  ) {
+    super(async (operation) => {
+      const database = await this.current();
+      return databaseOperation(() => operation(database.sql, database.ownerId));
+    });
     this.pool = createPool({
       ...mysqlConnectionOptions(config.databaseUrl),
       connectionLimit: 4,
@@ -60,56 +70,81 @@ export class DatabaseService extends DatabaseTables<SqlDatabase> implements OnAp
     return querySchemaStatus(this.pool);
   }
 
-  /**
-   * 取得部署管理者并执行领域操作。
-   *
-   * 从持久配置取得部署管理者，再执行带归属限制的领域操作。
-   * @param operation 基础 CRUD 已限定 ownerId，使用 sql 的领域查询仍须明确限定归属。
-   * @returns 已完成的领域操作结果；不向 HTTP 返回驱动异常与连接信息。
-   */
-  async withOwner<T>(operation: (ownerId: string, db: Database) => Promise<T>): Promise<T> {
-    try {
-      const status = await this.getSchemaStatus();
-      if (status.status !== 'ready') {
+  /** 取得本次执行已校验的数据库入口，多个查询共用一次结构检查。 */
+  async current(): Promise<Database> {
+    const identity = this.identity.require();
+    let current = this.contexts.get(identity);
+    if (!current) {
+      current = databaseOperation(async () => {
+        const status = await this.getSchemaStatus();
+        if (status.status !== 'ready') throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+        return new DatabaseContext(this.sql, identity.ownerId, (operation, options) =>
+          this.executeTransaction(identity.ownerId, operation, options),
+        );
+      });
+      this.contexts.set(identity, current);
+    }
+    return current;
+  }
+
+  /** 为部署身份适配器读取持久身份，普通业务不得用它代替认证。 */
+  resolveDeploymentOwner(deploymentKey: string): Promise<string> {
+    return databaseOperation(async () => {
+      if ((await this.getSchemaStatus()).status !== 'ready')
         throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-      }
       const [owner] = await this.sql
         .select({ id: schema.owners.id })
         .from(schema.owners)
-        .where(eq(schema.owners.deploymentKey, 'local'))
+        .where(eq(schema.owners.deploymentKey, deploymentKey))
         .limit(1);
       if (!owner) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-      return await operation(owner.id, new DatabaseContext(this.sql, owner.id));
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      const code = databaseErrorCode(error);
-      if (code === 'ER_DUP_ENTRY') throw new ApiException(API_CODES.CONFLICT);
-      if (
-        [
-          'ER_NO_REFERENCED_ROW_2',
-          'ER_ROW_IS_REFERENCED_2',
-          'ER_CHECK_CONSTRAINT_VIOLATED',
-          'ER_BAD_NULL_ERROR',
-          'ER_DATA_TOO_LONG',
-          'WARN_DATA_OUT_OF_RANGE',
-          'ER_TRUNCATED_WRONG_VALUE',
-          'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD',
-        ].includes(code ?? '')
-      ) {
-        throw new ApiException(API_CODES.DATA_CONSTRAINT_VIOLATION);
-      }
-      if (code) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-      // 无法识别为数据库错误的异常交给全局 500 处理，避免掩盖业务代码缺陷。
-      throw error;
-    }
+      return owner.id;
+    });
   }
 
-  /** 在持久归属下执行事务，回调内直接使用 tx.表.操作。 */
-  transaction<R>(
+  /** 在当前身份下执行独立事务，成功提交，异常回滚。 */
+  async transaction<R>(
     operation: (tx: DatabaseTransaction) => Promise<R>,
     options?: MySqlTransactionConfig,
   ): Promise<R> {
-    return this.withOwner((_ownerId, database) => database.transaction(operation, options));
+    return (await this.current()).transaction(operation, options);
+  }
+
+  /** 独占一条连接执行事务，回滚失败时保留原异常并丢弃不确定的连接。 */
+  private executeTransaction<R>(
+    ownerId: string,
+    operation: (tx: DatabaseTransaction) => Promise<R>,
+    options?: MySqlTransactionConfig,
+  ): Promise<R> {
+    return databaseOperation(async () => {
+      const connection = await this.pool.getConnection();
+      let failure: { error: unknown } | undefined;
+      let discarded = false;
+      try {
+        const sql = drizzle(connection, { schema, mode: 'default' });
+        return await sql.transaction(async (transaction) => {
+          const tx = new DatabaseContext(transaction, ownerId);
+          try {
+            return await operation(tx);
+          } catch (error) {
+            failure = { error };
+            throw error;
+          } finally {
+            tx.finish();
+          }
+        }, options);
+      } catch (error) {
+        // 同一个回调异常表示 Drizzle 已完成回滚；其他异常可能来自 begin/commit/rollback。
+        if (!failure || error !== failure.error) {
+          connection.destroy();
+          discarded = true;
+          console.error(JSON.stringify({ event: 'database.transaction.connection_discarded' }));
+        }
+        throw failure ? failure.error : error;
+      } finally {
+        if (!discarded) connection.release();
+      }
+    });
   }
 
   /**
@@ -118,21 +153,6 @@ export class DatabaseService extends DatabaseTables<SqlDatabase> implements OnAp
    * 应用关闭时释放业务连接，不影响其他服务持有的连接。
    */
   async onApplicationShutdown(): Promise<void> {
-    await this.pool.end();
+    await (this.shutdown ??= this.pool.end());
   }
-}
-
-/**
- * 从数据库异常及其原因中提取错误代码。
- *
- * Drizzle 会把驱动异常放在 cause 中，只提取受控分类所需的错误代码。
- */
-function databaseErrorCode(error: unknown): string | undefined {
-  let current = error;
-  for (let depth = 0; depth < 5; depth += 1) {
-    if (!current || typeof current !== 'object') return undefined;
-    if ('code' in current && typeof current.code === 'string') return current.code;
-    current = 'cause' in current ? current.cause : undefined;
-  }
-  return undefined;
 }
