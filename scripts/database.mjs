@@ -4,10 +4,16 @@ import { fileURLToPath } from 'node:url';
 
 const serverRequire = createRequire(new URL('../apps/server/package.json', import.meta.url));
 const entry = fileURLToPath(new URL('../apps/server/src/database/migrate-cli.ts', import.meta.url));
+// 维护命令与 dev 一样读取共享包源码，不依赖可能缺失或过期的 dist。
 // 使用 Node 直接运行公开的 tsx CLI，Windows 上无需经过 shell 拼接参数。
 const child = spawn(
   process.execPath,
-  [serverRequire.resolve('tsx/cli'), entry, ...process.argv.slice(2)],
+  [
+    serverRequire.resolve('tsx/cli'),
+    '--conditions=memory-weave-source',
+    entry,
+    ...process.argv.slice(2),
+  ],
   {
     stdio: 'inherit',
   },

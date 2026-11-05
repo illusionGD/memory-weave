@@ -2,6 +2,11 @@
 
 当前分支：`dev`。F01–F10、前端分端、星空聊天、自定义伴侣头像、Naive UI 与 Redis 会话已实现；本轮已完成数据库访问与开发结构精简，供用户 review；不进入 F11。
 
+## 数据库维护命令源码解析修复（2026-11-05）
+
+- 修复 `pnpm db:reset` 读取旧 contracts 构建时缺少 `modelHardLimitsSchema` 导出的启动错误。数据库维护启动器与 dev 共用 `memory-weave-source` 条件，`db:reset`、`db:migrate`、`db:status` 无须预先构建共享包；生产服务的 dist 入口不变。
+- Node 22.23.4 下用旧导出复现相同 SyntaxError，移走 dist 复现模块缺失；修复后两种情况下均能完成模块加载并进入维护 CLI 参数校验。验收使用无效子命令，没有连接或清理数据库。脚本格式、lint 和 diff 检查通过；未在 Windows 本机执行。
+
 ## 数据库访问与开发结构精简（2026-11-05）
 
 - 按已确认方案取消业务 `withOwner`，普通调用直接使用 `database.表.操作`；事务保留回调并自动提交/回滚。表操作按需缓存，伴侣及模板常用联表集中到单例 Repository；字段数组投影保留类型提示。
