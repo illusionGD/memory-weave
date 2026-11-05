@@ -640,7 +640,7 @@ describe('批量记忆整理的公开协议', () => {
       process.execPath,
       ['--import', 'tsx', fileURLToPath(new URL('./support/task-process.ts', import.meta.url))],
       {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         env: {
           ...process.env,
           DATABASE_URL: database.databaseUrl,
@@ -660,6 +660,8 @@ describe('批量记忆整理的公开协议', () => {
         },
       },
     );
+    worker.stdout!.resume();
+    worker.stderr!.resume();
     await expect.poll(() => Boolean(heldResponse), { timeout: 5000 }).toBe(true);
     const paused = (await agent.post(`/api/tasks/${queued.taskId}/pause`).send({}).expect(200)).body
       .data;

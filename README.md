@@ -8,6 +8,7 @@
 
 较早版本已将业务表从 42 张合并为 41 张，并重建初始化基线。只有尚未升级到 `0000_development_baseline` 的旧开发库需要停止后端再执行 `pnpm db:reset`；该命令清空开发数据及对应向量、头像和 Redis 命名空间。已完成这次升级的环境正常拉取、重启即可；新安装仍执行 `pnpm db:migrate`。旧库重建步骤见 [数据库访问说明](docs/features/crud-repositories.md#较早开发库的结构升级)。
 
+- [Pino 日志、Nest 开发启动与 PM2 轮转](docs/features/logging-and-dev.md)
 - [模型 JSON 配置与环境区分](docs/features/model-json-config.md)
 - [架构设计](docs/architecture.md)
 - [开发计划与功能清单](docs/plan.md)
@@ -51,7 +52,7 @@ pnpm dev
 
 后续 MySQL 结构更新时，停止旧应用、执行 `pnpm db:migrate` 再启动；`pnpm db:status` 可只读检查。迁移失败会保留未完成标记并阻止就绪，MySQL DDL 不保证整批回滚，恢复方式见 [F02 迁移说明](docs/features/f02-data-foundation.md#数据库迁移与部署)。
 
-`pnpm dev` 直接读取 `packages/contracts/src` 和 `packages/browser-client/src`，不需要先构建共享包。修改共享 schema、常量或新增导出后，前端由 Vite 热更新或自动刷新；修改公共契约时后端由 tsx 自动重启，修改 browser-client 不重启后端；类型提示和 `pnpm typecheck` 也直接使用源码。后端热重启或正常重启会继续读取 Redis 中未到期的登录会话；有效期仍为登录后的固定 12 小时，不因访问或重启自动延长。修改 `package.json`、依赖或开发配置后应重新安装依赖并重启 dev；生产部署继续使用 `pnpm build` 生成的产物。
+`pnpm dev` 直接读取 `packages/contracts/src` 和 `packages/browser-client/src`，不需要先构建共享包。修改共享 schema、常量或新增导出后，前端由 Vite 热更新或自动刷新；修改公共契约时后端由 `nest start --watch` 自动编译并重启，修改 browser-client 不重启后端；类型提示和 `pnpm typecheck` 也直接使用源码。后端热重启或正常重启会继续读取 Redis 中未到期的登录会话；有效期仍为登录后的固定 12 小时，不因访问或重启自动延长。修改 `package.json`、依赖或开发配置后应重新安装依赖并重启 dev；生产部署继续使用 `pnpm build` 生成的产物。
 
 登录聊天端后可从导航进入“个人设置”，修改用户的显示名称。默认名称为“用户”，去掉首尾空白后为 1～80 个字符；保存后刷新或重启仍保留。名称用于显示，不参与登录，也不会改变历史消息的用户身份关联。MySQL 初始结构已经包含资料字段。
 

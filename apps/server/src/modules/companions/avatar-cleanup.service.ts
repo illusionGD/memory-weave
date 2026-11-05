@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { PinoLogger } from 'nestjs-pino';
 import type { OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { asc, gt } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
@@ -15,6 +16,7 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
   private stopped = false;
   /** 初始化头像文件巡检服务。 */
   constructor(
+    @Inject(PinoLogger) private readonly logger: PinoLogger,
     @Inject(DeploymentIdentity) private readonly deployment: DeploymentIdentity,
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(AvatarFiles) private readonly files: AvatarFiles,
@@ -34,8 +36,8 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
       this.pending = this.deployment
         .ownerId()
         .then((ownerId) => this.sweep(ownerId))
-        .catch(() => {
-          console.error(JSON.stringify({ event: 'avatars.cleanup.failed' }));
+        .catch((err) => {
+          this.logger.error({ event: 'avatars.cleanup.failed', err }, '头像文件巡检失败。');
         })
         .finally(() => this.schedule());
     }, 5000);

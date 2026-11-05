@@ -1,3 +1,4 @@
+import type { LoggingConfig } from './logging';
 import { retrievalConfigurationSchema } from '@memory-weave/contracts';
 import type { RetrievalConfiguration } from '@memory-weave/contracts';
 import { memoryConfigurationSchema } from '@memory-weave/contracts';
@@ -10,6 +11,8 @@ import type { ModelDeployment } from './modules/models/model-deployment';
 
 /** 由部署环境提供的服务端配置。 */
 export interface ServerConfig {
+  /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
+  logging?: LoggingConfig;
   /** 集中检索预算，向量不可用时仍保留直接读取。 */
   retrievalConfiguration?: RetrievalConfiguration;
   /** 服务监听地址；开发环境默认仅监听本机回环地址。 */
@@ -74,6 +77,15 @@ export function loadServerConfig(
   environment: NodeJS.ProcessEnv,
   options: { loadModels?: boolean } = {},
 ): ServerConfig {
+  const level = environment.LOG_LEVEL || 'info';
+  if (!['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'].includes(level))
+    throw new ConfigurationError('LOG_LEVEL 必须为 trace/debug/info/warn/error/fatal/silent。');
+  const format =
+    environment.LOG_FORMAT || (environment.NODE_ENV === 'development' ? 'pretty' : 'json');
+  if (format !== 'json' && format !== 'pretty')
+    throw new ConfigurationError('LOG_FORMAT 必须为 json 或 pretty。');
+  if (environment.NODE_ENV === 'production' && format !== 'json')
+    throw new ConfigurationError('正式环境 LOG_FORMAT 必须为 json。');
   const adminPassword = environment.ADMIN_PASSWORD ?? '';
   if (adminPassword.length < 12 || adminPassword.length > 256) {
     throw new ConfigurationError('ADMIN_PASSWORD must contain 12 to 256 characters.');
@@ -233,6 +245,7 @@ export function loadServerConfig(
     throw new ConfigurationError('记忆配置无效，请检查 MEMORY_CONFIG_JSON。');
   }
   return {
+    logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),
     memoryConfiguration,
     chatConfiguration,

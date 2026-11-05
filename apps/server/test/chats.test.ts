@@ -325,8 +325,10 @@ describe('私聊的公开 HTTP 与事件边界', () => {
     worker = spawn(
       process.execPath,
       ['--import', 'tsx', fileURLToPath(new URL('./support/task-process.ts', import.meta.url))],
-      { stdio: ['ignore', 'pipe', 'pipe'], env: environment },
+      { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], env: environment },
     );
+    worker.stdout!.resume();
+    worker.stderr!.resume();
     let history;
     for (let i = 0; i < 100; i++) {
       history = (await agent.get(`/api/chats/${chat.id}/messages`).expect(200)).body.data;

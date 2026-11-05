@@ -1,3 +1,4 @@
+import { createLogger, createHttpLogger } from '../src/logging';
 import { Body, Controller, Get, Module, Param, Post, Query } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -19,7 +20,7 @@ import type {
 } from '@memory-weave/contracts';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ApiExceptionFilter, assignRequestId } from '../src/http/api-exception';
+import { ApiExceptionFilter } from '../src/http/api-exception';
 import { ApiResponseInterceptor } from '../src/http/api-response.interceptor';
 import { RequestHeader, ZodValidationPipe } from '../src/http/zod-validation.pipe';
 import { expectApiError } from './support/http';
@@ -66,7 +67,7 @@ describe('HTTP 参数自动校验与转换', () => {
   let app: INestApplication;
   beforeAll(async () => {
     app = await NestFactory.create(ValidationModule, { logger: false });
-    app.use(assignRequestId);
+    app.use(createHttpLogger(createLogger({ level: 'silent', format: 'json' })));
     app.useGlobalFilters(new ApiExceptionFilter());
     app.useGlobalInterceptors(new ApiResponseInterceptor());
     await app.init();

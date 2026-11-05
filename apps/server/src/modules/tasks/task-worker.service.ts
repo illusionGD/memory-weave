@@ -7,6 +7,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { OnModuleDestroy } from '@nestjs/common';
 import { setTimeout as delay } from 'node:timers/promises';
 import { API_CODES } from '@memory-weave/contracts';
+import { PinoLogger } from 'nestjs-pino';
 import { ApiException } from '../../http/api-exception';
 import { ModelRuntimeService } from '../models/model-runtime.service';
 import { TasksService } from './tasks.service';
@@ -26,6 +27,7 @@ export class TaskWorkerService implements OnModuleDestroy {
 
   /** 初始化后台任务执行器。 */
   constructor(
+    @Inject(PinoLogger) private readonly logger: PinoLogger,
     @Inject(DeploymentIdentity) private readonly deployment: DeploymentIdentity,
     @Inject(RetrievalIndexService) private readonly indexes: RetrievalIndexService,
     @Inject(MemoryExecutionService) private readonly memoryExecution: MemoryExecutionService,
@@ -76,9 +78,8 @@ export class TaskWorkerService implements OnModuleDestroy {
       try {
         const ownerId = await this.deployment.ownerId();
         pollMs = await this.poll(ownerId, signal);
-      } catch {
-        // 不打印连接串、任务正文或外部错误；持续失败会保留持久任务等待恢复。
-        console.warn(JSON.stringify({ event: 'tasks.poll.unavailable' }));
+      } catch (err) {
+        this.logger.warn({ event: 'tasks.poll.unavailable', err }, '任务调度暂时不可用。');
       }
       try {
         await delay(pollMs, undefined, { signal });
@@ -98,8 +99,8 @@ export class TaskWorkerService implements OnModuleDestroy {
       if (!this.indexing)
         this.indexing = this.indexes
           .schedule(ownerId)
-          .catch(() => {
-            console.warn(JSON.stringify({ event: 'indexes.poll.unavailable' }));
+          .catch((err) => {
+            this.logger.warn({ event: 'indexes.poll.unavailable', err }, '索引调度暂时不可用。');
           })
           .finally(() => {
             this.indexing = null;
@@ -121,6 +122,14 @@ export class TaskWorkerService implements OnModuleDestroy {
   /** 分派并执行已领取的后台任务。 */
   private async execute(lease: TaskLease): Promise<void> {
     const ownerId = lease.ownerId;
+    const startedAt = Date.now();
+    const fields = {
+      taskId: lease.task.id,
+      kind: lease.input.kind,
+      companionId: lease.task.scope.companionId,
+      attempt: lease.fence,
+    };
+    this.logger.info({ event: 'tasks.execution.started', ...fields }, '开始执行任务。');
     let heartbeatPending: Promise<void> | null = null;
     let leaseLost = false;
     const heartbeat = setInterval(
@@ -128,7 +137,8 @@ export class TaskWorkerService implements OnModuleDestroy {
         if (heartbeatPending || leaseLost) return;
         heartbeatPending = this.tasks
           .heartbeat(lease)
-          .catch(() => {
+          .catch((err) => {
+            this.logger.warn({ event: 'tasks.heartbeat.failed', ...fields, err }, '任务心跳失败。');
             leaseLost = true;
           })
           .finally(() => {
@@ -186,6 +196,10 @@ export class TaskWorkerService implements OnModuleDestroy {
         await this.tasks.block(lease, 'handler_unavailable');
       }
     } catch (error) {
+      this.logger.warn(
+        { event: 'tasks.execution.failed', ...fields, err: error },
+        '任务执行未完成。',
+      );
       if (error instanceof ApiException && error.code === API_CODES.TASK_LEASE_LOST) return;
       try {
         await this.tasks.fail(
@@ -198,12 +212,19 @@ export class TaskWorkerService implements OnModuleDestroy {
               API_CODES.DATA_UNAVAILABLE,
             ].some((code) => code === error.code),
         );
-      } catch {
-        console.warn(JSON.stringify({ event: 'tasks.result.uncommitted', taskId: lease.task.id }));
+      } catch (err) {
+        this.logger.error(
+          { event: 'tasks.result.uncommitted', ...fields, err },
+          '任务状态提交失败。',
+        );
       }
     } finally {
       clearInterval(heartbeat);
       await heartbeatPending;
+      this.logger.debug(
+        { event: 'tasks.execution.finished', ...fields, durationMs: Date.now() - startedAt },
+        '本次任务执行已结束。',
+      );
     }
   }
 }

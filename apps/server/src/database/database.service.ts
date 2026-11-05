@@ -1,4 +1,5 @@
 import { API_CODES } from '@memory-weave/contracts';
+import { PinoLogger } from 'nestjs-pino';
 import { Inject, Injectable } from '@nestjs/common';
 import type { OnApplicationShutdown } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
@@ -76,7 +77,10 @@ export class DatabaseService implements OnApplicationShutdown {
   readonly lifecycleMemoryTargets;
 
   /** 初始化数据库连接与查询服务。 */
-  constructor(@Inject(SERVER_CONFIG) config: RuntimeConfig) {
+  constructor(
+    @Inject(SERVER_CONFIG) config: RuntimeConfig,
+    @Inject(PinoLogger) private readonly logger: PinoLogger,
+  ) {
     this.pool = createPool({
       ...mysqlConnectionOptions(config.databaseUrl),
       connectionLimit: 4,
@@ -185,7 +189,10 @@ export class DatabaseService implements OnApplicationShutdown {
         if (!failure || error !== failure.error) {
           connection.destroy();
           discarded = true;
-          console.error(JSON.stringify({ event: 'database.transaction.connection_discarded' }));
+          this.logger.error(
+            { event: 'database.transaction.connection_discarded', err: error },
+            '事务连接状态不确定，已丢弃连接。',
+          );
         }
         throw failure ? failure.error : error;
       } finally {

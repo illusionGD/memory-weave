@@ -1,7 +1,7 @@
 import { createApplication } from '../../src/app';
 import { loadServerConfig } from './model-config';
 
-/** 故障测试专用进程，监听随机本机端口；仅输出端口，不输出部署配置。 */
+/** 启动故障测试服务，通过 IPC 通知端口，避免日志被误认为就绪信号。 */
 const app = await createApplication(loadServerConfig(process.env));
 await app.listen(0, '127.0.0.1');
-process.stdout.write(`${JSON.stringify({ url: await app.getUrl() })}\n`);
+process.send!({ url: await app.getUrl() });

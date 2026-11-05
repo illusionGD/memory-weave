@@ -1,3 +1,6 @@
+import { Logger, LoggerModule } from 'nestjs-pino';
+import type { Logger as Pino } from 'pino';
+import { createLogger, createHttpLogger, safeError } from './logging';
 import { CompanionRepository } from './modules/companions/companion.repository';
 import { PersonaTemplateRepository } from './modules/companions/persona-template.repository';
 import { MemoryExplorerController } from './modules/memory-explorer/memory-explorer.controller';
@@ -54,7 +57,7 @@ import { ReceivingController } from './modules/conversations/receiving.controlle
 import { ReceivingService } from './modules/conversations/receiving.service';
 import { WorkspaceController } from './modules/workspace/workspace.controller';
 import { WorkspaceService } from './modules/workspace/workspace.service';
-import { ApiExceptionFilter, assignRequestId } from './http/api-exception';
+import { ApiExceptionFilter } from './http/api-exception';
 import { ApiResponseInterceptor } from './http/api-response.interceptor';
 import { ModelsController } from './modules/models/models.controller';
 import { ModelConfigurationService } from './modules/models/model-configuration.service';
@@ -70,10 +73,16 @@ import { TasksController } from './modules/tasks/tasks.controller';
 @Module({})
 class ApplicationModule {
   /** 注册应用配置、控制器和服务依赖。 */
-  static register(config: ServerConfig): DynamicModule {
+  static register(config: ServerConfig, logger: Pino): DynamicModule {
     const { adminPassword, authSessionSecret, ...runtimeConfig } = config;
     return {
       module: ApplicationModule,
+      imports: [
+        LoggerModule.forRoot({
+          pinoHttp: { logger, serializers: { err: safeError }, wrapSerializers: false },
+          useExisting: true,
+        }),
+      ],
       controllers: [
         MemoryExplorerController,
         RetrievalController,
@@ -147,13 +156,19 @@ class ApplicationModule {
  * @param config 部署环境配置。
  * @returns 已初始化的 Nest HTTP 应用。
  */
-export async function createApplication(config: ServerConfig): Promise<INestApplication> {
-  const app = await NestFactory.create(ApplicationModule.register(config), {
-    logger: false,
+export async function createApplication(
+  config: ServerConfig,
+  logger: Pino = createLogger(config.logging),
+): Promise<INestApplication> {
+  const app = await NestFactory.create(ApplicationModule.register(config, logger), {
+    bufferLogs: true,
+    abortOnError: false,
     bodyParser: false,
   });
+  app.useLogger(app.get(Logger));
   app.setGlobalPrefix('api');
-  app.use(assignRequestId);
+  // 放在来源检查和正文解析前，确保这些失败也记录一次完成日志。
+  app.use(createHttpLogger(logger));
   app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalInterceptors(new ApiResponseInterceptor());
   app.use(

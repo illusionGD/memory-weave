@@ -10,7 +10,7 @@ import {
   getApiResponseDefinition,
 } from '@memory-weave/contracts';
 import type { ApiErrorResponse } from '@memory-weave/contracts';
-import type { RequestHandler, Response } from 'express';
+import type { Response } from 'express';
 
 /** 可对外展示的业务异常；共享码表提供默认值，也允许业务自定义数字码和提示。 */
 export class ApiException extends HttpException {
@@ -40,16 +40,6 @@ export class ApiException extends HttpException {
 }
 
 /**
- * 为 HTTP 请求分配追踪编号。
- *
- * 每次请求生成新的追踪编号，不接受客户端伪造或复用服务端日志标识。
- */
-export const assignRequestId: RequestHandler = (_request, response, next): void => {
-  response.setHeader(REQUEST_ID_HEADER, randomUUID());
-  next();
-};
-
-/**
  * 发送统一格式的 API 错误响应。
  *
  * 中间件与异常过滤器共用同一个输出入口，不拼装不同格式的失败正文。
@@ -68,8 +58,8 @@ export function sendApiError(response: Response, error: ApiException): void {
   const body: ApiErrorResponse = { code, data: null, message };
   response.setHeader(REQUEST_ID_HEADER, requestId);
   response.setHeader('Cache-Control', 'no-store');
-  // 不记录提示、请求、凭据或异常堆栈；自定义提示仅进入本次业务响应。
-  console.error(JSON.stringify({ event: 'http.request.failed', requestId, statusCode, code }));
+  // pino-http 在响应完成后统一记录，不重复输出同一个错误。
+  response.locals.apiCode = code;
   response.status(statusCode).json(body);
 }
 
@@ -84,6 +74,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
    * @param host 当前 HTTP 请求上下文。
    */
   catch(exception: unknown, host: ArgumentsHost): void {
+    const response = host.switchToHttp().getResponse<Response>();
+    // 原异常只交给安全序列化器，HTTP 响应继续使用受控提示。
+    if (
+      exception instanceof Error &&
+      (!(exception instanceof HttpException) || exception.getStatus() >= 500)
+    )
+      response.err = exception;
     if (exception instanceof DrizzleQueryError) exception = normalizeDatabaseError(exception);
     const error =
       exception instanceof ApiException
@@ -93,7 +90,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
               ? defaultApiErrorCode(exception.getStatus())
               : API_CODES.INTERNAL_ERROR,
           );
-    sendApiError(host.switchToHttp().getResponse<Response>(), error);
+    sendApiError(response, error);
   }
 }
 
@@ -109,7 +106,7 @@ export async function databaseOperation<T>(operation: () => Promise<T>): Promise
 export function normalizeDatabaseError(error: unknown): unknown {
   if (error instanceof HttpException) return error;
   const code = databaseErrorCode(error);
-  if (code === 'ER_DUP_ENTRY') return new ApiException(API_CODES.CONFLICT);
+  if (code === 'ER_DUP_ENTRY') return databaseException(API_CODES.CONFLICT, error);
   if (
     [
       'ER_NO_REFERENCED_ROW_2',
@@ -122,9 +119,9 @@ export function normalizeDatabaseError(error: unknown): unknown {
       'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD',
     ].includes(code ?? '')
   ) {
-    return new ApiException(API_CODES.DATA_CONSTRAINT_VIOLATION);
+    return databaseException(API_CODES.DATA_CONSTRAINT_VIOLATION, error);
   }
-  if (code) return new ApiException(API_CODES.DATA_UNAVAILABLE);
+  if (code) return databaseException(API_CODES.DATA_UNAVAILABLE, error);
   // 无法识别为数据库错误的异常交给全局 500 处理，避免掩盖业务代码缺陷。
   return error;
 }
@@ -142,4 +139,11 @@ function databaseErrorCode(error: unknown): string | undefined {
     current = 'cause' in current ? current.cause : undefined;
   }
   return undefined;
+}
+
+/** 保留数据库异常的原因链，日志仅提取类型、错误码和堆栈位置。 */
+function databaseException(code: number, cause: unknown): ApiException {
+  const error = new ApiException(code);
+  error.cause = cause;
+  return error;
 }

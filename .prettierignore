@@ -8,3 +8,5 @@ pnpm-lock.yaml
 LICENSE
 docs/architecture.md
 docs/plan.md
+
+.cache

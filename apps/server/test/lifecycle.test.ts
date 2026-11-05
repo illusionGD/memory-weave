@@ -383,7 +383,7 @@ describe('生命周期公共命令与恢复', () => {
       process.execPath,
       ['--import', 'tsx', fileURLToPath(new URL('./support/task-process.ts', import.meta.url))],
       {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         env: {
           ...process.env,
           DATABASE_URL: config.databaseUrl,
@@ -404,22 +404,13 @@ describe('生命周期公共命令与恢复', () => {
         },
       },
     );
+    worker.stdout!.resume();
+    worker.stderr!.resume();
     const url = await new Promise<string>((resolve, reject) => {
-      let output = '';
       const timeout = setTimeout(() => reject(new Error('清理子进程未就绪')), 5000);
-      worker!.stdout!.on('data', (chunk: Buffer) => {
-        output += chunk.toString();
-        for (const line of output.split('\n').slice(0, -1)) {
-          try {
-            const value = JSON.parse(line) as { url?: string };
-            if (value.url) {
-              clearTimeout(timeout);
-              resolve(value.url);
-            }
-          } catch {
-            /* 等待完整就绪行。 */
-          }
-        }
+      worker!.once('message', (message: { url: string }) => {
+        clearTimeout(timeout);
+        resolve(message.url);
       });
       worker!.once('error', (error) => {
         clearTimeout(timeout);

@@ -821,7 +821,7 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
       process.execPath,
       ['--import', 'tsx', fileURLToPath(new URL('./support/model-process.ts', import.meta.url))],
       {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         env: {
           ...process.env,
           DATABASE_URL: config.databaseUrl,
@@ -842,19 +842,21 @@ describe('模型配置和调用的公开 HTTP 边界', () => {
         },
       },
     );
+    worker.stdout!.resume();
+    worker.stderr!.resume();
     const workerUrl = await new Promise<string>((resolve, reject) => {
-      let output = '';
       const timer = setTimeout(() => reject(new Error('测试子进程启动超时。')), 5000);
       worker!.once('error', () => {
         clearTimeout(timer);
         reject(new Error('测试子进程无法启动。'));
       });
-      worker!.stdout!.on('data', (chunk) => {
-        output += String(chunk);
-        if (output.includes('\n')) {
-          clearTimeout(timer);
-          resolve((JSON.parse(output.split('\n')[0]!) as { url: string }).url);
-        }
+      worker!.once('message', (message: { url: string }) => {
+        clearTimeout(timer);
+        resolve(message.url);
+      });
+      worker!.once('exit', () => {
+        clearTimeout(timer);
+        reject(new Error('测试子进程提前退出。'));
       });
     });
     const remote = request.agent(workerUrl);

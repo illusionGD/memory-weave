@@ -12,8 +12,8 @@ if (process.env.TASK_TEST_MODE === 'checkpoint') {
   const lease = await asOwner(app, (ownerId) => tasks.claim(ownerId));
   if (!lease) throw new Error('没有可领取的测试任务。');
   await asOwner(app, () => tasks.checkpoint(lease, { completedSteps: 1, stage: 'steps' }));
-  process.stdout.write(`${JSON.stringify({ taskId: lease.task.id, checkpoint: 1 })}\n`);
+  process.send!({ taskId: lease.task.id, checkpoint: 1 });
 } else {
   await app.get(TaskWorkerService).start();
-  process.stdout.write(`${JSON.stringify({ url: await app.getUrl() })}\n`);
+  process.send!({ url: await app.getUrl() });
 }

@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import { PinoLogger } from 'nestjs-pino';
 import { createConnection } from 'mysql2/promise';
 import { mysqlConnectionOptions } from '../src/database/connection';
 import { randomUUID } from 'node:crypto';
@@ -15,6 +16,7 @@ describe('统一数据库表入口连接真实 MySQL', () => {
   let database: DatabaseService;
   let config: RuntimeConfig;
   let ownerId: string;
+  const logger = new PinoLogger({ pinoHttp: { level: 'silent' } });
 
   beforeAll(async () => {
     fixture = await createTestDatabase();
@@ -31,7 +33,7 @@ describe('统一数据库表入口连接真实 MySQL', () => {
       dataDir: '/tmp',
       webDistDir: null,
     };
-    database = new DatabaseService(config);
+    database = new DatabaseService(config, logger);
     ownerId = await database.resolveDeploymentOwner('local');
   });
 
@@ -114,7 +116,10 @@ describe('统一数据库表入口连接真实 MySQL', () => {
   });
   it('直接表入口在数据库结构未就绪时返回统一不可用错误', async () => {
     const pending = await createTestDatabase({ migrate: false });
-    const pendingDatabase = new DatabaseService({ ...config, databaseUrl: pending.databaseUrl });
+    const pendingDatabase = new DatabaseService(
+      { ...config, databaseUrl: pending.databaseUrl },
+      logger,
+    );
     try {
       await expect(pendingDatabase.owners.findOne(ownerId)).rejects.toMatchObject({ code: 50301 });
     } finally {

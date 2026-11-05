@@ -21,6 +21,23 @@ const BASE_ENV = {
 };
 
 describe('server bootstrap configuration', () => {
+  it('开发默认易读日志，正式默认 JSON；无效级别和正式 pretty 配置被拒绝', () => {
+    expect(loadServerConfig({ ...BASE_ENV, NODE_ENV: 'development' }).logging).toEqual({
+      level: 'info',
+      format: 'pretty',
+    });
+    expect(loadServerConfig({ ...BASE_ENV, NODE_ENV: 'production' }).logging).toEqual({
+      level: 'info',
+      format: 'json',
+    });
+    expect(loadServerConfig({ ...BASE_ENV, LOG_LEVEL: 'debug' }).logging?.level).toBe('debug');
+    expect(() => loadServerConfig({ ...BASE_ENV, LOG_LEVEL: 'private-invalid' })).toThrow(
+      'LOG_LEVEL',
+    );
+    expect(() =>
+      loadServerConfig({ ...BASE_ENV, NODE_ENV: 'production', LOG_FORMAT: 'pretty' }),
+    ).toThrow('LOG_FORMAT');
+  });
   it('拒绝缺失或不安全的 Redis 配置且不在错误中回显敏感值', () => {
     for (const [key, value] of [
       ['REDIS_URL', ''],

@@ -9,6 +9,8 @@ catalog:
 # Keep transitive type packages on the same Node API baseline as the workspace.
 overrides:
   '@types/node': 'catalog:'
+  # Nest CLI 的 Webpack 使用兼容补丁版本，满足 schema-utils 的 peer 要求。
+  '@nestjs/cli>webpack': '^5.112.0'
 
 injectWorkspacePackages: true
 syncInjectedDepsAfterScripts:

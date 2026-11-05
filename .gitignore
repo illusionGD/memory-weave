@@ -20,3 +20,6 @@ task-config.local.json
 # 实际模型部署配置由本机或服务器独立维护
 config/models.development.json
 config/models.production.json
+
+# Nest CLI 开发构建缓存
+.cache/

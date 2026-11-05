@@ -752,7 +752,7 @@ describe('检索与未整理补读的公开协议', () => {
       process.execPath,
       ['--import', 'tsx', fileURLToPath(new URL('./support/task-process.ts', import.meta.url))],
       {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         env: {
           ...process.env,
           DATABASE_URL: database.databaseUrl,
@@ -774,6 +774,8 @@ describe('检索与未整理补读的公开协议', () => {
         },
       },
     );
+    child.stdout!.resume();
+    child.stderr!.resume();
     await expect.poll(() => written, { timeout: 10000 }).toBe(true);
     const exited = once(child, 'exit');
     child.kill('SIGKILL');

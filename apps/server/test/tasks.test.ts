@@ -113,7 +113,7 @@ describe('持久任务的公开控制与恢复边界', () => {
       process.execPath,
       ['--import', 'tsx', fileURLToPath(new URL('./support/task-process.ts', import.meta.url))],
       {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         env: {
           ...process.env,
           DATABASE_URL: config.databaseUrl,
@@ -138,13 +138,16 @@ describe('持久任务的公开控制与恢复边界', () => {
         },
       },
     );
+    // 持续消费日志，通过独立 IPC 等待检查点保存或 worker 就绪。
+    child.stdout!.resume();
+    child.stderr!.resume();
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('测试 worker 启动超时。')), 5000);
       child!.once('error', () => {
         clearTimeout(timer);
         reject(new Error('测试 worker 启动失败。'));
       });
-      child!.stdout!.once('data', () => {
+      child!.once('message', () => {
         clearTimeout(timer);
         resolve();
       });
