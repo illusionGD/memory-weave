@@ -11,7 +11,7 @@ import { assertVersionSources } from '../memories/memory-records';
  * 模型派发、向量写入及进度提交前核对权威版本和来源。
  */
 export async function requireIndexSource(ownerId: string, id: string, tx: DatabaseTransaction) {
-  const [row] = await tx
+  const [row] = await tx.sql
     .select({ index: memoryVectorIndexes, entry: memoryEntries, version: memoryVersions })
     .from(memoryVectorIndexes)
     .innerJoin(memoryEntries, eq(memoryEntries.id, memoryVectorIndexes.memoryId))

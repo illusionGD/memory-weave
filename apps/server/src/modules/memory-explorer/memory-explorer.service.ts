@@ -49,7 +49,7 @@ export class MemoryExplorerService {
   ): Promise<MemoryExplorerConversations> {
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanion(ownerId, companionId, query.runtimeEpoch, tx);
-      const rows = await tx
+      const rows = await tx.sql
         .select({ id: conversations.id, title: conversations.title, kind: conversations.kind })
         .from(conversations)
         .innerJoin(conversationMembers, eq(conversationMembers.conversationId, conversations.id))
@@ -88,7 +88,7 @@ export class MemoryExplorerService {
         input.references.map((reference) => [reference.versionId, reference.stamp]),
       );
       if (!expected.size) return { valid: true };
-      const rows = await tx
+      const rows = await tx.sql
         .select(explorerStampSelection)
         .from(memoryEntries)
         .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId))
@@ -146,7 +146,7 @@ export class MemoryExplorerService {
       const status = sql`CASE WHEN ${memoryVersions.invalidatedAt} IS NOT NULL THEN 'invalidated' WHEN ${memoryVersions.id} = ${memoryEntries.currentVersionId} THEN ${memoryEntries.status} WHEN ${memoryVersions.operation} = 'conflict' THEN 'disputed' ELSE 'active' END`;
       const cursor = readExplorerCursor(query.cursor, cursorScope, now);
       const asOf = cursor?.asOf ?? now.toISOString();
-      const rows = await tx
+      const rows = await tx.sql
         .select(explorerSelection)
         .from(memoryEntries)
         .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId))

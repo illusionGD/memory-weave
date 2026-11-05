@@ -12,7 +12,6 @@ import {
   chatSegments,
   messages,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import {
   assertVisible,
@@ -64,7 +63,7 @@ export class ChatExecutionService {
       const run = await this.guard(ownerId, tx, lease);
       const built = await this.contexts.prepare(ownerId, tx, lease, run, config, recall);
       if (!run.context) {
-        await tx
+        await tx.sql
           .insert(chatRunSources)
           .values(
             [
@@ -81,7 +80,7 @@ export class ChatExecutionService {
           )
           .onDuplicateKeyUpdate({ set: { runId: run.id } });
         if (built.context.recall?.memories.length)
-          await tx
+          await tx.sql
             .insert(chatMemorySources)
             .values(
               built.context.recall.memories.map((item) => ({
@@ -91,7 +90,7 @@ export class ChatExecutionService {
               })),
             )
             .onDuplicateKeyUpdate({ set: { runId: run.id } });
-        await tx
+        await tx.sql
           .update(chatRuns)
           .set({
             context: built.context,
@@ -225,7 +224,7 @@ export class ChatExecutionService {
         run.conversationId,
         tx,
       );
-      const [source] = await tx
+      const [source] = await tx.sql
         .select()
         .from(messages)
         .where(
@@ -238,7 +237,7 @@ export class ChatExecutionService {
         );
       if (!source?.sequence) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       await assertVisible(member, source.sequence, tx);
-      const previous = await tx
+      const previous = await tx.sql
         .select()
         .from(messages)
         .where(
@@ -295,18 +294,16 @@ export class ChatExecutionService {
     lease: TaskLease,
   ): Promise<typeof chatRuns.$inferSelect> {
     await this.jobs.guardDispatch(ownerId, tx, lease);
-    const thread = await tables.chatThreads
-      .bind(tx, ownerId)
-      .findOne({ where: { conversationId: lease.task.scope.conversationId! } });
-    const run = await tables.chatRuns.bind(tx, ownerId).findOne({ where: { id: lease.task.id } });
+    const thread = await tx.chatThreads.findOne({
+      where: { conversationId: lease.task.scope.conversationId! },
+    });
+    const run = await tx.chatRuns.findOne({ where: { id: lease.task.id } });
     if (!thread || !run || thread.currentRunId !== run.id || run.interruptedAt)
       throw new ApiException(API_CODES.TASK_LEASE_LOST);
     if (run.context) {
       if (run.context.recall)
         await validateRecallSnapshot(ownerId, lease.task.scope, run.context.recall, tx);
-      const companion = await tables.companions
-        .bind(tx, ownerId)
-        .findOne({ where: { id: thread.companionId } });
+      const companion = await tx.companions.findOne({ where: { id: thread.companionId } });
       if (companion?.currentPersonaVersionId !== run.context.personaVersionId)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
     }
@@ -322,9 +319,7 @@ export class ChatExecutionService {
     // 模型取消与片段发布共用配置锁，顺序固定为模型锁 → 调度锁 → 会话锁。
     return this.configuration.locked(async (ownerId, tx) => {
       const run = await this.guard(ownerId, tx, lease);
-      const call = await tables.modelCalls
-        .bind(tx, ownerId)
-        .findOne({ where: { requestId: run.id } });
+      const call = await tx.modelCalls.findOne({ where: { requestId: run.id } });
       if (!call || !['running', 'succeeded'].includes(call.status))
         throw new ApiException(API_CODES.MODEL_CANCELLED);
       const prefix = await this.published(ownerId, tx, run.id);
@@ -363,7 +358,7 @@ export class ChatExecutionService {
           expectedRevision: draft.revision,
         },
       );
-      await tables.chatSegments.bind(tx, ownerId).insert({
+      await tx.chatSegments.insert({
         messageId: message.id,
         runId: run.id,
         position: expectedOffset + 1,
@@ -378,7 +373,7 @@ export class ChatExecutionService {
     tx: DatabaseTransaction,
     runId: string,
   ): Promise<string> {
-    const rows = await tx
+    const rows = await tx.sql
       .select({ text: messages.text })
       .from(chatSegments)
       .innerJoin(

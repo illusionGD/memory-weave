@@ -11,7 +11,6 @@ import {
   personaFoundations,
   readReceipts,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import {
   assertVisible,
@@ -58,7 +57,7 @@ export class ChatContextService {
     const context = run.context;
     if (context?.recall) await validateRecallSnapshot(ownerId, scope, context.recall, tx);
     if (recall) await validateRecallSnapshot(ownerId, scope, recall, tx);
-    const persona = await tables.personaVersions.bind(tx, ownerId).findOne({
+    const persona = await tx.personaVersions.findOne({
       where: {
         companionId: companion.id,
         runtimeEpoch: scope.runtimeEpoch!,
@@ -67,7 +66,7 @@ export class ChatContextService {
     });
     if (!persona) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     const [foundation] = !persona.document
-      ? await tx
+      ? await tx.sql
           .select()
           .from(personaFoundations)
           .where(
@@ -80,7 +79,7 @@ export class ChatContextService {
       : [];
 
     const rows = context
-      ? await tx
+      ? await tx.sql
           .select()
           .from(messages)
           .where(
@@ -95,7 +94,7 @@ export class ChatContextService {
           )
           .orderBy(asc(messages.sequence))
       : (
-          await tables.messages.bind(tx, ownerId).findMany({
+          await tx.messages.findMany({
             where: { conversationId: scope.conversationId!, state: 'published', deletedAt: null },
             orderBy: [desc(messages.sequence)],
             limit: run.configuration.historyMessages,
@@ -116,7 +115,7 @@ export class ChatContextService {
         ))
     )
       throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-    const members = await tx
+    const members = await tx.sql
       .select()
       .from(conversationMembers)
       .where(
@@ -125,7 +124,7 @@ export class ChatContextService {
           eq(conversationMembers.conversationId, scope.conversationId!),
         ),
       );
-    const [owner] = await tx.select().from(owners).where(eq(owners.id, ownerId));
+    const [owner] = await tx.sql.select().from(owners).where(eq(owners.id, ownerId));
     const selected = [...rows];
     if (!context) {
       // 最近页可能从旧回复的中间开始；丢弃没有对应用户发言的旧片段。
@@ -224,7 +223,7 @@ export class ChatContextService {
       }));
     }
     if (selected.length)
-      await tx
+      await tx.sql
         .insert(readReceipts)
         .values(
           selected.map((row) => ({
@@ -240,7 +239,7 @@ export class ChatContextService {
         )
         .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
     if (snapshot.recall?.pending.length)
-      await tx
+      await tx.sql
         .insert(readReceipts)
         .values(
           snapshot.recall.pending.map((source) => ({
@@ -256,7 +255,7 @@ export class ChatContextService {
         )
         .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
     if (snapshot.recall?.querySources?.length)
-      await tx
+      await tx.sql
         .insert(readReceipts)
         .values(
           snapshot.recall.querySources.map((source) => ({

@@ -5,7 +5,7 @@ import { createPool } from 'mysql2/promise';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mysqlConnectionOptions } from '../src/database/connection';
-import type { Database } from '../src/database/database.service';
+import type { SqlDatabase } from '../src/database/database.service';
 import * as schema from '../src/database/schema';
 import { defineTable } from '../src/database/table-repository';
 import type { TestDatabase } from './support/database';
@@ -16,7 +16,7 @@ const conversationTable = defineTable(schema.conversations, { scope: 'ownerId', 
 describe('类型化表访问入口连接真实 MySQL', () => {
   let database: TestDatabase;
   let pool: Pool;
-  let db: Database;
+  let db: SqlDatabase;
   let ownerId: string;
   const statements: string[] = [];
   const otherOwner = randomUUID();

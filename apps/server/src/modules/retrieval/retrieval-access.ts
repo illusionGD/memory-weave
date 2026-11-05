@@ -3,7 +3,6 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { conversationMembers, conversations } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { requireCompanionMember } from '../conversations/conversation-access';
 
 /**
@@ -19,17 +18,15 @@ export async function recallConversationScope(
   tx: DatabaseTransaction,
 ): Promise<SQL> {
   await requireCompanionMember(ownerId, companionId, runtimeEpoch, conversationId, tx);
-  const target = await tables.conversations
-    .bind(tx, ownerId)
-    .findOne({ where: { id: conversationId } });
-  const user = await tables.conversationMembers
-    .bind(tx, ownerId)
-    .findOne({ where: { conversationId: conversationId, kind: 'user', userId: ownerId } });
+  const target = await tx.conversations.findOne({ where: { id: conversationId } });
+  const user = await tx.conversationMembers.findOne({
+    where: { conversationId: conversationId, kind: 'user', userId: ownerId },
+  });
   if (target?.kind !== 'private' || !user) return sql`${conversations.id} = ${conversationId}`;
   const member = alias(conversationMembers, 'recall_member');
   const other = alias(conversationMembers, 'recall_other');
   return sql`(${conversations.id} = ${conversationId} OR (
-    ${conversations.kind} = 'private' AND EXISTS (${tx
+    ${conversations.kind} = 'private' AND EXISTS (${tx.sql
       .select({ id: member.id })
       .from(member)
       .where(
@@ -40,7 +37,7 @@ export async function recallConversationScope(
           eq(member.runtimeEpoch, runtimeEpoch),
           isNull(member.deletedAt),
         ),
-      )}) AND NOT EXISTS (${tx
+      )}) AND NOT EXISTS (${tx.sql
       .select({ id: other.id })
       .from(other)
       .where(

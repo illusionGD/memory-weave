@@ -3,7 +3,6 @@ import { eq, sql } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { DatabaseService } from '../../database/database.service';
 import { taskSchedulerHeads } from '../../database/schema';
-import { tables } from '../../database/tables';
 
 /** 只负责短调度事务；不同服务进程共享同一部署互斥，不持有外部调用。 */
 @Injectable()
@@ -36,11 +35,11 @@ export class TaskStore {
  * 与模型派发事务共用调度锁；模型锁先于调度锁，禁止反向调用模型事务。
  */
 export async function lockTaskScheduler(ownerId: string, tx: DatabaseTransaction): Promise<Date> {
-  await tx
+  await tx.sql
     .insert(taskSchedulerHeads)
     .values({ ownerId })
     .onDuplicateKeyUpdate({ set: { ownerId } });
-  await tx
+  await tx.sql
     .select()
     .from(taskSchedulerHeads)
     .where(eq(taskSchedulerHeads.ownerId, ownerId))
@@ -54,7 +53,7 @@ export async function lockTaskScheduler(ownerId: string, tx: DatabaseTransaction
  * 每次语句重新读取数据库当前时间，不能以事务起始时间批准迟到提交。
  */
 export async function taskDatabaseTime(ownerId: string, tx: DatabaseTransaction): Promise<Date> {
-  const clock = await tables.taskSchedulerHeads.bind(tx, ownerId).findOne({
+  const clock = await tx.taskSchedulerHeads.findOne({
     fields: { milliseconds: sql<string>`UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000` },
   });
   return new Date(Number(clock!.milliseconds));

@@ -24,7 +24,6 @@ import {
   readReceipts,
   tasks,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
 import { ModelConfigurationService } from '../models/model-configuration.service';
@@ -65,9 +64,7 @@ export class MemoriesService {
         tx,
       );
       const hash = fingerprint({ companionId, ...input });
-      const existing = await tables.memoryBatches
-        .bind(tx, ownerId)
-        .findOne({ where: { requestId: input.requestId } });
+      const existing = await tx.memoryBatches.findOne({ where: { requestId: input.requestId } });
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return this.result(existing);
@@ -106,9 +103,7 @@ export class MemoriesService {
         tx,
       );
       const hash = fingerprint({ companionId, retryBatchId: id, ...input });
-      const replay = await tables.memoryBatches
-        .bind(tx, ownerId)
-        .findOne({ where: { requestId: input.requestId } });
+      const replay = await tx.memoryBatches.findOne({ where: { requestId: input.requestId } });
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return this.result(replay);
@@ -120,12 +115,8 @@ export class MemoriesService {
         previous.conversationId !== input.conversationId
       )
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-      const task = await tables.tasks
-        .bind(tx, ownerId)
-        .findOne({ where: { id: previous.taskId ?? '' } });
-      const call = await tables.modelCalls
-        .bind(tx, ownerId)
-        .findOne({ where: { requestId: previous.taskId ?? '' } });
+      const task = await tx.tasks.findOne({ where: { id: previous.taskId ?? '' } });
+      const call = await tx.modelCalls.findOne({ where: { requestId: previous.taskId ?? '' } });
       if (
         previous.completedAt ||
         !task ||
@@ -137,10 +128,8 @@ export class MemoriesService {
           API_CODES.TASK_STATE_CONFLICT,
           '原批次仍在执行或外部结果未确定，不能重发。',
         );
-      await tables.memoryBatches
-        .bind(tx, ownerId)
-        .updateWhere({ where: { id: id }, set: { completedAt: now } });
-      await tables.processingRanges.bind(tx, ownerId).updateWhere({
+      await tx.memoryBatches.updateWhere({ where: { id: id }, set: { completedAt: now } });
+      await tx.processingRanges.updateWhere({
         where: { batchId: id, status: 'processing' },
         set: { status: 'pending', batchId: null },
       });
@@ -168,7 +157,7 @@ export class MemoriesService {
     if (!config.enabled) return;
     const current = await this.models.get();
     await this.store.locked(async (ownerId, tx, now) => {
-      const groups = await tx
+      const groups = await tx.sql
         .select({
           companionId: processingRanges.companionId,
           runtimeEpoch: processingRanges.runtimeEpoch,
@@ -297,7 +286,7 @@ export class MemoriesService {
         query.conversationId,
         tx,
       );
-      const rows = await tx
+      const rows = await tx.sql
         .select({ batch: memoryBatches, task: tasks })
         .from(memoryBatches)
         .leftJoin(tasks, eq(tasks.id, memoryBatches.taskId))
@@ -352,12 +341,12 @@ export class MemoriesService {
       command.conversationId,
       tx,
     );
-    const active = await tables.memoryBatches.bind(tx, ownerId).findOne({
+    const active = await tx.memoryBatches.findOne({
       where: { companionId: companionId, runtimeEpoch: command.runtimeEpoch, completedAt: null },
       fields: { id: memoryBatches.id },
     });
     if (active) return null;
-    const ranges = await tx
+    const ranges = await tx.sql
       .select({ range: processingRanges, message: messages, speaker: conversationMembers })
       .from(processingRanges)
       .innerJoin(
@@ -382,7 +371,7 @@ export class MemoriesService {
       .orderBy(asc(processingRanges.startSequence))
       .limit(config.maxMessages);
     if (!force && !ranges.length) return null;
-    const [latest] = await tx
+    const [latest] = await tx.sql
       .select({ publishedAt: messages.publishedAt })
       .from(messages)
       .where(
@@ -436,7 +425,7 @@ export class MemoriesService {
       selected.push(row);
     }
     if (selected.length) {
-      const context = await tx
+      const context = await tx.sql
         .select({ message: messages, speaker: conversationMembers })
         .from(messages)
         .innerJoin(conversationMembers, eq(conversationMembers.id, messages.speakerMembershipId))
@@ -480,7 +469,7 @@ export class MemoriesService {
           break;
         }
       }
-      const related = await tx
+      const related = await tx.sql
         .select({ entry: memoryEntries, version: memoryVersions })
         .from(memoryEntries)
         .innerJoin(memoryVersions, eq(memoryVersions.id, memoryEntries.currentVersionId))
@@ -540,7 +529,7 @@ export class MemoriesService {
       createdAt: now,
       completedAt: taskId ? null : now,
     };
-    await tx.insert(memoryBatches).values(row);
+    await tx.sql.insert(memoryBatches).values(row);
     if (taskId) {
       const taskInput = { kind: 'memory_batch' as const, batchId: id };
       const scope = {
@@ -548,7 +537,7 @@ export class MemoriesService {
         runtimeEpoch: command.runtimeEpoch,
         conversationId: command.conversationId,
       };
-      await tables.tasks.bind(tx, ownerId).insert({
+      await tx.tasks.insert({
         id: taskId,
         requestKey: `memory-batch:${id}`,
         fingerprint: fingerprint({ input: taskInput, scope }),
@@ -563,7 +552,7 @@ export class MemoriesService {
         updatedAt: now,
         availableAt: now,
       });
-      await tx
+      await tx.sql
         .insert(readReceipts)
         .values(
           input.messages.map((source) => ({
@@ -578,7 +567,7 @@ export class MemoriesService {
           })),
         )
         .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
-      await tables.processingRanges.bind(tx, ownerId).updateWhere({
+      await tx.processingRanges.updateWhere({
         where: inArray(
           processingRanges.id,
           selected.map((r) => r.range.id),

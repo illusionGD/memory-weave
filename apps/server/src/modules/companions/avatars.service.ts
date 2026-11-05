@@ -7,7 +7,6 @@ import sharp from 'sharp';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { DatabaseService } from '../../database/database.service';
 import { companions } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { AvatarFiles, publicAvatar } from './avatar-files';
 
@@ -22,7 +21,7 @@ export class AvatarsService {
   ) {}
   /** 锁定伴侣记录并执行头像操作。 */
   private async lock(ownerId: string, id: string, tx: DatabaseTransaction) {
-    const [row] = await tx
+    const [row] = await tx.sql
       .select()
       .from(companions)
       .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)))
@@ -103,7 +102,7 @@ export class AvatarsService {
           if (row.avatarVersion === 2147483647)
             throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
           await this.files.save(ownerId, id, avatar, bytes);
-          await tables.companions.bind(tx, ownerId).updateWhere({
+          await tx.companions.updateWhere({
             where: { id: id },
             set: { avatar, avatarVersion: row.avatarVersion + 1 },
           });
@@ -129,7 +128,7 @@ export class AvatarsService {
             throw new ApiException(API_CODES.VERSION_CONFLICT);
           if (row.avatarVersion === 2147483647)
             throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
-          await tables.companions.bind(tx, ownerId).updateWhere({
+          await tx.companions.updateWhere({
             where: { id: id },
             set: { avatar: null, avatarVersion: row.avatarVersion + 1 },
           });

@@ -19,7 +19,6 @@ import {
   personaVersions,
   tasks,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { requireCompanion, requireConversation } from '../conversations/conversation-access';
 import { ModelConfigurationService } from '../models/model-configuration.service';
@@ -47,9 +46,9 @@ export class LifecycleService {
     return this.models.locked(async (ownerId, tx) => {
       await lockTaskScheduler(ownerId, tx);
       const hash = fingerprint(input);
-      const existing = await tables.lifecycleOperations
-        .bind(tx, ownerId)
-        .findOne({ where: { requestId: input.requestId } });
+      const existing = await tx.lifecycleOperations.findOne({
+        where: { requestId: input.requestId },
+      });
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return this.read(ownerId, tx, existing.id);
@@ -60,7 +59,7 @@ export class LifecycleService {
           throw new ApiException(API_CODES.VERSION_CONFLICT);
         if (conversation.version >= 2147483647 || conversation.contentRevision >= 2147483647)
           throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
-        const selected = await tx
+        const selected = await tx.sql
           .select()
           .from(messages)
           .where(
@@ -89,7 +88,7 @@ export class LifecycleService {
         const id = randomUUID();
         // 跨私聊回忆只在同一伴侣与用户之间开放；先限制这组可能依赖的会话，传播完成后统一解除。
         const affected = sql`${conversations.ownerId} = ${ownerId} AND (${conversations.id} = ${conversation.id} OR (${conversations.kind} = 'private' AND EXISTS (SELECT 1 FROM conversation_members cm WHERE cm.conversation_id = ${conversations.id} AND cm.kind = 'companion' AND cm.companion_id IN (SELECT companion_id FROM conversation_members WHERE conversation_id = ${conversation.id} AND kind = 'companion'))))`;
-        const busy = await tables.conversations.bind(tx, ownerId).findOne({
+        const busy = await tx.conversations.findOne({
           where: and(
             affected,
             or(
@@ -101,7 +100,7 @@ export class LifecycleService {
           fields: { id: conversations.id },
         });
         if (busy) throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
-        await tables.lifecycleOperations.bind(tx, ownerId).insert({
+        await tx.lifecycleOperations.insert({
           id,
           requestId: input.requestId,
           taskId: id,
@@ -110,7 +109,7 @@ export class LifecycleService {
           kind: input.kind,
           conversationId: conversation.id,
         });
-        await tx.insert(lifecycleMessageTargets).values(
+        await tx.sql.insert(lifecycleMessageTargets).values(
           selected.map((row) => ({
             ownerId,
             operationId: id,
@@ -119,7 +118,7 @@ export class LifecycleService {
             kind: 'selected' as const,
           })),
         );
-        await tables.conversations.bind(tx, ownerId).updateWhere({
+        await tx.conversations.updateWhere({
           where: affected,
           set: {
             lifecycleOperationId: id,
@@ -127,7 +126,7 @@ export class LifecycleService {
             version: sql`${conversations.version} + 1`,
           },
         });
-        await tables.tasks.bind(tx, ownerId).insert({
+        await tx.tasks.insert({
           id,
           requestKey: `lifecycle:${input.requestId.toLowerCase()}`,
           fingerprint: hash,
@@ -145,7 +144,7 @@ export class LifecycleService {
         throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
       const id = randomUUID();
       const nextEpoch = input.kind === 'reset_companion' ? companion.runtimeEpoch + 1 : null;
-      await tables.lifecycleOperations.bind(tx, ownerId).insert({
+      await tx.lifecycleOperations.insert({
         id,
         requestId: input.requestId,
         taskId: id,
@@ -157,11 +156,11 @@ export class LifecycleService {
         nextEpoch,
       });
       if (nextEpoch) {
-        const foundation = await tables.personaFoundations
-          .bind(tx, ownerId)
-          .findOne({ where: { companionId: companion.id, runtimeEpoch: companion.runtimeEpoch } });
+        const foundation = await tx.personaFoundations.findOne({
+          where: { companionId: companion.id, runtimeEpoch: companion.runtimeEpoch },
+        });
         const [initial] = foundation?.initialPersonaVersionId
-          ? await tx
+          ? await tx.sql
               .select()
               .from(personaVersions)
               .where(
@@ -172,7 +171,7 @@ export class LifecycleService {
               )
           : [];
         const personaId = randomUUID();
-        await tables.personaVersions.bind(tx, ownerId).insert({
+        await tx.personaVersions.insert({
           id: personaId,
           companionId: companion.id,
           runtimeEpoch: nextEpoch,
@@ -183,8 +182,8 @@ export class LifecycleService {
           mode: initial?.mode ?? null,
         });
         if (foundation) {
-          await tx.delete(personaFoundations).where(eq(personaFoundations.id, foundation.id));
-          await tx.insert(personaFoundations).values({
+          await tx.sql.delete(personaFoundations).where(eq(personaFoundations.id, foundation.id));
+          await tx.sql.insert(personaFoundations).values({
             ...foundation,
             id: randomUUID(),
             runtimeEpoch: nextEpoch,
@@ -192,7 +191,7 @@ export class LifecycleService {
             initialPersonaVersionId: initial?.document ? personaId : null,
           });
         }
-        await tables.companions.bind(tx, ownerId).updateWhere({
+        await tx.companions.updateWhere({
           where: { id: companion.id },
           set: {
             runtimeEpoch: nextEpoch,
@@ -202,10 +201,11 @@ export class LifecycleService {
           },
         });
       } else {
-        await tables.conversationMembers
-          .bind(tx, ownerId)
-          .updateWhere({ where: { companionId: companion.id }, set: { deletedAt: new Date() } });
-        await tables.companions.bind(tx, ownerId).updateWhere({
+        await tx.conversationMembers.updateWhere({
+          where: { companionId: companion.id },
+          set: { deletedAt: new Date() },
+        });
+        await tx.companions.updateWhere({
           where: { id: companion.id },
           set: {
             version: companion.version + 1,
@@ -217,7 +217,7 @@ export class LifecycleService {
           },
         });
       }
-      await tables.tasks.bind(tx, ownerId).insert({
+      await tx.tasks.insert({
         id,
         requestKey: `lifecycle:${input.requestId.toLowerCase()}`,
         fingerprint: hash,
@@ -234,14 +234,13 @@ export class LifecycleService {
   retry(id: string, input: RetryLifecycle): Promise<LifecycleOperation> {
     return this.models.locked(async (ownerId, tx) => {
       await lockTaskScheduler(ownerId, tx);
-      const operation = await tables.lifecycleOperations
-        .bind(tx, ownerId)
-        .findOne({ where: { id: id } });
+      const operation = await tx.lifecycleOperations.findOne({ where: { id: id } });
       if (!operation) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       const requestKey = `lifecycle_retry:${id}:${input.requestId.toLowerCase()}`;
-      const existing = await tables.tasks
-        .bind(tx, ownerId)
-        .findOne({ where: { requestKey: requestKey }, fields: { id: tasks.id } });
+      const existing = await tx.tasks.findOne({
+        where: { requestKey: requestKey },
+        fields: { id: tasks.id },
+      });
       if (existing || operation.completedAt) return this.read(ownerId, tx, id);
       const previous = await this.jobs.getInTransaction(ownerId, operation.taskId, tx);
       if (!['failed', 'cancelled', 'blocked', 'paused'].includes(previous.status))
@@ -249,7 +248,7 @@ export class LifecycleService {
       if (previous.status === 'paused')
         await this.jobs.controlInTransaction(ownerId, tx, new Date(), previous.id, 'cancel');
       const taskId = randomUUID();
-      await tables.tasks.bind(tx, ownerId).insert({
+      await tx.tasks.insert({
         id: taskId,
         requestKey,
         fingerprint: fingerprint({ operationId: id }),
@@ -260,9 +259,7 @@ export class LifecycleService {
         totalSteps: lifecycleStages(operation.protocolVersion).length,
         stage: lifecycleStages(operation.protocolVersion)[operation.stage] ?? 'cleanup_complete',
       });
-      await tables.lifecycleOperations
-        .bind(tx, ownerId)
-        .updateWhere({ where: { id: id }, set: { taskId } });
+      await tx.lifecycleOperations.updateWhere({ where: { id: id }, set: { taskId } });
       return this.read(ownerId, tx, id);
     });
   }
@@ -283,7 +280,7 @@ export class LifecycleService {
    */
   list(query: IdPaginationQuery): Promise<LifecycleList> {
     return this.store.locked(async (ownerId, tx) => {
-      const rows = await tables.lifecycleOperations.bind(tx, ownerId).findMany({
+      const rows = await tx.lifecycleOperations.findMany({
         where: query.afterId ? gt(lifecycleOperations.id, query.afterId) : undefined,
         fields: { id: lifecycleOperations.id },
         orderBy: [asc(lifecycleOperations.id)],
@@ -304,7 +301,7 @@ export class LifecycleService {
     tx: DatabaseTransaction,
     id: string,
   ): Promise<LifecycleOperation> {
-    const row = await tables.lifecycleOperations.bind(tx, ownerId).findOne({ where: { id: id } });
+    const row = await tx.lifecycleOperations.findOne({ where: { id: id } });
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return {
       id,

@@ -26,7 +26,6 @@ import {
   messageSources,
   visibilityGrants,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { stageMessageOutbox } from '../tasks/task-outbox.service';
@@ -84,7 +83,7 @@ export class ConversationsService {
       })),
     });
     const id = randomUUID();
-    await tx
+    await tx.sql
       .insert(conversations)
       .values({
         id,
@@ -95,7 +94,7 @@ export class ConversationsService {
         fingerprint: requestFingerprint,
       })
       .onDuplicateKeyUpdate({ set: { id: sql`${conversations.id}` } });
-    const [inserted] = await tx
+    const [inserted] = await tx.sql
       .select()
       .from(conversations)
       .where(and(eq(conversations.ownerId, ownerId), eq(conversations.requestId, input.requestId)))
@@ -124,8 +123,8 @@ export class ConversationsService {
         kind: 'user',
         userId: ownerId,
       });
-    await tx.insert(conversationMembers).values(members);
-    await tx.insert(visibilityGrants).values(
+    await tx.sql.insert(conversationMembers).values(members);
+    await tx.sql.insert(visibilityGrants).values(
       members.map((member) => ({
         ownerId,
         membershipId: member.id,
@@ -153,7 +152,7 @@ export class ConversationsService {
    */
   list(input: IdPaginationQuery): Promise<ConversationListResponse> {
     return this.database.withOwner(async (ownerId, db) => {
-      const rows = await tables.conversations.bind(db, ownerId).findMany({
+      const rows = await db.conversations.findMany({
         where: input.afterId ? gt(conversations.id, input.afterId) : undefined,
         orderBy: [asc(conversations.id)],
         limit: input.limit + 1,
@@ -224,9 +223,9 @@ export class ConversationsService {
       input.sources,
       tx,
     );
-    const existing = await tables.messages
-      .bind(tx, ownerId)
-      .findOne({ where: { conversationId: conversationId, requestId: input.requestId } });
+    const existing = await tx.messages.findOne({
+      where: { conversationId: conversationId, requestId: input.requestId },
+    });
     if (existing) {
       if (existing.fingerprint !== requestFingerprint)
         throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
@@ -236,7 +235,7 @@ export class ConversationsService {
       throw new ApiException(API_CODES.VERSION_CONFLICT);
     const receivedAt = new Date();
     const messageId = randomUUID();
-    await tables.messages.bind(tx, ownerId).insert({
+    await tx.messages.insert({
       id: messageId,
       conversationId,
       speakerMembershipId: member.id,
@@ -257,10 +256,10 @@ export class ConversationsService {
             : 'admin_companion_input',
       replyToMessageId: input.replyToMessageId ?? null,
     });
-    const row = await tables.messages.bind(tx, ownerId).findOne({ where: { id: messageId } });
+    const row = await tx.messages.findOne({ where: { id: messageId } });
     if (!row) throw new ApiException(API_CODES.CONFLICT);
     if (input.sources.length > 0)
-      await tx.insert(messageSources).values(
+      await tx.sql.insert(messageSources).values(
         input.sources.map((source) => ({
           ownerId,
           messageId: row.id,
@@ -280,9 +279,9 @@ export class ConversationsService {
   getMessage(conversationId: string, messageId: string): Promise<Message> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireConversation(ownerId, conversationId, db);
-      const row = await tables.messages
-        .bind(db, ownerId)
-        .findOne({ where: { conversationId: conversationId, id: messageId } });
+      const row = await db.messages.findOne({
+        where: { conversationId: conversationId, id: messageId },
+      });
       if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return toMessage(row, db);
     });
@@ -319,9 +318,9 @@ export class ConversationsService {
     input: PublishMessageRequest,
   ): Promise<Message> {
     const conversation = await requireConversation(ownerId, conversationId, tx, true);
-    const row = await tables.messages
-      .bind(tx, ownerId)
-      .findOne({ where: { conversationId: conversationId, id: messageId } });
+    const row = await tx.messages.findOne({
+      where: { conversationId: conversationId, id: messageId },
+    });
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     const original = await toMessage(row, tx);
     const member = await this.speaker(ownerId, conversationId, original.speaker, tx);
@@ -363,7 +362,7 @@ export class ConversationsService {
     const sequence = conversation.lastSequence + 1;
     await assertVisible(member, sequence, tx);
     const publishedAt = new Date();
-    await tables.messages.bind(tx, ownerId).updateWhere({
+    await tx.messages.updateWhere({
       where: { id: messageId },
       set: {
         state: 'published',
@@ -374,13 +373,13 @@ export class ConversationsService {
         publishFingerprint: requestFingerprint,
       },
     });
-    const published = await tables.messages.bind(tx, ownerId).findOne({ where: { id: messageId } });
+    const published = await tx.messages.findOne({ where: { id: messageId } });
     if (!published) throw new ApiException(API_CODES.CONFLICT);
-    await tables.conversations.bind(tx, ownerId).updateWhere({
+    await tx.conversations.updateWhere({
       where: { id: conversationId },
       set: { lastSequence: sequence, version: conversation.version + 1 },
     });
-    const recipients = await tx
+    const recipients = await tx.sql
       .select({ member: conversationMembers })
       .from(conversationMembers)
       .innerJoin(
@@ -414,7 +413,7 @@ export class ConversationsService {
         runtimeEpoch: recipient.runtimeEpoch,
         permissionVersion: recipient.permissionVersion,
       });
-      await tables.processingRanges.bind(tx, ownerId).insert({
+      await tx.processingRanges.insert({
         companionId: recipient.companionId,
         runtimeEpoch: recipient.runtimeEpoch,
         conversationId,
@@ -446,7 +445,7 @@ export class ConversationsService {
   ): Promise<MessageListResponse> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireConversation(ownerId, conversationId, db);
-      const rows = await tables.messages.bind(db, ownerId).findMany({
+      const rows = await db.messages.findMany({
         where: and(
           eq(messages.conversationId, conversationId),
           eq(messages.state, 'published'),
@@ -475,7 +474,7 @@ export class ConversationsService {
     conversationId: string,
   ): Promise<void> {
     await requireConversation(ownerId, conversationId, tx, true);
-    const chat = await tables.chatThreads.bind(tx, ownerId).findOne({
+    const chat = await tx.chatThreads.findOne({
       where: { conversationId: conversationId },
       fields: { id: chatThreads.conversationId },
     });
@@ -504,9 +503,9 @@ export class ConversationsService {
       if (member.leftSequence !== null) throw new ApiException(API_CODES.MEMBER_LEFT);
       return member;
     }
-    const member = await tables.conversationMembers
-      .bind(db, ownerId)
-      .findOne({ where: { conversationId: conversationId, kind: 'user', userId: ownerId } });
+    const member = await db.conversationMembers.findOne({
+      where: { conversationId: conversationId, kind: 'user', userId: ownerId },
+    });
     if (!member || member.leftSequence !== null)
       throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     return member;
@@ -528,7 +527,7 @@ export class ConversationsService {
     const refs: { messageId: string; contentVersion?: number }[] = [...sources];
     if (replyToMessageId) refs.push({ messageId: replyToMessageId });
     for (const reference of refs) {
-      const row = await tables.messages.bind(db, ownerId).findOne({
+      const row = await db.messages.findOne({
         where: and(
           eq(messages.conversationId, conversationId),
           eq(messages.id, reference.messageId),
@@ -551,7 +550,7 @@ export class ConversationsService {
     db: QueryDatabase,
   ): Promise<ConversationDetail> {
     const row = await requireConversation(ownerId, id, db);
-    const members = await db
+    const members = await db.sql
       .select()
       .from(conversationMembers)
       .where(

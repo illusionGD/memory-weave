@@ -42,7 +42,7 @@ export class LifecycleExecutionService {
     while (true) {
       const done = await this.models.locked(async (ownerId, tx) => {
         await this.jobs.guardDispatch(ownerId, tx, lease);
-        const [operation] = await tx
+        const [operation] = await tx.sql
           .select()
           .from(lifecycleOperations)
           .where(
@@ -62,11 +62,11 @@ export class LifecycleExecutionService {
             this.config.lifecycleBatchSize ?? 100,
           );
           if (rows.length) return { kind: 'vectors' as const, operation, rows };
-          await tx
+          await tx.sql
             .update(lifecycleOperations)
             .set({ stage: operation.stage + 1 })
             .where(eq(lifecycleOperations.id, operation.id));
-          await tx
+          await tx.sql
             .update(tasks)
             .set({
               completedSteps: operation.stage + 1,
@@ -83,11 +83,11 @@ export class LifecycleExecutionService {
           this.config.lifecycleBatchSize ?? 100,
         );
         const stage = operation.stage + (result.done ? 1 : 0);
-        await tx
+        await tx.sql
           .update(lifecycleOperations)
           .set({ stage, processedRecords: operation.processedRecords + result.changed })
           .where(eq(lifecycleOperations.id, operation.id));
-        await tx
+        await tx.sql
           .update(tasks)
           .set({
             completedSteps: stage,
@@ -104,7 +104,7 @@ export class LifecycleExecutionService {
           await this.avatarFiles.removeAll(done.ownerId, done.operation.companionId);
         await this.models.locked(async (ownerId, tx) => {
           await this.jobs.guardDispatch(ownerId, tx, lease);
-          const [operation] = await tx
+          const [operation] = await tx.sql
             .select()
             .from(lifecycleOperations)
             .where(
@@ -116,17 +116,17 @@ export class LifecycleExecutionService {
           if (operation?.taskId !== lease.task.id || operation.stage !== done.operation.stage)
             throw new ApiException(API_CODES.TASK_LEASE_LOST);
           if (operation.kind === 'delete_companion' && operation.companionId)
-            await tx
+            await tx.sql
               .update(companions)
               .set({ avatar: null })
               .where(
                 and(eq(companions.ownerId, ownerId), eq(companions.id, operation.companionId)),
               );
-          await tx
+          await tx.sql
             .update(lifecycleOperations)
             .set({ stage: operation.stage + 1 })
             .where(eq(lifecycleOperations.id, operationId));
-          await tx
+          await tx.sql
             .update(tasks)
             .set({
               completedSteps: operation.stage + 1,
@@ -145,7 +145,7 @@ export class LifecycleExecutionService {
         for (const [collection, ids] of groups) await this.vectors.remove(collection, ids);
         await this.models.locked(async (ownerId, tx) => {
           await this.jobs.guardDispatch(ownerId, tx, lease);
-          const [operation] = await tx
+          const [operation] = await tx.sql
             .select()
             .from(lifecycleOperations)
             .where(
@@ -156,7 +156,7 @@ export class LifecycleExecutionService {
             );
           if (operation?.taskId !== lease.task.id || operation.stage !== done.operation.stage)
             throw new ApiException(API_CODES.TASK_LEASE_LOST);
-          await tx
+          await tx.sql
             .update(memoryVectorIndexes)
             .set({ status: 'deleted', reconciledAt: new Date() })
             .where(
@@ -165,7 +165,7 @@ export class LifecycleExecutionService {
                 done.rows.map((row) => row.id),
               ),
             );
-          await tx
+          await tx.sql
             .update(lifecycleOperations)
             .set({ processedRecords: operation.processedRecords + done.rows.length })
             .where(eq(lifecycleOperations.id, operationId));
@@ -173,19 +173,19 @@ export class LifecycleExecutionService {
       } else if (done) break;
     }
     await this.jobs.complete(lease, async (ownerId, tx) => {
-      await tx
+      await tx.sql
         .update(lifecycleOperations)
         .set({ completedAt: new Date() })
         .where(
           and(eq(lifecycleOperations.ownerId, ownerId), eq(lifecycleOperations.id, operationId)),
         );
-      await tx
+      await tx.sql
         .update(companions)
         .set({ lifecycleOperationId: null })
         .where(
           and(eq(companions.ownerId, ownerId), eq(companions.lifecycleOperationId, operationId)),
         );
-      await tx
+      await tx.sql
         .update(conversations)
         .set({ lifecycleOperationId: null })
         .where(

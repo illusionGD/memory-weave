@@ -1,7 +1,6 @@
 import type { MemoryDocument } from '@memory-weave/contracts';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { memorySearchDocuments } from '../../database/schema';
-import { tables } from '../../database/tables';
 
 /** 固定分词版本，升级需重建派生词项；不覆盖权威正文。 */
 export const LEXICAL_VERSION = 'zh-segment-bigram-v1';
@@ -60,18 +59,16 @@ export async function registerSearchDocument(
   document: MemoryDocument,
   tx: DatabaseTransaction,
 ): Promise<void> {
-  await tx
+  await tx.sql
     .insert(memorySearchDocuments)
     .values({ ownerId, versionId, memoryId, ...scope, lexicalVersion: LEXICAL_VERSION })
     .onDuplicateKeyUpdate({ set: { lexicalVersion: LEXICAL_VERSION } });
-  await tables.memorySearchTerms.bind(tx, ownerId).deleteWhere({ versionId });
+  await tx.memorySearchTerms.deleteWhere({ versionId });
   const terms = lexicalTerms(
     [document.text, document.subject.name, document.eventTime, document.storyKey]
       .filter(Boolean)
       .join(' '),
   );
   if (terms.length)
-    await tables.memorySearchTerms
-      .bind(tx, ownerId)
-      .insertMany(terms.map((term) => ({ versionId, term })));
+    await tx.memorySearchTerms.insertMany(terms.map((term) => ({ versionId, term })));
 }

@@ -5,7 +5,6 @@ import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { idCursorPage } from '../../database/cursor-pagination';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { messages, taskOutbox } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { TaskConfigurationService } from './task-configuration.service';
@@ -23,15 +22,13 @@ export async function stageMessageOutbox(
   payload: MessageOutboxInput,
 ): Promise<void> {
   const eventKey = `message:${payload.messageId.toLowerCase()}:${payload.contentVersion}`;
-  const existing = await tables.taskOutbox
-    .bind(tx, ownerId)
-    .findOne({ where: { eventKey: eventKey } });
+  const existing = await tx.taskOutbox.findOne({ where: { eventKey: eventKey } });
   if (existing) {
     if (fingerprint(existing.payload) !== fingerprint(payload))
       throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
     return;
   }
-  await tables.taskOutbox.bind(tx, ownerId).insert({
+  await tx.taskOutbox.insert({
     eventKey,
     kind: 'message_published',
     sourceId: payload.messageId,
@@ -56,7 +53,7 @@ export class TaskOutboxService {
    */
   list(query: IdPaginationQuery): Promise<TaskOutboxList> {
     return this.store.locked(async (ownerId, tx) => {
-      const rows = await tables.taskOutbox.bind(tx, ownerId).findMany({
+      const rows = await tx.taskOutbox.findMany({
         where: query.afterId ? gt(taskOutbox.id, query.afterId) : undefined,
         orderBy: [asc(taskOutbox.id)],
         limit: query.limit + 1,
@@ -87,14 +84,14 @@ export class TaskOutboxService {
     return this.store.locked(async (ownerId, tx, now) => {
       const current = await this.configuration.current(ownerId, tx);
       if (!current.config.enabled) return 0;
-      const rows = await tables.taskOutbox.bind(tx, ownerId).findMany({
+      const rows = await tx.taskOutbox.findMany({
         where: { status: 'pending' },
         orderBy: [asc(taskOutbox.createdAt), asc(taskOutbox.id)],
         limit: current.config.outboxBatchSize,
       });
       for (const event of rows) {
         const payload = event.payload;
-        const [source] = await tx
+        const [source] = await tx.sql
           .select()
           .from(messages)
           .where(
@@ -110,14 +107,14 @@ export class TaskOutboxService {
           )
           .for('update');
         if (!source) {
-          await tables.taskOutbox.bind(tx, ownerId).updateWhere({
+          await tx.taskOutbox.updateWhere({
             where: { id: event.id },
             set: { status: 'blocked', reason: 'source_changed' },
           });
           continue;
         }
         // F08 以已持久登记的 processingRanges 组成批次，不再为每条消息创建占位任务。
-        await tables.taskOutbox.bind(tx, ownerId).updateWhere({
+        await tx.taskOutbox.updateWhere({
           where: { id: event.id },
           set: { status: 'dispatched', reason: null, dispatchedAt: now },
         });

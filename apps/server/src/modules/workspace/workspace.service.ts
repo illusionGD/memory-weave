@@ -4,7 +4,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DatabaseService } from '../../database/database.service';
 import { owners } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 
 /** 维护部署管理者资料，改名只影响显示名称，不重建用户身份。 */
@@ -18,14 +17,12 @@ export class WorkspaceService {
    *
    * 读取当前部署的资料，不接受请求指定其他 owner。
    */
-  get(): Promise<WorkspaceResponse> {
-    return this.database.withOwner(async (ownerId, db) => {
-      const owner = await tables.owners.bind(db, ownerId).findOne({
-        fields: { ownerId: owners.id, displayName: owners.displayName },
-      });
-      if (!owner) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-      return { ...owner, schemaVersion: 1 };
+  async get(): Promise<WorkspaceResponse> {
+    const owner = await this.database.owners.findOne({
+      fields: { ownerId: owners.id, displayName: owners.displayName },
     });
+    if (!owner) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
+    return { ...owner, schemaVersion: 1 };
   }
 
   /**
@@ -35,7 +32,7 @@ export class WorkspaceService {
    */
   update(input: UpdateWorkspaceRequest): Promise<WorkspaceResponse> {
     return this.database.withOwner(async (ownerId, db) => {
-      const result = await tables.owners.bind(db, ownerId).updateWhere({
+      const result = await db.owners.updateWhere({
         where: eq(owners.id, ownerId),
         set: { displayName: input.displayName },
       });

@@ -12,7 +12,6 @@ import { idCursorPage } from '../../database/cursor-pagination';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
 import { DatabaseService } from '../../database/database.service';
 import { companions, personaVersions } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { lockTaskScheduler } from '../tasks/task-store';
@@ -59,7 +58,7 @@ export class CompanionsService {
       name: input.name,
       initialProfile: input.initialProfile,
     });
-    await tx
+    await tx.sql
       .insert(companions)
       .values({
         id,
@@ -80,7 +79,7 @@ export class CompanionsService {
         createdAt,
       })
       .onDuplicateKeyUpdate({ set: { id: sql`${companions.id}` } });
-    const [stored] = await tx
+    const [stored] = await tx.sql
       .select({ id: companions.id, fingerprint: companions.fingerprint })
       .from(companions)
       .where(and(eq(companions.ownerId, ownerId), eq(companions.requestId, input.requestId)))
@@ -93,7 +92,7 @@ export class CompanionsService {
         throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
       return this.readInTransaction(tx, ownerId, stored.id);
     }
-    await tables.personaVersions.bind(tx, ownerId).insert({
+    await tx.personaVersions.insert({
       id: personaId,
       companionId: id,
       runtimeEpoch: 1,
@@ -101,9 +100,10 @@ export class CompanionsService {
       profileText: input.initialProfile,
       createdAt,
     });
-    await tables.companions
-      .bind(tx, ownerId)
-      .updateWhere({ where: { id: id }, set: { currentPersonaVersionId: personaId } });
+    await tx.companions.updateWhere({
+      where: { id: id },
+      set: { currentPersonaVersionId: personaId },
+    });
     return this.readInTransaction(tx, ownerId, id);
   }
 
@@ -123,7 +123,7 @@ export class CompanionsService {
    */
   list(query: IdPaginationQuery): Promise<CompanionListResponse> {
     return this.database.withOwner(async (ownerId, db) => {
-      const rows = await db
+      const rows = await db.sql
         .select({ companion: companions, persona: personaVersions })
         .from(companions)
         .innerJoin(
@@ -161,7 +161,7 @@ export class CompanionsService {
     ownerId: string,
     id: string,
   ): Promise<CompanionDetail> {
-    const [row] = await db
+    const [row] = await db.sql
       .select({ companion: companions, persona: personaVersions })
       .from(companions)
       .innerJoin(

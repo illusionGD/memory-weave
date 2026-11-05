@@ -9,7 +9,6 @@ import { desc, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { taskConfigurationVersions } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { TaskStore } from './task-store';
@@ -50,9 +49,7 @@ export class TaskConfigurationService {
   getVersion(version: number): Promise<TaskConfigurationVersion> {
     return this.store.locked(async (ownerId, tx) => {
       await this.current(ownerId, tx);
-      const row = await tables.taskConfigurationVersions
-        .bind(tx, ownerId)
-        .findOne({ where: { version: version } });
+      const row = await tx.taskConfigurationVersions.findOne({ where: { version: version } });
       if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return view(row);
     });
@@ -67,9 +64,9 @@ export class TaskConfigurationService {
     return this.store.locked(async (ownerId, tx, now) => {
       const current = await this.current(ownerId, tx);
       const hash = fingerprint({ expectedVersion: input.expectedVersion, config: input.config });
-      const existing = await tables.taskConfigurationVersions
-        .bind(tx, ownerId)
-        .findOne({ where: { requestId: input.requestId } });
+      const existing = await tx.taskConfigurationVersions.findOne({
+        where: { requestId: input.requestId },
+      });
       if (existing) {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return view(existing);
@@ -95,7 +92,7 @@ export class TaskConfigurationService {
         fingerprint: hash,
         createdAt: now,
       };
-      await tx.insert(taskConfigurationVersions).values(row);
+      await tx.sql.insert(taskConfigurationVersions).values(row);
       return view(row);
     });
   }
@@ -106,7 +103,7 @@ export class TaskConfigurationService {
    * 必须在 TaskStore 事务中调用，确保本次决策只读取一个完整版本。
    */
   async current(ownerId: string, tx: DatabaseTransaction): Promise<TaskConfigurationVersion> {
-    const [row] = await tx
+    const [row] = await tx.sql
       .select()
       .from(taskConfigurationVersions)
       .where(eq(taskConfigurationVersions.ownerId, ownerId))
@@ -123,7 +120,7 @@ export class TaskConfigurationService {
       fingerprint: 'default',
       createdAt: new Date(),
     };
-    await tx.insert(taskConfigurationVersions).values(initial);
+    await tx.sql.insert(taskConfigurationVersions).values(initial);
     return view(initial);
   }
 }

@@ -24,7 +24,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { modelAttempts, modelCalls, modelUsageWindows } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import {
   requireCompanion,
@@ -167,7 +166,7 @@ export class ModelRuntimeService {
       await guard?.(ownerId, tx);
       await expireAttempts(ownerId, tx);
       await assertScope(ownerId, tx, context);
-      const [existing] = await tx
+      const [existing] = await tx.sql
         .select()
         .from(modelCalls)
         .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.requestId, input.requestId)));
@@ -207,7 +206,7 @@ export class ModelRuntimeService {
         createdAt: new Date(),
         finishedAt: null,
       };
-      await tx.insert(modelCalls).values(call);
+      await tx.sql.insert(modelCalls).values(call);
       const attempt = await reserveAttempt(
         ownerId,
         tx,
@@ -319,7 +318,7 @@ export class ModelRuntimeService {
       await expireAttempts(ownerId, tx);
       const current = await readCall(ownerId, tx, id);
       if (current.status === 'running') {
-        await tx
+        await tx.sql
           .update(modelCalls)
           .set({
             status: 'cancelled',
@@ -345,7 +344,7 @@ export class ModelRuntimeService {
       await expireAttempts(ownerId, tx);
       const day = new Date().toISOString().slice(0, 10);
       const effective = this.providers.effective(current.config);
-      const rows = await tx
+      const rows = await tx.sql
         .select()
         .from(modelUsageWindows)
         .where(and(eq(modelUsageWindows.ownerId, ownerId), eq(modelUsageWindows.day, day)));
@@ -361,7 +360,7 @@ export class ModelRuntimeService {
           },
         };
       };
-      const active = await tx
+      const active = await tx.sql
         .select({ id: modelAttempts.id })
         .from(modelAttempts)
         .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.status, 'running')));
@@ -396,12 +395,8 @@ export class ModelRuntimeService {
     allowRetry = true,
   ): Promise<AttemptRow | null> {
     return this.configuration.locked(async (ownerId, tx, current) => {
-      const saved = await tables.modelAttempts
-        .bind(tx, ownerId)
-        .findOne({ where: { id: attempt.id } });
-      const call = await tables.modelCalls
-        .bind(tx, ownerId)
-        .findOne({ where: { id: attempt.callId } });
+      const saved = await tx.modelAttempts.findOne({ where: { id: attempt.id } });
+      const call = await tx.modelCalls.findOne({ where: { id: attempt.callId } });
       if (!saved || !call) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
       if (
         saved.usageSource === 'reported' ||
@@ -463,7 +458,7 @@ export class ModelRuntimeService {
         errorCode = scopeError;
       }
       const finishedAt = new Date();
-      await tables.modelAttempts.bind(tx, ownerId).updateWhere({
+      await tx.modelAttempts.updateWhere({
         where: { id: saved.id },
         set: {
           status,
@@ -509,7 +504,7 @@ export class ModelRuntimeService {
           errorCode = error.code;
         }
       }
-      await tables.modelCalls.bind(tx, ownerId).updateWhere({
+      await tx.modelCalls.updateWhere({
         where: { id: saved.callId },
         set: { status, errorCode, result, finishedAt: next ? null : finishedAt },
       });
@@ -575,7 +570,7 @@ async function reserveAttempt(
   number: number,
   definition: ModelTaskDefinition,
 ): Promise<AttemptRow> {
-  const active = await tx
+  const active = await tx.sql
     .select({ lane: modelAttempts.lane })
     .from(modelAttempts)
     .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.status, 'running')));
@@ -594,13 +589,11 @@ async function reserveAttempt(
   for (const scope of ['global', call.role]) {
     const limit =
       scope === 'global' ? current.config.dailyBudget : current.config.tasks[call.role].dailyBudget;
-    await tx
+    await tx.sql
       .insert(modelUsageWindows)
       .values({ ownerId, day, scope })
       .onDuplicateKeyUpdate({ set: { scope } });
-    const window = await tables.modelUsageWindows
-      .bind(tx, ownerId)
-      .findOne({ where: { day: day, scope: scope } });
+    const window = await tx.modelUsageWindows.findOne({ where: { day: day, scope: scope } });
     if (!window) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
     if (
       window.requests + 1 > limit.requests ||
@@ -611,7 +604,7 @@ async function reserveAttempt(
     windows.push(window);
   }
   for (const window of windows) {
-    await tables.modelUsageWindows.bind(tx, ownerId).updateWhere({
+    await tx.modelUsageWindows.updateWhere({
       where: { id: window.id },
       set: {
         requests: window.requests + 1,
@@ -643,7 +636,7 @@ async function reserveAttempt(
     ),
     finishedAt: null,
   };
-  await tx.insert(modelAttempts).values(attempt);
+  await tx.sql.insert(modelAttempts).values(attempt);
   return attempt;
 }
 
@@ -673,11 +666,9 @@ async function adjustUsage(
   costDelta: number,
 ): Promise<void> {
   for (const scope of ['global', role]) {
-    const window = await tables.modelUsageWindows
-      .bind(tx, ownerId)
-      .findOne({ where: { day: day, scope: scope } });
+    const window = await tx.modelUsageWindows.findOne({ where: { day: day, scope: scope } });
     if (!window) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
-    await tables.modelUsageWindows.bind(tx, ownerId).updateWhere({
+    await tx.modelUsageWindows.updateWhere({
       where: { id: window.id },
       set: { tokens: window.tokens + tokenDelta, costMicros: window.costMicros + costDelta },
     });
@@ -729,7 +720,7 @@ function validatedResult(
  * 进程消失或结果迟到时，保留预留并明确标记未知，不自动重复调用。
  */
 async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise<void> {
-  const expired = await tx
+  const expired = await tx.sql
     .select()
     .from(modelAttempts)
     .where(
@@ -745,10 +736,8 @@ async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise
       errorCode: API_CODES.MODEL_USAGE_UNKNOWN,
       finishedAt: new Date(),
     };
-    await tables.modelAttempts.bind(tx, ownerId).updateWhere({ where: { id: row.id }, set: state });
-    await tables.modelCalls
-      .bind(tx, ownerId)
-      .updateWhere({ where: { id: row.callId, status: 'running' }, set: state });
+    await tx.modelAttempts.updateWhere({ where: { id: row.id }, set: state });
+    await tx.modelCalls.updateWhere({ where: { id: row.callId, status: 'running' }, set: state });
   }
 }
 
@@ -758,7 +747,7 @@ async function expireAttempts(ownerId: string, tx: DatabaseTransaction): Promise
  * 只映射本部署的可展示字段，排序保持真实尝试次序。
  */
 async function readCall(ownerId: string, tx: DatabaseTransaction, id: string): Promise<ModelCall> {
-  const call = await tables.modelCalls.bind(tx, ownerId).findOne({ where: { id: id } });
+  const call = await tx.modelCalls.findOne({ where: { id: id } });
   if (!call) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   let invalidated = Boolean(call.invalidatedAt);
   try {
@@ -767,7 +756,7 @@ async function readCall(ownerId: string, tx: DatabaseTransaction, id: string): P
     if (!(error instanceof ApiException)) throw error;
     invalidated = true;
   }
-  const rows = await tx
+  const rows = await tx.sql
     .select()
     .from(modelAttempts)
     .where(and(eq(modelAttempts.ownerId, ownerId), eq(modelAttempts.callId, id)))

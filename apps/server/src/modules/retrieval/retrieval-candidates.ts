@@ -52,14 +52,14 @@ export async function recallCandidates(
   );
   /** 构建当前检索范围的记忆版本查询。 */
   const base = () =>
-    tx
+    tx.sql
       .select({ entry: memoryEntries, version: memoryVersions })
       .from(memoryEntries)
       .innerJoin(memoryVersions, eq(memoryVersions.memoryId, memoryEntries.id))
       .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId));
   const terms = lexicalTerms(`${query.query}\n${query.context}`).slice(0, 64);
   const termHits = terms.length
-    ? await tx
+    ? await tx.sql
         .select({ id: memorySearchTerms.versionId, score: sql<number>`count(*)`.as('hits') })
         .from(memorySearchTerms)
         .innerJoin(memoryVersions, eq(memoryVersions.id, memorySearchTerms.versionId))

@@ -1,7 +1,6 @@
 import { API_CODES } from '@memory-weave/contracts';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { memoryVersions, messages } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
 import { memoryRecordEvidence } from './memory-records';
@@ -12,7 +11,7 @@ import { memoryRecordEvidence } from './memory-records';
  * 读取、派发和提交均核对同一批次及确切原文，防止迟到结果复活删除内容。
  */
 export async function requireMemoryBatch(ownerId: string, id: string, tx: DatabaseTransaction) {
-  const batch = await tables.memoryBatches.bind(tx, ownerId).findOne({ where: { id: id } });
+  const batch = await tx.memoryBatches.findOne({ where: { id: id } });
   if (!batch?.input) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   const member = await requireCompanionMember(
     ownerId,
@@ -25,7 +24,7 @@ export async function requireMemoryBatch(ownerId: string, id: string, tx: Databa
     throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
   for (const source of batch.input.messages) {
     await assertVisible(member, source.sequence, tx);
-    const row = await tables.messages.bind(tx, ownerId).findOne({
+    const row = await tx.messages.findOne({
       where: {
         conversationId: batch.conversationId,
         id: source.messageId,
@@ -39,7 +38,7 @@ export async function requireMemoryBatch(ownerId: string, id: string, tx: Databa
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   }
   for (const related of batch.input.related) {
-    const version = await tables.memoryVersions.bind(tx, ownerId).findOne({
+    const version = await tx.memoryVersions.findOne({
       where: { memoryId: related.id, id: related.versionId, invalidatedAt: null },
       fields: { id: memoryVersions.id },
     });

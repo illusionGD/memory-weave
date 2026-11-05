@@ -71,7 +71,7 @@ export async function readMemoryGraph(
    * 查询自身的来源表，不能用未校验的节点或边标识直接返回正文。
    */
   async function records(where: SQL) {
-    return tx
+    return tx.sql
       .select(explorerSelection)
       .from(memoryEntries)
       .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId))
@@ -184,7 +184,7 @@ export async function readMemoryGraph(
     // 入边和出边分别利用索引查询，最多各取一页，不递归加载祖先。
     for (const incoming of [false, true]) {
       const prefix = 'd:';
-      const dependencies = await tx
+      const dependencies = await tx.sql
         .select({ dependency: memoryDependencies, ...explorerSelection })
         .from(memoryDependencies)
         .innerJoin(
@@ -230,7 +230,7 @@ export async function readMemoryGraph(
           record: row,
         });
     }
-    const evidence = await tx
+    const evidence = await tx.sql
       .select({ evidence: memoryEvidence, message: messages })
       .from(memoryEvidence)
       .innerJoin(

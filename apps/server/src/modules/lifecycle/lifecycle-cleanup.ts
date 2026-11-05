@@ -21,7 +21,6 @@ import {
   taskOutbox,
   tasks,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { cleanupMemoryPage } from '../memories/memory-cleanup';
 import { cleanupSearchPage, propagateRecallDeletion } from '../retrieval/retrieval-cleanup';
 import { lifecycleConversationScope } from './lifecycle-scope';
@@ -103,7 +102,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
           operation,
         )
       : sql`JSON_UNQUOTE(JSON_EXTRACT(${value}, '$.companionId')) = ${operation.companionId} AND CAST(JSON_UNQUOTE(JSON_EXTRACT(${value}, '$.runtimeEpoch')) AS UNSIGNED) <= ${operation.previousEpoch}`;
-  const targetIds = tx
+  const targetIds = tx.sql
     .select({ id: lifecycleMessageTargets.messageId })
     .from(lifecycleMessageTargets)
     .where(
@@ -133,7 +132,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
     if (!content) return { done: true, changed: 0 };
     const source = alias(lifecycleMessageTargets, 'source_target');
     const known = alias(lifecycleMessageTargets, 'known_target');
-    const refs = await tx
+    const refs = await tx.sql
       .selectDistinct({ messageId: messages.id, contentVersion: messages.contentVersion })
       .from(source)
       .innerJoin(
@@ -158,7 +157,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       )
       .limit(limit);
     if (refs.length)
-      await tx.insert(lifecycleMessageTargets).values(
+      await tx.sql.insert(lifecycleMessageTargets).values(
         refs.map((ref) => ({
           ...ref,
           ownerId,
@@ -166,7 +165,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
           kind: 'derived' as const,
         })),
       );
-    const replies = await tx
+    const replies = await tx.sql
       .selectDistinct({ messageId: messages.id, contentVersion: messages.contentVersion })
       .from(source)
       .innerJoin(
@@ -192,7 +191,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       )
       .limit(limit);
     if (replies.length)
-      await tx.insert(lifecycleMessageTargets).values(
+      await tx.sql.insert(lifecycleMessageTargets).values(
         replies.map((ref) => ({
           ...ref,
           ownerId,
@@ -203,7 +202,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
     return { done: refs.length + replies.length === 0, changed: refs.length + replies.length };
   }
   if (stage === 'outbox') {
-    const rows = await tables.taskOutbox.bind(tx, ownerId).findMany({
+    const rows = await tx.taskOutbox.findMany({
       where: content
         ? and(
             inArray(taskOutbox.sourceId, targetIds),
@@ -221,7 +220,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
               item.companionId !== operation.companionId ||
               item.runtimeEpoch > operation.previousEpoch!,
           );
-      await tables.taskOutbox.bind(tx, ownerId).updateWhere({
+      await tx.taskOutbox.updateWhere({
         where: { id: row.id },
         set: {
           payload: { ...row.payload, recipients },
@@ -232,7 +231,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
     return { done: rows.length < limit, changed: rows.length };
   }
   if (stage === 'tasks') {
-    const rows = await tables.tasks.bind(tx, ownerId).findMany({
+    const rows = await tx.tasks.findMany({
       where: and(
         scope(tasks.scope),
         sql`JSON_UNQUOTE(JSON_EXTRACT(${tasks.input}, '$.kind')) <> 'redacted'`,
@@ -242,11 +241,11 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
     });
     for (const row of rows) {
       if (row.status === 'running')
-        await tables.taskAttempts.bind(tx, ownerId).updateWhere({
+        await tx.taskAttempts.updateWhere({
           where: { taskId: row.id, status: 'running' },
           set: { status: 'cancelled', reason: 'lifecycle_changed', finishedAt: now },
         });
-      await tables.tasks.bind(tx, ownerId).updateWhere({
+      await tx.tasks.updateWhere({
         where: { id: row.id },
         set: {
           input: { kind: 'redacted' },
@@ -263,14 +262,14 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
     return { done: rows.length < limit, changed: rows.length };
   }
   if (stage === 'calls') {
-    const rows = await tables.modelCalls.bind(tx, ownerId).findMany({
+    const rows = await tx.modelCalls.findMany({
       where: and(scope(modelCalls.context), isNull(modelCalls.invalidatedAt)),
       fields: { id: modelCalls.id },
       orderBy: [asc(modelCalls.id)],
       limit: limit,
     });
     if (rows.length)
-      await tables.modelCalls.bind(tx, ownerId).updateWhere({
+      await tx.modelCalls.updateWhere({
         where: inArray(
           modelCalls.id,
           rows.map((row) => row.id),
@@ -284,7 +283,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
     return { done: rows.length < limit, changed: rows.length };
   }
   if (stage === 'contexts') {
-    const rows = await tx
+    const rows = await tx.sql
       .select({ id: chatRuns.id })
       .from(chatRuns)
       .innerJoin(chatThreads, eq(chatThreads.conversationId, chatRuns.conversationId))
@@ -303,7 +302,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       .orderBy(asc(chatRuns.id))
       .limit(limit);
     if (rows.length)
-      await tables.chatRuns.bind(tx, ownerId).updateWhere({
+      await tx.chatRuns.updateWhere({
         where: inArray(
           chatRuns.id,
           rows.map((row) => row.id),
@@ -332,7 +331,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
             : stage === 'foundations'
               ? personaFoundations
               : personaVersions;
-    const rows = await tx
+    const rows = await tx.sql
       .select({ id: table.id })
       .from(table)
       .where(
@@ -354,7 +353,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       .limit(limit);
     if (rows.length) {
       if (stage === 'persona_links')
-        await tx
+        await tx.sql
           .update(personaVersions)
           .set({ parentVersionId: null })
           .where(
@@ -364,7 +363,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
             ),
           );
       else
-        await tx.delete(table).where(
+        await tx.sql.delete(table).where(
           inArray(
             table.id,
             rows.map((row) => row.id),
@@ -375,7 +374,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
   }
   if (stage === 'drafts' || stage === 'messages') {
     if ((stage === 'drafts') === content) return { done: true, changed: 0 };
-    const memberships = tx
+    const memberships = tx.sql
       .select({ id: conversationMembers.id })
       .from(conversationMembers)
       .where(
@@ -385,7 +384,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
           lte(conversationMembers.runtimeEpoch, operation.previousEpoch!),
         ),
       );
-    const rows = await tables.messages.bind(tx, ownerId).findMany({
+    const rows = await tx.messages.findMany({
       where: and(
         isNull(messages.deletedAt),
         content
@@ -397,7 +396,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (ownerId, tx, op
       limit: limit,
     });
     if (rows.length)
-      await tables.messages.bind(tx, ownerId).updateWhere({
+      await tx.messages.updateWhere({
         where: inArray(
           messages.id,
           rows.map((row) => row.id),

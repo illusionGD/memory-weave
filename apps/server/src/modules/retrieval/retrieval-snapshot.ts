@@ -3,7 +3,6 @@ import { API_CODES } from '@memory-weave/contracts';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { conversations, memoryEntries, memoryVersions, messages } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
 import { assertVersionSources } from '../memories/memory-records';
@@ -35,7 +34,7 @@ export async function validateRecallSnapshot(
     ]),
   ];
   if (ids.length) {
-    const allowed = await tx
+    const allowed = await tx.sql
       .select({ id: conversations.id })
       .from(conversations)
       .where(
@@ -59,7 +58,7 @@ export async function validateRecallSnapshot(
     if (member.permissionVersion !== source.permissionVersion)
       throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
     await assertVisible(member, source.sequence, tx);
-    const row = await tables.messages.bind(tx, ownerId).findOne({
+    const row = await tx.messages.findOne({
       where: {
         id: source.messageId,
         conversationId: source.conversationId,
@@ -72,7 +71,7 @@ export async function validateRecallSnapshot(
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   }
   for (const item of result.memories) {
-    const [row] = await tx
+    const [row] = await tx.sql
       .select({ entry: memoryEntries, version: memoryVersions })
       .from(memoryEntries)
       .innerJoin(memoryVersions, eq(memoryVersions.memoryId, memoryEntries.id))

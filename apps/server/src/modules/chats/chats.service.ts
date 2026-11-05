@@ -27,7 +27,6 @@ import {
   chatThreads,
   messages,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { publicAvatar } from '../companions/avatar-files';
 import {
@@ -63,7 +62,7 @@ export class ChatsService {
         includeUser: true,
         companions: [{ companionId: input.companionId, runtimeEpoch: input.runtimeEpoch }],
       });
-      await tx
+      await tx.sql
         .insert(chatThreads)
         .values({
           ownerId,
@@ -92,7 +91,7 @@ export class ChatsService {
    */
   list(input: IdPaginationQuery): Promise<ChatList> {
     return this.store.locked(async (ownerId, tx) => {
-      const rows = await tables.chatThreads.bind(tx, ownerId).findMany({
+      const rows = await tx.chatThreads.findMany({
         where: input.afterId ? gt(chatThreads.conversationId, input.afterId) : undefined,
         orderBy: [asc(chatThreads.conversationId)],
         limit: input.limit + 1,
@@ -116,7 +115,7 @@ export class ChatsService {
     const result = await this.store.locked(async (ownerId, tx, now) => {
       const thread = await this.thread(ownerId, id, tx);
       const hash = fingerprint({ text: input.text });
-      const [replay] = await tx
+      const [replay] = await tx.sql
         .select()
         .from(chatRuns)
         .where(
@@ -128,7 +127,7 @@ export class ChatsService {
         );
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-        const [message] = await tx
+        const [message] = await tx.sql
           .select()
           .from(messages)
           .where(and(eq(messages.ownerId, ownerId), eq(messages.id, replay.triggerMessageId)));
@@ -157,14 +156,14 @@ export class ChatsService {
       let batchStartedAt = now;
       if (thread.currentRunId) {
         const previous = await this.jobs.getInTransaction(ownerId, thread.currentRunId, tx);
-        const [oldRun] = await tx
+        const [oldRun] = await tx.sql
           .select()
           .from(chatRuns)
           .where(and(eq(chatRuns.ownerId, ownerId), eq(chatRuns.id, thread.currentRunId)));
         if (!['succeeded', 'failed', 'cancelled', 'blocked'].includes(previous.status)) {
           firstUserSequence = oldRun!.firstUserSequence;
           if (!oldRun!.context) batchStartedAt = oldRun!.batchStartedAt;
-          await tx
+          await tx.sql
             .update(chatRuns)
             .set({ interruptedAt: now })
             .where(and(eq(chatRuns.ownerId, ownerId), eq(chatRuns.id, previous.id)));
@@ -179,7 +178,7 @@ export class ChatsService {
         }
       }
       const runId = randomUUID();
-      await tables.tasks.bind(tx, ownerId).insert({
+      await tx.tasks.insert({
         id: runId,
         requestKey: `chat_reply:${runId}`,
         fingerprint: hash,
@@ -198,7 +197,7 @@ export class ChatsService {
         },
         totalSteps: 1,
       });
-      await tables.chatRuns.bind(tx, ownerId).insert({
+      await tx.chatRuns.insert({
         id: runId,
         conversationId: id,
         triggerMessageId: message.id,
@@ -208,7 +207,7 @@ export class ChatsService {
         requestId: input.requestId,
         fingerprint: hash,
       });
-      await tx
+      await tx.sql
         .update(chatThreads)
         .set({ currentRunId: runId })
         .where(and(eq(chatThreads.ownerId, ownerId), eq(chatThreads.conversationId, id)));
@@ -227,7 +226,7 @@ export class ChatsService {
     return this.store.locked(async (ownerId, tx) => {
       await this.thread(ownerId, id, tx, false);
       await requireConversation(ownerId, id, tx);
-      const rows = await tables.messages.bind(tx, ownerId).findMany({
+      const rows = await tx.messages.findMany({
         where: and(
           eq(messages.conversationId, id),
           eq(messages.state, 'published'),
@@ -261,7 +260,7 @@ export class ChatsService {
     return this.store.locked(async (ownerId, tx) => {
       await this.thread(ownerId, id, tx, false);
       await requireConversation(ownerId, id, tx);
-      const rows = await tables.messages.bind(tx, ownerId).findMany({
+      const rows = await tx.messages.findMany({
         where: and(
           eq(messages.conversationId, id),
           eq(messages.state, 'published'),
@@ -283,7 +282,7 @@ export class ChatsService {
     return this.store.locked(async (ownerId, tx) => {
       await this.thread(ownerId, id, tx, false);
       await requireConversation(ownerId, id, tx);
-      const rows = await tx
+      const rows = await tx.sql
         .select()
         .from(messages)
         .where(
@@ -307,7 +306,7 @@ export class ChatsService {
         )
       )
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-      await tx
+      await tx.sql
         .insert(chatDeliveries)
         .values(
           rows.map((row) => ({
@@ -330,7 +329,7 @@ export class ChatsService {
   async stop(id: string, input: StopChat): Promise<Chat> {
     const callId = await this.store.locked(async (ownerId, tx, now) => {
       const thread = await this.thread(ownerId, id, tx);
-      const [run] = await tx
+      const [run] = await tx.sql
         .select()
         .from(chatRuns)
         .where(
@@ -345,7 +344,7 @@ export class ChatsService {
       if (thread.currentRunId !== run.id) throw new ApiException(API_CODES.VERSION_CONFLICT);
       const job = await this.jobs.getInTransaction(ownerId, run.id, tx);
       if (['succeeded', 'failed', 'cancelled', 'blocked'].includes(job.status)) return null;
-      await tx
+      await tx.sql
         .update(chatRuns)
         .set({ interruptedAt: now })
         .where(and(eq(chatRuns.ownerId, ownerId), eq(chatRuns.id, run.id)));
@@ -363,11 +362,11 @@ export class ChatsService {
   ): Promise<ChatMessage[]> {
     if (!rows.length) return [];
     const ids = rows.map((row) => row.id);
-    const segments = await tx
+    const segments = await tx.sql
       .select()
       .from(chatSegments)
       .where(and(eq(chatSegments.ownerId, ownerId), inArray(chatSegments.messageId, ids)));
-    const deliveries = await tx
+    const deliveries = await tx.sql
       .select({
         messageId: chatDeliveries.messageId,
         deliveredAt: sql<Date>`MIN(${chatDeliveries.deliveredAt})`.mapWith(
@@ -394,9 +393,7 @@ export class ChatsService {
     tx: DatabaseTransaction,
     active = true,
   ): Promise<typeof chatThreads.$inferSelect> {
-    const thread = await tables.chatThreads
-      .bind(tx, ownerId)
-      .findOne({ where: { conversationId: id } });
+    const thread = await tx.chatThreads.findOne({ where: { conversationId: id } });
     if (!thread) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     if (active) {
       await requireCompanion(ownerId, thread.companionId, thread.runtimeEpoch, tx);
@@ -408,12 +405,8 @@ export class ChatsService {
   /** 组装聊天详情和当前轮次状态。 */
   private async read(ownerId: string, id: string, tx: DatabaseTransaction): Promise<Chat> {
     const thread = await this.thread(ownerId, id, tx, false);
-    const companion = await tables.companions
-      .bind(tx, ownerId)
-      .findOne({ where: { id: thread.companionId } });
-    const conversation = await tables.conversations
-      .bind(tx, ownerId)
-      .findOne({ where: { id: id } });
+    const companion = await tx.companions.findOne({ where: { id: thread.companionId } });
+    const conversation = await tx.conversations.findOne({ where: { id: id } });
     const availability = conversation!.lifecycleOperationId
       ? 'cleaning'
       : !companion || companion.deletedAt || companion.runtimeEpoch !== thread.runtimeEpoch
@@ -444,7 +437,7 @@ export class ChatsService {
 
   /** 将聊天轮次及任务记录转换为响应数据。 */
   private async run(ownerId: string, id: string, tx: DatabaseTransaction): Promise<ChatRun> {
-    const row = await tables.chatRuns.bind(tx, ownerId).findOne({ where: { id: id } });
+    const row = await tx.chatRuns.findOne({ where: { id: id } });
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     const task = await this.jobs.getInTransaction(ownerId, id, tx);
     return {

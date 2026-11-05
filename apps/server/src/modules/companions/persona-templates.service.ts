@@ -13,7 +13,6 @@ import { idCursorPage } from '../../database/cursor-pagination';
 import type { Database, DatabaseTransaction } from '../../database/database.service';
 import { DatabaseService } from '../../database/database.service';
 import { personaTemplates, personaTemplateVersions } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { PersonaTemplateRepository } from './persona-template.repository';
@@ -35,11 +34,11 @@ export class PersonaTemplatesService {
         async (tx) => {
           const id = randomUUID();
           const hash = fingerprint(input);
-          await tx
+          await tx.sql
             .insert(personaTemplates)
             .values({ id, ownerId, version: 1, requestId: input.requestId, fingerprint: hash })
             .onDuplicateKeyUpdate({ set: { id: sql`${personaTemplates.id}` } });
-          const [head] = await tx
+          const [head] = await tx.sql
             .select()
             .from(personaTemplates)
             .where(
@@ -52,7 +51,7 @@ export class PersonaTemplatesService {
           if (!head || head.fingerprint !== hash)
             throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
           if (head.id === id)
-            await tables.personaTemplateVersions.bind(tx, ownerId).insert({
+            await tx.personaTemplateVersions.insert({
               ...input,
               id: randomUUID(),
               templateId: id,
@@ -80,14 +79,14 @@ export class PersonaTemplatesService {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
         async (tx) => {
-          const [head] = await tx
+          const [head] = await tx.sql
             .select()
             .from(personaTemplates)
             .where(and(eq(personaTemplates.ownerId, ownerId), eq(personaTemplates.id, id)))
             .for('update');
           if (!head) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
           const hash = fingerprint(input);
-          const replay = await tables.personaTemplateVersions.bind(tx, ownerId).findOne({
+          const replay = await tx.personaTemplateVersions.findOne({
             where: { templateId: id, requestId: input.requestId },
           });
           if (replay) {
@@ -109,10 +108,8 @@ export class PersonaTemplatesService {
             lockedFeatures: input.lockedFeatures,
             createdAt: new Date(),
           };
-          await tables.personaTemplateVersions.bind(tx, ownerId).insert(row);
-          await tables.personaTemplates
-            .bind(tx, ownerId)
-            .updateWhere({ where: { id }, set: { version: row.version } });
+          await tx.personaTemplateVersions.insert(row);
+          await tx.personaTemplates.updateWhere({ where: { id }, set: { version: row.version } });
           return toTemplate({ ...row, ownerId });
         },
         { isolationLevel: 'read committed' },

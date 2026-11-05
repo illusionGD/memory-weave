@@ -15,7 +15,6 @@ import {
   memoryVersions,
   messages,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import type { CleanupPage, LifecycleRecord } from '../lifecycle/lifecycle-cleanup';
 import { lifecycleConversationScope } from '../lifecycle/lifecycle-scope';
 
@@ -33,7 +32,7 @@ export async function propagateRecallDeletion(
   if (operation.kind !== 'delete_messages') return { done: true, changed: 0 };
   let changed = 0;
   const known = alias(lifecycleMemoryTargets, 'known_memory_target');
-  const roots = await tx
+  const roots = await tx.sql
     .selectDistinct({ versionId: memoryOriginalSources.versionId })
     .from(lifecycleMessageTargets)
     .innerJoin(
@@ -60,11 +59,11 @@ export async function propagateRecallDeletion(
     )
     .limit(limit);
   if (roots.length)
-    await tx
+    await tx.sql
       .insert(lifecycleMemoryTargets)
       .values(roots.map((row) => ({ ...row, ownerId, operationId: operation.id })));
   changed += roots.length;
-  const derived = await tx
+  const derived = await tx.sql
     .selectDistinct({ versionId: memoryDependencies.versionId })
     .from(lifecycleMemoryTargets)
     .innerJoin(
@@ -87,11 +86,11 @@ export async function propagateRecallDeletion(
     )
     .limit(limit);
   if (derived.length)
-    await tx
+    await tx.sql
       .insert(lifecycleMemoryTargets)
       .values(derived.map((row) => ({ ...row, ownerId, operationId: operation.id })));
   changed += derived.length;
-  const invalid = await tx
+  const invalid = await tx.sql
     .select({ id: memoryVersions.id })
     .from(lifecycleMemoryTargets)
     .innerJoin(memoryVersions, eq(memoryVersions.id, lifecycleMemoryTargets.versionId))
@@ -105,18 +104,18 @@ export async function propagateRecallDeletion(
     .limit(limit);
   if (invalid.length) {
     const ids = invalid.map((row) => row.id);
-    await tables.memoryEntries.bind(tx, ownerId).updateWhere({
+    await tx.memoryEntries.updateWhere({
       where: inArray(memoryEntries.currentVersionId, ids),
       set: { status: 'invalidated' },
     });
-    await tx
+    await tx.sql
       .update(memoryVersions)
       .set({ document: null, reason: null, fingerprint: 'deleted', invalidatedAt: new Date() })
       .where(inArray(memoryVersions.id, ids));
   }
   changed += invalid.length;
   const knownMessage = alias(lifecycleMessageTargets, 'known_recall_message');
-  const replies = await tx
+  const replies = await tx.sql
     .selectDistinct({ messageId: messages.id, contentVersion: messages.contentVersion })
     .from(lifecycleMemoryTargets)
     .innerJoin(
@@ -141,7 +140,7 @@ export async function propagateRecallDeletion(
     )
     .limit(limit);
   if (replies.length)
-    await tx.insert(lifecycleMessageTargets).values(
+    await tx.sql.insert(lifecycleMessageTargets).values(
       replies.map((row) => ({
         ...row,
         ownerId,
@@ -171,7 +170,7 @@ export async function cleanupSearchPage(
           eq(memoryEntries.companionId, operation.companionId!),
           lte(memoryEntries.runtimeEpoch, operation.previousEpoch!),
         );
-  const rows = await tx
+  const rows = await tx.sql
     .select({ id: memorySearchDocuments.versionId })
     .from(memorySearchDocuments)
     .innerJoin(memoryEntries, eq(memoryEntries.id, memorySearchDocuments.memoryId))
@@ -186,12 +185,8 @@ export async function cleanupSearchPage(
     .limit(limit);
   if (rows.length) {
     const ids = rows.map((row) => row.id);
-    await tables.memorySearchTerms
-      .bind(tx, ownerId)
-      .deleteWhere(inArray(memorySearchTerms.versionId, ids));
-    await tables.memorySearchDocuments
-      .bind(tx, ownerId)
-      .deleteWhere(inArray(memorySearchDocuments.versionId, ids));
+    await tx.memorySearchTerms.deleteWhere(inArray(memorySearchTerms.versionId, ids));
+    await tx.memorySearchDocuments.deleteWhere(inArray(memorySearchDocuments.versionId, ids));
   }
   return { done: rows.length === 0, changed: rows.length };
 }
@@ -214,7 +209,7 @@ export async function vectorCleanupRows(
           eq(memoryVectorIndexes.companionId, operation.companionId!),
           lte(memoryVectorIndexes.runtimeEpoch, operation.previousEpoch!),
         );
-  return tx
+  return tx.sql
     .select({
       id: memoryVectorIndexes.id,
       versionId: memoryVectorIndexes.versionId,

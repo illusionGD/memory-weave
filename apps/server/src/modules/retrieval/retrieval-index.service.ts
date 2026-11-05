@@ -13,7 +13,6 @@ import {
   memoryVersions,
   tasks,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { requireCompanion } from '../conversations/conversation-access';
 import { ModelConfigurationService } from '../models/model-configuration.service';
@@ -55,7 +54,7 @@ export class RetrievalIndexService {
     const space = embeddingSpace(embedding, this.config);
     await this.reconcileDeleted(limits.indexBatchSize);
     await this.store.locked(async (ownerId, tx) => {
-      const old = await tx
+      const old = await tx.sql
         .select({ entry: memoryEntries, version: memoryVersions })
         .from(memoryVersions)
         .innerJoin(memoryEntries, eq(memoryEntries.id, memoryVersions.memoryId))
@@ -83,7 +82,7 @@ export class RetrievalIndexService {
             tx,
           );
       if (!limits.vectorEnabled || !embedding.enabled || embedding.providerId === 'test') return;
-      const [waiting] = await tx
+      const [waiting] = await tx.sql
         .select({ count: sql<number>`count(*)` })
         .from(tasks)
         .where(
@@ -94,7 +93,7 @@ export class RetrievalIndexService {
           ),
         );
       if (Number(waiting?.count ?? 0) >= limits.indexBatchSize * 2) return;
-      const documents = await tx
+      const documents = await tx.sql
         .select({ document: memorySearchDocuments, entry: memoryEntries, version: memoryVersions })
         .from(memorySearchDocuments)
         .innerJoin(memoryEntries, eq(memoryEntries.id, memorySearchDocuments.memoryId))
@@ -126,7 +125,7 @@ export class RetrievalIndexService {
           runtimeEpoch: row.entry.runtimeEpoch,
           conversationId: row.entry.conversationId,
         };
-        await tables.tasks.bind(tx, ownerId).insert({
+        await tx.tasks.insert({
           id: taskId,
           requestKey: `memory_index:${id}`,
           fingerprint: fingerprint({ space, versionId: row.version.id }),
@@ -135,7 +134,7 @@ export class RetrievalIndexService {
           scope,
           totalSteps: 2,
         });
-        await tx.insert(memoryVectorIndexes).values({
+        await tx.sql.insert(memoryVectorIndexes).values({
           id,
           ownerId,
           versionId: row.version.id,
@@ -152,7 +151,7 @@ export class RetrievalIndexService {
   /** 删除过期向量点并复查已失效的索引。 */
   private async reconcileDeleted(limit: number): Promise<void> {
     const rows = await this.store.locked((ownerId, tx) =>
-      tx
+      tx.sql
         .select({ index: memoryVectorIndexes })
         .from(memoryVectorIndexes)
         .innerJoin(memoryEntries, eq(memoryEntries.id, memoryVectorIndexes.memoryId))
@@ -184,7 +183,7 @@ export class RetrievalIndexService {
     for (const { index } of rows) {
       await this.vectors.remove(index.collection, [index.versionId]);
       await this.store.locked(async (ownerId, tx) => {
-        await tx
+        await tx.sql
           .update(memoryVectorIndexes)
           .set({ status: 'deleted', reconciledAt: new Date() })
           .where(
@@ -254,7 +253,7 @@ export class RetrievalIndexService {
       });
       await this.jobs.complete(lease, async (ownerId, tx) => {
         await requireIndexSource(ownerId, id, tx);
-        await tx
+        await tx.sql
           .update(memoryVectorIndexes)
           .set({ status: 'indexed', indexedAt: new Date() })
           .where(eq(memoryVectorIndexes.id, id));
@@ -286,31 +285,27 @@ export class RetrievalIndexService {
         throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       const requestKey = `index_retry:${indexId}:${command.requestId}`;
       const hash = fingerprint(command);
-      const replay = await tables.tasks
-        .bind(tx, ownerId)
-        .findOne({ where: { requestKey: requestKey } });
+      const replay = await tx.tasks.findOne({ where: { requestKey: requestKey } });
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return { taskId: replay.id };
       }
-      const previous = await tables.tasks
-        .bind(tx, ownerId)
-        .findOne({ where: { id: row.index.taskId } });
+      const previous = await tx.tasks.findOne({ where: { id: row.index.taskId } });
       if (
         !previous ||
         previous.input.kind !== 'memory_index' ||
         !['failed', 'blocked', 'cancelled', 'succeeded'].includes(previous.status)
       )
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
-      const call = await tables.modelCalls
-        .bind(tx, ownerId)
-        .findOne({ where: { requestId: previous.input.modelRequestId } });
+      const call = await tx.modelCalls.findOne({
+        where: { requestId: previous.input.modelRequestId },
+      });
       if (call && ['running', 'unknown'].includes(call.status))
         throw new ApiException(API_CODES.MODEL_USAGE_UNKNOWN);
       if (row.index.space !== embeddingSpace(current.config.tasks.embedding, this.config))
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       const taskId = randomUUID();
-      await tables.tasks.bind(tx, ownerId).insert({
+      await tx.tasks.insert({
         id: taskId,
         requestKey,
         fingerprint: hash,
@@ -323,7 +318,7 @@ export class RetrievalIndexService {
         scope: previous.scope,
         totalSteps: 2,
       });
-      await tables.memoryVectorIndexes.bind(tx, ownerId).updateWhere({
+      await tx.memoryVectorIndexes.updateWhere({
         where: { id: indexId },
         set: {
           taskId,
@@ -350,7 +345,7 @@ export class RetrievalIndexService {
     const space = embeddingSpace(configuration.config.tasks.embedding, this.config);
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanion(ownerId, companionId, runtimeEpoch, tx);
-      const rows = await tables.memoryVectorIndexes.bind(tx, ownerId).findMany({
+      const rows = await tx.memoryVectorIndexes.findMany({
         where: and(
           eq(memoryVectorIndexes.companionId, companionId),
           eq(memoryVectorIndexes.runtimeEpoch, runtimeEpoch),

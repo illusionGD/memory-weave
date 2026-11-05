@@ -11,7 +11,6 @@ import {
   messages,
   processingRanges,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import type { CleanupPage, LifecycleRecord } from '../lifecycle/lifecycle-cleanup';
 import { lifecycleConversationScope } from '../lifecycle/lifecycle-scope';
 
@@ -28,7 +27,7 @@ export async function cleanupMemoryPage(
   limit: number,
 ): Promise<CleanupPage> {
   const content = operation.kind === 'delete_messages';
-  const targets = tx
+  const targets = tx.sql
     .select({ id: lifecycleMessageTargets.messageId })
     .from(lifecycleMessageTargets)
     .where(
@@ -44,17 +43,17 @@ export async function cleanupMemoryPage(
         lte(memoryEntries.runtimeEpoch, operation.previousEpoch!),
       );
   if (stage === 'memory_versions') {
-    const affected = tx
+    const affected = tx.sql
       .select({ id: memoryEvidence.versionId })
       .from(memoryEvidence)
       .where(and(eq(memoryEvidence.ownerId, ownerId), inArray(memoryEvidence.messageId, targets)));
     const ancestor = alias(memoryVersions, 'memory_ancestor');
-    const derived = tx
+    const derived = tx.sql
       .select({ id: memoryDependencies.versionId })
       .from(memoryDependencies)
       .innerJoin(ancestor, eq(ancestor.id, memoryDependencies.sourceVersionId))
       .where(and(eq(memoryDependencies.ownerId, ownerId), isNotNull(ancestor.invalidatedAt)));
-    const rows = await tx
+    const rows = await tx.sql
       .select({ id: memoryVersions.id })
       .from(memoryVersions)
       .innerJoin(memoryEntries, eq(memoryEntries.id, memoryVersions.memoryId))
@@ -71,11 +70,11 @@ export async function cleanupMemoryPage(
       .limit(limit);
     if (rows.length) {
       const ids = rows.map((row) => row.id);
-      await tables.memoryEntries.bind(tx, ownerId).updateWhere({
+      await tx.memoryEntries.updateWhere({
         where: inArray(memoryEntries.currentVersionId, ids),
         set: { status: 'invalidated' },
       });
-      await tx
+      await tx.sql
         .update(memoryVersions)
         .set({ document: null, reason: null, fingerprint: 'deleted', invalidatedAt: new Date() })
         .where(inArray(memoryVersions.id, ids));
@@ -85,7 +84,7 @@ export async function cleanupMemoryPage(
   if (stage === 'memory_requeue') {
     if (!content) return { done: true, changed: 0 };
     // 失去上下文依赖的旧结论不能回退；仍然存在的独立原文重新进入整理队列。
-    const dependencies = tx
+    const dependencies = tx.sql
       .select({ id: memoryEvidence.messageId })
       .from(memoryEvidence)
       .innerJoin(memoryVersions, eq(memoryVersions.id, memoryEvidence.versionId))
@@ -98,7 +97,7 @@ export async function cleanupMemoryPage(
           sql`${memoryEntries.companionId} = ${processingRanges.companionId} AND ${memoryEntries.runtimeEpoch} = ${processingRanges.runtimeEpoch}`,
         ),
       );
-    const rows = await tx
+    const rows = await tx.sql
       .select({ id: processingRanges.id })
       .from(processingRanges)
       .innerJoin(messages, eq(messages.id, processingRanges.messageId))
@@ -114,7 +113,7 @@ export async function cleanupMemoryPage(
       )
       .limit(limit);
     if (rows.length)
-      await tables.processingRanges.bind(tx, ownerId).updateWhere({
+      await tx.processingRanges.updateWhere({
         where: inArray(
           processingRanges.id,
           rows.map((row) => row.id),
@@ -124,7 +123,7 @@ export async function cleanupMemoryPage(
     return { done: rows.length === 0, changed: rows.length };
   }
   if (stage === 'memory_evidence') {
-    const invalid = tx
+    const invalid = tx.sql
       .select({ id: memoryVersions.id })
       .from(memoryVersions)
       .innerJoin(memoryEntries, eq(memoryEntries.id, memoryVersions.memoryId))
@@ -135,13 +134,13 @@ export async function cleanupMemoryPage(
           isNotNull(memoryVersions.invalidatedAt),
         ),
       );
-    const rows = await tables.memoryEvidence.bind(tx, ownerId).findMany({
+    const rows = await tx.memoryEvidence.findMany({
       where: inArray(memoryEvidence.versionId, invalid),
       fields: { id: memoryEvidence.id },
       limit: limit,
     });
     if (rows.length)
-      await tx.delete(memoryEvidence).where(
+      await tx.sql.delete(memoryEvidence).where(
         inArray(
           memoryEvidence.id,
           rows.map((row) => row.id),
@@ -149,7 +148,7 @@ export async function cleanupMemoryPage(
       );
     return { done: rows.length === 0, changed: rows.length };
   }
-  const rows = await tables.memoryBatches.bind(tx, ownerId).findMany({
+  const rows = await tx.memoryBatches.findMany({
     where: and(
       isNotNull(memoryBatches.input),
       content
@@ -163,7 +162,7 @@ export async function cleanupMemoryPage(
     limit: limit,
   });
   if (rows.length)
-    await tables.memoryBatches.bind(tx, ownerId).updateWhere({
+    await tx.memoryBatches.updateWhere({
       where: inArray(
         memoryBatches.id,
         rows.map((row) => row.id),

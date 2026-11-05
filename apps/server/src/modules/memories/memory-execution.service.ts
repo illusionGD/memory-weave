@@ -67,7 +67,7 @@ export class MemoryExecutionService {
       const current = await requireMemoryBatch(ownerId, id, tx);
       if (current.taskId !== lease.task.id || current.completedAt)
         throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
-      const ranges = await tx
+      const ranges = await tx.sql
         .select()
         .from(processingRanges)
         .where(and(eq(processingRanges.ownerId, ownerId), eq(processingRanges.batchId, id)));
@@ -90,11 +90,11 @@ export class MemoryExecutionService {
       )
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       const outcomes = await adoptMemories(ownerId, current, output.data, tx);
-      await tx
+      await tx.sql
         .update(memoryBatches)
         .set({ outcomes, completedAt: new Date() })
         .where(eq(memoryBatches.id, id));
-      await tx
+      await tx.sql
         .update(processingRanges)
         .set({ status: 'processed' })
         .where(and(eq(processingRanges.ownerId, ownerId), eq(processingRanges.batchId, id)));

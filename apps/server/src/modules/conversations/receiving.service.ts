@@ -20,7 +20,6 @@ import {
   receiveBatches,
   visibilityGrants,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { lockTaskScheduler } from '../tasks/task-store';
@@ -76,7 +75,7 @@ export class ReceivingService {
   ): Promise<PublishedMessage> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireCompanion(ownerId, companionId, input.runtimeEpoch, db);
-      const row = await tables.messages.bind(db, ownerId).findOne({
+      const row = await db.messages.findOne({
         where: {
           id: messageId,
           contentVersion: input.contentVersion,
@@ -122,7 +121,7 @@ export class ReceivingService {
       const page = rows.slice(0, input.limit);
       if (page.length === 0) return { items: [], nextAfterSequence: null };
       const ids = page.map((row) => row.id);
-      const receipts = await db
+      const receipts = await db.sql
         .select()
         .from(readReceipts)
         .where(
@@ -134,7 +133,7 @@ export class ReceivingService {
             inArray(readReceipts.messageId, ids),
           ),
         );
-      const pending = await db
+      const pending = await db.sql
         .select()
         .from(processingRanges)
         .where(
@@ -226,7 +225,7 @@ export class ReceivingService {
             afterSequence: input.afterSequence,
             limit: input.limit,
           });
-          const existing = await tables.receiveBatches.bind(tx, ownerId).findOne({
+          const existing = await tx.receiveBatches.findOne({
             where: {
               companionId: companionId,
               runtimeEpoch: input.runtimeEpoch,
@@ -240,7 +239,7 @@ export class ReceivingService {
             }
             const rows: (typeof messages.$inferSelect)[] = [];
             for (const reference of existing.messages) {
-              const row = await tables.messages.bind(tx, ownerId).findOne({
+              const row = await tx.messages.findOne({
                 where: {
                   conversationId: conversationId,
                   id: reference.messageId,
@@ -260,7 +259,7 @@ export class ReceivingService {
           const rows = await this.visibleRows(member, input.afterSequence, input.limit, tx);
           const acquiredAt = new Date();
           const batchId = randomUUID();
-          await tables.receiveBatches.bind(tx, ownerId).insert({
+          await tx.receiveBatches.insert({
             id: batchId,
             companionId,
             runtimeEpoch: input.runtimeEpoch,
@@ -273,12 +272,10 @@ export class ReceivingService {
             })),
             acquiredAt,
           });
-          const batch = await tables.receiveBatches
-            .bind(tx, ownerId)
-            .findOne({ where: { id: batchId } });
+          const batch = await tx.receiveBatches.findOne({ where: { id: batchId } });
           if (!batch) throw new Error('Failed to persist the receive batch.');
           if (rows.length > 0) {
-            await tx
+            await tx.sql
               .insert(readReceipts)
               .values(
                 rows.map((row) => ({
@@ -335,7 +332,7 @@ export class ReceivingService {
     limit: number,
     db: QueryDatabase,
   ): Promise<(typeof messages.$inferSelect)[]> {
-    const grants = await db
+    const grants = await db.sql
       .select()
       .from(visibilityGrants)
       .where(
@@ -360,7 +357,7 @@ export class ReceivingService {
         until === null ? undefined : lte(messages.sequence, until),
       );
     });
-    return db
+    return db.sql
       .select()
       .from(messages)
       .where(

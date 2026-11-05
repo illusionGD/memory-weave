@@ -1,6 +1,6 @@
 import type { IdPaginationQuery } from '@memory-weave/contracts';
 import { and, asc, eq, gt } from 'drizzle-orm';
-import type { QueryDatabase } from '../../database/crud-types';
+import type { QueryDatabase } from '../../database/database.service';
 import { personaTemplates, personaTemplateVersions } from '../../database/schema';
 
 /** 在当前连接上读取模板版本，复用身份与版本的关联条件。 */
@@ -40,7 +40,7 @@ export class PersonaTemplateRepository {
 
   /** 组合模板身份与精确版本，避免列表和详情分别维护关联规则。 */
   private versions(version?: number) {
-    return this.db
+    return this.db.sql
       .select({ value: personaTemplateVersions })
       .from(personaTemplates)
       .innerJoin(

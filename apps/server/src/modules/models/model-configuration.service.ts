@@ -10,7 +10,6 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseTransaction } from '../../database/database.service';
 import { DatabaseService } from '../../database/database.service';
 import { modelConfigurationHeads, modelConfigurationVersions } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { fingerprint } from '../shared/http';
 import { defaultModelConfiguration } from './model-defaults';
@@ -35,14 +34,10 @@ export class ModelConfigurationService {
    *
    * 读取不可变历史，用于比较或作为新版本回滚的输入。
    */
-  getVersion(version: number): Promise<ModelConfigurationVersion> {
-    return this.database.withOwner(async (ownerId, db) => {
-      const row = await tables.modelConfigurationVersions
-        .bind(db, ownerId)
-        .findOne({ where: { version: version } });
-      if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-      return toVersion(row);
-    });
+  async getVersion(version: number): Promise<ModelConfigurationVersion> {
+    const row = await this.database.modelConfigurationVersions.findOne({ where: { version } });
+    if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    return toVersion(row);
   }
 
   /**
@@ -53,9 +48,9 @@ export class ModelConfigurationService {
   update(input: UpdateModelConfiguration): Promise<ModelConfigurationVersion> {
     const hash = fingerprint({ ...input, requestId: input.requestId.toLowerCase() });
     return this.locked(async (ownerId, tx, current) => {
-      const replay = await tables.modelConfigurationVersions
-        .bind(tx, ownerId)
-        .findOne({ where: { requestId: input.requestId } });
+      const replay = await tx.modelConfigurationVersions.findOne({
+        where: { requestId: input.requestId },
+      });
       if (replay) {
         if (replay.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return toVersion(replay);
@@ -76,8 +71,8 @@ export class ModelConfigurationService {
         fingerprint: hash,
         createdAt: new Date(),
       };
-      await tx.insert(modelConfigurationVersions).values(row);
-      await tables.modelConfigurationHeads.bind(tx, ownerId).updateWhere({
+      await tx.sql.insert(modelConfigurationVersions).values(row);
+      await tx.modelConfigurationHeads.updateWhere({
         where: eq(modelConfigurationHeads.ownerId, ownerId),
         set: { activeVersion: row.version },
       });
@@ -100,11 +95,11 @@ export class ModelConfigurationService {
     return this.database.withOwner((ownerId, db) =>
       db.transaction(
         async (tx) => {
-          await tx
+          await tx.sql
             .insert(modelConfigurationHeads)
             .values({ ownerId, activeVersion: 0 })
             .onDuplicateKeyUpdate({ set: { ownerId } });
-          const [head] = await tx
+          const [head] = await tx.sql
             .select()
             .from(modelConfigurationHeads)
             .where(eq(modelConfigurationHeads.ownerId, ownerId))
@@ -122,16 +117,16 @@ export class ModelConfigurationService {
               fingerprint: 'default',
               createdAt: new Date(),
             };
-            await tx.insert(modelConfigurationVersions).values(row);
-            await tables.modelConfigurationHeads.bind(tx, ownerId).updateWhere({
+            await tx.sql.insert(modelConfigurationVersions).values(row);
+            await tx.modelConfigurationHeads.updateWhere({
               where: eq(modelConfigurationHeads.ownerId, ownerId),
               set: { activeVersion: 1 },
             });
             return operation(ownerId, tx, toVersion(row));
           }
-          const row = await tables.modelConfigurationVersions
-            .bind(tx, ownerId)
-            .findOne({ where: { version: head.activeVersion } });
+          const row = await tx.modelConfigurationVersions.findOne({
+            where: { version: head.activeVersion },
+          });
           if (!row) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
           return operation(ownerId, tx, toVersion(row));
         },

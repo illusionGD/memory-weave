@@ -31,7 +31,7 @@ export async function explorerScope(
     eq(memoryEntries.runtimeEpoch, query.runtimeEpoch),
     eq(conversations.ownerId, ownerId),
     isNull(conversations.lifecycleOperationId),
-    sql`EXISTS (${tx
+    sql`EXISTS (${tx.sql
       .select({ id: conversationMembers.id })
       .from(conversationMembers)
       .where(

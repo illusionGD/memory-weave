@@ -19,7 +19,6 @@ import {
   messages,
   visibilityGrants,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { requireCompanionMember } from '../conversations/conversation-access';
 import { registerSearchDocument } from '../retrieval/retrieval-lexical';
@@ -65,7 +64,7 @@ export async function assertVersionSources(
     entry.conversationId,
     tx,
   );
-  const visible = tx
+  const visible = tx.sql
     .select({ id: visibilityGrants.id })
     .from(visibilityGrants)
     .where(
@@ -76,7 +75,7 @@ export async function assertVersionSources(
         sql`${visibilityGrants.startSequence} <= ${messages.sequence} AND (${visibilityGrants.endSequence} IS NULL OR ${visibilityGrants.endSequence} >= ${messages.sequence}) AND (${visibilityGrants.kind} = 'history' OR (${messages.sequence} >= ${member.joinedSequence} AND (${member.leftSequence} IS NULL OR ${messages.sequence} <= ${member.leftSequence})))`,
       ),
     );
-  const [invalid] = await tx
+  const [invalid] = await tx.sql
     .select({ id: memoryEvidence.id })
     .from(memoryEvidence)
     .leftJoin(
@@ -118,7 +117,7 @@ async function evidenceFor(
 ): Promise<MemoryEvidencePage> {
   if (version.invalidatedAt) return { items: [], nextAfterId: null };
   await assertVersionSources(ownerId, entry, version, tx);
-  const rows = await tx
+  const rows = await tx.sql
     .select({ evidence: memoryEvidence, source: messages })
     .from(memoryEvidence)
     .innerJoin(
@@ -162,7 +161,7 @@ export async function memoryRecordEvidence(
   query: MemoryQuery,
   tx: DatabaseTransaction,
 ): Promise<MemoryEvidencePage> {
-  const [row] = await tx
+  const [row] = await tx.sql
     .select({ entry: memoryEntries, version: memoryVersions })
     .from(memoryEntries)
     .innerJoin(memoryVersions, eq(memoryVersions.memoryId, memoryEntries.id))
@@ -190,7 +189,7 @@ export async function listMemoryRecords(
   query: MemoryQuery,
   tx: DatabaseTransaction,
 ): Promise<MemoryList> {
-  const rows = await tx
+  const rows = await tx.sql
     .select({ entry: memoryEntries, version: memoryVersions })
     .from(memoryEntries)
     .innerJoin(memoryVersions, eq(memoryVersions.id, memoryEntries.currentVersionId))
@@ -224,7 +223,7 @@ export async function memoryRecordDetail(
   query: MemoryQuery,
   tx: DatabaseTransaction,
 ): Promise<MemoryDetail> {
-  const entry = await tables.memoryEntries.bind(tx, ownerId).findOne({
+  const entry = await tx.memoryEntries.findOne({
     where: {
       companionId: companionId,
       runtimeEpoch: query.runtimeEpoch,
@@ -233,12 +232,10 @@ export async function memoryRecordDetail(
     },
   });
   if (!entry) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-  const current = await tables.memoryVersions
-    .bind(tx, ownerId)
-    .findOne({ where: { id: entry.currentVersionId } });
+  const current = await tx.memoryVersions.findOne({ where: { id: entry.currentVersionId } });
   if (!current) throw new ApiException(API_CODES.DATA_UNAVAILABLE);
   await assertVersionSources(ownerId, entry, current, tx);
-  const versions = await tables.memoryVersions.bind(tx, ownerId).findMany({
+  const versions = await tx.memoryVersions.findMany({
     where: and(
       eq(memoryVersions.memoryId, id),
       query.afterId ? gt(memoryVersions.id, query.afterId) : undefined,
@@ -326,14 +323,14 @@ export async function adoptMemories(
         (item) => item.id === action.targetId && item.version === action.targetVersion,
       );
       if (!related || changed.has(related.id)) return invalid();
-      [entry] = await tx
+      [entry] = await tx.sql
         .select()
         .from(memoryEntries)
         .where(and(eq(memoryEntries.ownerId, ownerId), eq(memoryEntries.id, related.id)))
         .for('update');
       if (!entry || entry.currentVersionId !== related.versionId || entry.status === 'invalidated')
         throw new ApiException(API_CODES.VERSION_CONFLICT);
-      [previous] = await tx
+      [previous] = await tx.sql
         .select()
         .from(memoryVersions)
         .where(eq(memoryVersions.id, entry.currentVersionId));
@@ -347,7 +344,7 @@ export async function adoptMemories(
       changed.add(entry.id);
     } else {
       if (action.targetId || action.targetVersion) invalid();
-      const [duplicate] = await tx
+      const [duplicate] = await tx.sql
         .select({ entry: memoryEntries, version: memoryVersions })
         .from(memoryEntries)
         .innerJoin(memoryVersions, eq(memoryVersions.id, memoryEntries.currentVersionId))
@@ -380,7 +377,7 @@ export async function adoptMemories(
         ? ('disputed' as const)
         : ('active' as const);
     if (!entry)
-      await tables.memoryEntries.bind(tx, ownerId).insert({
+      await tx.memoryEntries.insert({
         id: entryId,
         companionId: batch.companionId,
         runtimeEpoch: batch.runtimeEpoch,
@@ -390,7 +387,7 @@ export async function adoptMemories(
         status,
       });
     if (!duplicate) {
-      await tables.memoryVersions.bind(tx, ownerId).insert({
+      await tx.memoryVersions.insert({
         id: versionId,
         memoryId: entryId,
         version,
@@ -415,7 +412,7 @@ export async function adoptMemories(
         tx,
       );
       if (entry)
-        await tables.memoryEntries.bind(tx, ownerId).updateWhere({
+        await tx.memoryEntries.updateWhere({
           where: { id: entry.id },
           set: { currentVersionId: versionId, version, status },
         });
@@ -441,13 +438,13 @@ export async function adoptMemories(
     ];
     const unique = [...new Map(dependencies.map((e) => [JSON.stringify(e), e])).values()];
     for (const evidence of unique)
-      await tx
+      await tx.sql
         .insert(memoryEvidence)
         .values({ ...evidence, ownerId, versionId })
         .onDuplicateKeyUpdate({ set: { versionId } });
     const sourceIds = [...new Map(unique.map((e) => [e.messageId, e])).values()];
     if (sourceIds.length)
-      await tx
+      await tx.sql
         .insert(memoryOriginalSources)
         .values(
           sourceIds.map((e) => ({
@@ -459,7 +456,7 @@ export async function adoptMemories(
         )
         .onDuplicateKeyUpdate({ set: { versionId } });
     if (!duplicate && input.related.length)
-      await tx
+      await tx.sql
         .insert(memoryDependencies)
         .values(
           input.related.map((item) => ({ ownerId, versionId, sourceVersionId: item.versionId })),

@@ -21,7 +21,6 @@ import {
   personaVersions,
   tasks,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 import { requireCompanion } from '../conversations/conversation-access';
 import { ModelConfigurationService } from '../models/model-configuration.service';
@@ -61,7 +60,7 @@ export class CompanionPersonasService {
   async create(input: CompanionCreation): Promise<CompanionPersonaState> {
     const hash = fingerprint(input);
     const replayId = await this.store.locked(async (ownerId, tx) => {
-      const [row] = await tx
+      const [row] = await tx.sql
         .select()
         .from(personaFoundations)
         .where(
@@ -85,7 +84,7 @@ export class CompanionPersonasService {
     const configuration = await this.activateDefinition();
     const companionId = await this.store.locked(async (ownerId, tx) => {
       // 配置读取在调度锁之外；并发重复命令仍在这里重查。
-      const [replay] = await tx
+      const [replay] = await tx.sql
         .select()
         .from(personaFoundations)
         .where(
@@ -104,7 +103,7 @@ export class CompanionPersonasService {
         initialProfile: profileText,
       });
       const taskId = randomUUID();
-      await tables.tasks.bind(tx, ownerId).insert({
+      await tx.tasks.insert({
         id: taskId,
         requestKey: `persona_initialization:${input.requestId.toLowerCase()}`,
         fingerprint: hash,
@@ -122,7 +121,7 @@ export class CompanionPersonasService {
         },
         totalSteps: 1,
       });
-      await tables.personaFoundations.bind(tx, ownerId).insert({
+      await tx.personaFoundations.insert({
         companionId: companion.id,
         runtimeEpoch: companion.runtimeEpoch,
         requestId: input.requestId,
@@ -146,7 +145,7 @@ export class CompanionPersonasService {
     const requestKey = `persona_initialize:${id}:${input.requestId.toLowerCase()}`;
     const hash = fingerprint(input);
     const replay = await this.store.locked(async (ownerId, tx) => {
-      const [row] = await tx
+      const [row] = await tx.sql
         .select()
         .from(tasks)
         .where(and(eq(tasks.ownerId, ownerId), eq(tasks.requestKey, requestKey)));
@@ -156,7 +155,7 @@ export class CompanionPersonasService {
     if (replay) return this.get(id);
     const config = await this.activateDefinition();
     await this.store.locked(async (ownerId, tx) => {
-      const [existing] = await tx
+      const [existing] = await tx.sql
         .select()
         .from(tasks)
         .where(and(eq(tasks.ownerId, ownerId), eq(tasks.requestKey, requestKey)));
@@ -173,7 +172,7 @@ export class CompanionPersonasService {
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       if (companion.currentPersonaVersion.document)
         throw new ApiException(API_CODES.CONFLICT, '初始整理已经完成，不能重新生成初始人生。');
-      const [foundation] = await tx
+      const [foundation] = await tx.sql
         .select()
         .from(personaFoundations)
         .where(
@@ -191,11 +190,11 @@ export class CompanionPersonasService {
             '当前任务仍可继续或需要核对，请勿重复发起。',
           );
         if (previous.modelCallId) {
-          const [call] = await tx
+          const [call] = await tx.sql
             .select({ status: modelCalls.status })
             .from(modelCalls)
             .where(and(eq(modelCalls.ownerId, ownerId), eq(modelCalls.id, previous.modelCallId)));
-          const unknownAttempts = await tx
+          const unknownAttempts = await tx.sql
             .select({ id: modelAttempts.id })
             .from(modelAttempts)
             .where(
@@ -214,7 +213,7 @@ export class CompanionPersonasService {
         }
       }
       const taskId = randomUUID();
-      await tables.tasks.bind(tx, ownerId).insert({
+      await tx.tasks.insert({
         id: taskId,
         requestKey,
         fingerprint: hash,
@@ -229,12 +228,12 @@ export class CompanionPersonasService {
         totalSteps: 1,
       });
       if (foundation)
-        await tx
+        await tx.sql
           .update(personaFoundations)
           .set({ taskId })
           .where(eq(personaFoundations.id, foundation.id));
       else
-        await tables.personaFoundations.bind(tx, ownerId).insert({
+        await tx.personaFoundations.insert({
           companionId: id,
           runtimeEpoch: input.runtimeEpoch,
           requestId: input.requestId,
@@ -255,11 +254,11 @@ export class CompanionPersonasService {
   get(id: string): Promise<CompanionPersonaState> {
     return this.store.locked(async (ownerId, tx) => {
       const companion = await this.instances.readInTransaction(tx, ownerId, id);
-      const foundation = await tables.personaFoundations
-        .bind(tx, ownerId)
-        .findOne({ where: { companionId: id, runtimeEpoch: companion.runtimeEpoch } });
+      const foundation = await tx.personaFoundations.findOne({
+        where: { companionId: id, runtimeEpoch: companion.runtimeEpoch },
+      });
       const [initial] = foundation?.initialPersonaVersionId
-        ? await tx
+        ? await tx.sql
             .select()
             .from(personaVersions)
             .where(
@@ -289,9 +288,9 @@ export class CompanionPersonasService {
   version(id: string, runtimeEpoch: number, version: number): Promise<PersonaVersion> {
     return this.database.withOwner(async (ownerId, db) => {
       await requireCompanion(ownerId, id, runtimeEpoch, db);
-      const row = await tables.personaVersions
-        .bind(db, ownerId)
-        .findOne({ where: { companionId: id, runtimeEpoch: runtimeEpoch, version: version } });
+      const row = await db.personaVersions.findOne({
+        where: { companionId: id, runtimeEpoch: runtimeEpoch, version: version },
+      });
       if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       return toPersonaVersion(row);
     });
@@ -306,9 +305,9 @@ export class CompanionPersonasService {
     return this.store.locked(async (ownerId, tx) => {
       await requireCompanion(ownerId, id, input.runtimeEpoch, tx);
       const hash = fingerprint(input);
-      const replay = await tables.personaVersions
-        .bind(tx, ownerId)
-        .findOne({ where: { companionId: id, commandId: input.requestId } });
+      const replay = await tx.personaVersions.findOne({
+        where: { companionId: id, commandId: input.requestId },
+      });
       if (replay) {
         if (replay.commandFingerprint !== hash)
           throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
@@ -346,8 +345,8 @@ export class CompanionPersonasService {
         commandFingerprint: hash,
         createdAt: new Date(),
       };
-      await tx.insert(personaVersions).values(row);
-      await tables.companions.bind(tx, ownerId).updateWhere({
+      await tx.sql.insert(personaVersions).values(row);
+      await tx.companions.updateWhere({
         where: { id: id },
         set: { currentPersonaVersionId: row.id, version: companion.version + 1 },
       });
@@ -403,12 +402,12 @@ export class CompanionPersonasService {
     const result = output.data;
     await this.jobs.complete(lease, async (ownerId, tx) => {
       const id = lease.task.scope.companionId!;
-      const [companion] = await tx
+      const [companion] = await tx.sql
         .select()
         .from(companions)
         .where(and(eq(companions.ownerId, ownerId), eq(companions.id, id)))
         .for('update');
-      const [foundation] = await tx
+      const [foundation] = await tx.sql
         .select()
         .from(personaFoundations)
         .where(
@@ -446,7 +445,7 @@ export class CompanionPersonasService {
         knowledge: result.knowledge,
         locks,
       });
-      const [parent] = await tx
+      const [parent] = await tx.sql
         .select()
         .from(personaVersions)
         .where(
@@ -459,7 +458,7 @@ export class CompanionPersonasService {
       if (!parent || parent.version >= 2_147_483_647 || companion.version >= 2_147_483_647)
         throw new ApiException(API_CODES.VERSION_LIMIT_REACHED);
       const personaId = randomUUID();
-      await tables.personaVersions.bind(tx, ownerId).insert({
+      await tx.personaVersions.insert({
         id: personaId,
         companionId: id,
         runtimeEpoch: companion.runtimeEpoch,
@@ -471,11 +470,11 @@ export class CompanionPersonasService {
         modelCallId: call.id,
         mode: call.providerId === 'test' ? 'test' : 'model',
       });
-      await tx
+      await tx.sql
         .update(companions)
         .set({ name, currentPersonaVersionId: personaId, version: companion.version + 1 })
         .where(eq(companions.id, id));
-      await tx
+      await tx.sql
         .update(personaFoundations)
         .set({ initialPersonaVersionId: personaId })
         .where(eq(personaFoundations.id, foundation.id));

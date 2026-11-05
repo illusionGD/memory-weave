@@ -59,7 +59,7 @@ export class RetrievalService {
         query.conversationId,
         tx,
       );
-      const rows = await tx
+      const rows = await tx.sql
         .select({ id: conversations.id })
         .from(conversations)
         .where(
@@ -70,7 +70,7 @@ export class RetrievalService {
           ),
         )
         .limit(201);
-      const [blocked] = await tx
+      const [blocked] = await tx.sql
         .select({ id: conversations.id })
         .from(conversations)
         .where(
@@ -81,7 +81,7 @@ export class RetrievalService {
           ),
         )
         .limit(1);
-      const [indexed] = await tx
+      const [indexed] = await tx.sql
         .select({ id: memoryVectorIndexes.id })
         .from(memoryVectorIndexes)
         .where(
@@ -177,7 +177,7 @@ export class RetrievalService {
         query.conversationId,
         tx,
       );
-      const rows = await tx
+      const rows = await tx.sql
         .select({ message: messages, speaker: conversationMembers.kind })
         .from(processingRanges)
         .innerJoin(

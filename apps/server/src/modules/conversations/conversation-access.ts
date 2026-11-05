@@ -1,7 +1,7 @@
 import type { Conversation, ConversationMember, Message } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { and, asc, eq, gte, isNull, lte, or } from 'drizzle-orm';
-import type { Database, DatabaseTransaction } from '../../database/database.service';
+import type { QueryDatabase } from '../../database/database.service';
 import {
   companions,
   conversationMembers,
@@ -10,11 +10,10 @@ import {
   messageSources,
   visibilityGrants,
 } from '../../database/schema';
-import { tables } from '../../database/tables';
 import { ApiException } from '../../http/api-exception';
 
 /** 查询与事务共用的数据库接口，调用方负责事务边界。 */
-export type QueryDatabase = Database | DatabaseTransaction;
+export type { QueryDatabase } from '../../database/database.service';
 
 /**
  * 查询并校验当前管理者拥有的会话。
@@ -27,7 +26,7 @@ export async function requireConversation(
   db: QueryDatabase,
   lock = false,
 ): Promise<typeof conversations.$inferSelect> {
-  const query = db
+  const query = db.sql
     .select()
     .from(conversations)
     .where(and(eq(conversations.ownerId, ownerId), eq(conversations.id, conversationId)))
@@ -49,7 +48,7 @@ export async function requireCompanion(
   runtimeEpoch: number,
   db: QueryDatabase,
 ): Promise<typeof companions.$inferSelect> {
-  const row = await tables.companions.bind(db, ownerId).findOne({ where: { id: companionId } });
+  const row = await db.companions.findOne({ where: { id: companionId } });
   if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   if (row.deletedAt) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
   if (row.runtimeEpoch !== runtimeEpoch) throw new ApiException(API_CODES.RUNTIME_EPOCH_MISMATCH);
@@ -71,7 +70,7 @@ export async function requireCompanionMember(
 ): Promise<typeof conversationMembers.$inferSelect> {
   await requireCompanion(ownerId, companionId, runtimeEpoch, db);
   await requireConversation(ownerId, conversationId, db);
-  const member = await tables.conversationMembers.bind(db, ownerId).findOne({
+  const member = await db.conversationMembers.findOne({
     where: {
       conversationId: conversationId,
       companionId: companionId,
@@ -89,7 +88,7 @@ export async function assertVisible(
   sequence: number,
   db: QueryDatabase,
 ): Promise<void> {
-  const grants = await db
+  const grants = await db.sql
     .select()
     .from(visibilityGrants)
     .where(
@@ -166,7 +165,7 @@ export async function toMessage(
   row: typeof messages.$inferSelect,
   db: QueryDatabase,
 ): Promise<Message> {
-  const [speakerRow] = await db
+  const [speakerRow] = await db.sql
     .select()
     .from(conversationMembers)
     .where(
@@ -182,7 +181,7 @@ export async function toMessage(
   // 尚未发布的内容属于实例私有状态，限制生效后立即停止读取。
   if (row.state === 'draft' && !row.deletedAt && member.kind === 'companion')
     await requireCompanion(row.ownerId, member.companionId, member.runtimeEpoch, db);
-  const sourceRows = await db
+  const sourceRows = await db.sql
     .select()
     .from(messageSources)
     .where(and(eq(messageSources.ownerId, row.ownerId), eq(messageSources.messageId, row.id)))

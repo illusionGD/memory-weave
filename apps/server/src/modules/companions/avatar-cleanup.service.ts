@@ -40,7 +40,7 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
   /** 清理当前批次中未被引用的头像文件。 */
   private async sweep(): Promise<void> {
     await this.database.withOwner(async (ownerId, db) => {
-      const rows = await db
+      const rows = await db.sql
         .select({ id: companions.id })
         .from(companions)
         .where(
@@ -55,7 +55,7 @@ export class AvatarCleanupService implements OnApplicationBootstrap, OnModuleDes
         if (this.stopped) return;
         await db.transaction(
           async (tx) => {
-            const [current] = await tx
+            const [current] = await tx.sql
               .select()
               .from(companions)
               .where(and(eq(companions.ownerId, ownerId), eq(companions.id, row.id)))

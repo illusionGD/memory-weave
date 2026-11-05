@@ -1,16 +1,23 @@
 import { expectTypeOf } from 'vitest';
-import type { Database, DatabaseTransaction } from '../../src/database/database.service';
-import { conversations, personaTemplateVersions } from '../../src/database/schema';
-import { defineTable } from '../../src/database/table-repository';
+import type {
+  Database,
+  DatabaseService,
+  DatabaseTransaction,
+} from '../../src/database/database.service';
+import { conversations } from '../../src/database/schema';
 
 /** 核对调用方能获得表字段、值类型、投影和访问能力的编译期约束；仅由 tsc 检查。 */
 export async function checkRepositoryTypes(
   db: Database,
   tx: DatabaseTransaction,
   ownerId: string,
+  database: DatabaseService,
 ): Promise<void> {
-  const table = defineTable(conversations, { scope: 'ownerId', access: 'write' });
-  const rows = table.bind(db, ownerId);
+  const direct = await database.conversations.findOne({ fields: { name: conversations.title } });
+  expectTypeOf(direct).toEqualTypeOf<{ name: string } | null>();
+  // @ts-expect-error 普通服务入口不能请求事务行锁。
+  await database.conversations.findOne({ lock: 'update' });
+  const rows = db.conversations;
   const full = await rows.findOne({ where: { kind: 'private', lifecycleOperationId: null } });
   expectTypeOf(full).toEqualTypeOf<typeof conversations.$inferSelect | null>();
   const partial = await rows.findMany({
@@ -36,13 +43,10 @@ export async function checkRepositoryTypes(
   await rows.insert({ kind: 'private' });
   // @ts-expect-error 普通连接不能请求行锁。
   await rows.findOne({ where: { id: 'id' }, lock: 'update' });
-  await table.bind(tx, ownerId).findOne({ where: { id: 'id' }, lock: 'update' });
+  await tx.conversations.findOne({ where: { id: 'id' }, lock: 'update' });
   // @ts-expect-error 日常写入入口不提供物理删除。
   await rows.deleteWhere({ id: 'id' });
-  const history = defineTable(personaTemplateVersions, { scope: 'ownerId', access: 'append' }).bind(
-    tx,
-    ownerId,
-  );
+  const history = tx.personaTemplateVersions;
   // @ts-expect-error 版本表仅开放读取和追加。
   await history.updateWhere({ where: { id: 'id' }, set: { name: '改写历史' } });
 }
