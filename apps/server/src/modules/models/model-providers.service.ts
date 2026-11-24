@@ -41,7 +41,7 @@ export class ModelProvidersService {
           credentialConfigured: true,
           streaming: true,
           tools: false,
-          vision: false,
+          vision: true,
         },
         ...this.deployment.providers.map((provider) => ({
           id: provider.id,
@@ -50,7 +50,9 @@ export class ModelProvidersService {
           credentialConfigured: provider.apiKeyEnv === null || provider.apiKey !== null,
           streaming: provider.streaming,
           tools: false as const,
-          vision: false as const,
+          vision: Boolean(
+            provider.visionInputTokens && provider.capabilities.includes('structured'),
+          ),
         })),
       ],
       hardLimits: this.deployment.hardLimits,
@@ -72,6 +74,7 @@ export class ModelProvidersService {
       effective.backgroundConcurrent !== config.backgroundConcurrent
     )
       throw new ApiException(API_CODES.INVALID_REQUEST, '配置不能超过部署资源上限。');
+    if (config.tasks.perception.enabled) this.visionReservation(config.tasks.perception.providerId);
     for (const task of Object.values(config.tasks)) {
       if (
         task.providerId !== 'test' &&
@@ -119,6 +122,15 @@ export class ModelProvidersService {
     )
       throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
     return new OpenAiCompatibleAdapter(provider);
+  }
+
+  /** 按部署声明为经过预处理的单张图预留保守的供应商 token 上界。 */
+  visionReservation(id: string): number {
+    if (id === 'test') return 4096;
+    const provider = this.deployment.providers.find((item) => item.id === id);
+    if (!provider?.visionInputTokens || !provider.capabilities.includes('structured'))
+      throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
+    return provider.visionInputTokens;
   }
 
   /**

@@ -5,6 +5,14 @@ export type TaskInput =
   | { kind: 'memory_batch'; batchId: string }
   | { kind: 'redacted' }
   | { kind: 'chat_reply'; runId: string }
+  | { kind: 'material_fetch'; materialId: string; messageId: string; contentVersion: number }
+  | {
+      kind: 'material_summary';
+      materialId: string;
+      messageId: string;
+      contentVersion: number;
+      configVersion: number;
+    }
   | {
       kind: 'persona_initialization';
       profileText: string;

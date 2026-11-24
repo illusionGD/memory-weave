@@ -191,13 +191,17 @@ export class TasksService {
         (row) =>
           row.kind !== 'lifecycle_cleanup' &&
           row.kind !== 'memory_extraction' &&
-          row.kind !== 'memory_index',
+          row.kind !== 'memory_index' &&
+          row.kind !== 'material_fetch' &&
+          row.kind !== 'material_summary',
       ).length;
       const kinds: Task['kind'][] = [];
       if (ordinary < current.config.maxConcurrent)
         kinds.push('diagnostic', 'model_probe', 'persona_initialization', 'chat_reply');
       if (!active.some((row) => row.kind === 'memory_extraction' || row.kind === 'memory_index'))
         kinds.push('memory_extraction', 'memory_index');
+      if (!active.some((row) => row.kind === 'material_fetch')) kinds.push('material_fetch');
+      if (!active.some((row) => row.kind === 'material_summary')) kinds.push('material_summary');
       if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
       if (!kinds.length) return null;
       const row = await this.database.tasks.findOne(
@@ -210,7 +214,7 @@ export class TasksService {
             lte(tasks.availableAt, now),
           ),
           orderBy: [
-            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 1 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 ELSE 2 END`,
+            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 ELSE 2 END`,
             asc(tasks.availableAt),
             asc(tasks.id),
           ],
@@ -315,7 +319,11 @@ export class TasksService {
    *
    * 检查点仅单调前进，只有当前有效执行者可以写入。
    */
-  checkpoint(lease: TaskLease, checkpoint: TaskCheckpoint): Promise<Task> {
+  checkpoint(
+    lease: TaskLease,
+    checkpoint: TaskCheckpoint,
+    commit?: (ownerId: string, tx: DatabaseTransaction) => Promise<void>,
+  ): Promise<Task> {
     const ownerId = lease.ownerId;
     return this.store.locked(ownerId, async (tx, now) => {
       const row = await this.requireLease(ownerId, tx, now, lease);
@@ -326,6 +334,15 @@ export class TasksService {
         !/^[a-z][a-z0-9_]{0,63}$/.test(checkpoint.stage)
       )
         throw new ApiException(API_CODES.INVALID_REQUEST);
+      if (commit) {
+        await commit(ownerId, tx);
+        await this.requireLease(
+          ownerId,
+          tx,
+          await taskDatabaseTime(this.database, ownerId, tx),
+          lease,
+        );
+      }
       await this.database.tasks.update(
         ownerId,
         row.id,

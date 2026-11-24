@@ -21,6 +21,19 @@ const BASE_ENV = {
 };
 
 describe('server bootstrap configuration', () => {
+  it('从集中配置载入材料预算并拒绝超出上限或未知字段', () => {
+    expect(loadServerConfig(BASE_ENV).materialConfiguration?.maxPdfPages).toBe(100);
+    expect(
+      loadServerConfig({ ...BASE_ENV, MATERIAL_CONFIG_JSON: '{"maxPdfPages":12}' })
+        .materialConfiguration?.maxPdfPages,
+    ).toBe(12);
+    for (const value of ['{"maxPdfPages":101}', '{"unknown":true}', '{']) {
+      expect(() => loadServerConfig({ ...BASE_ENV, MATERIAL_CONFIG_JSON: value })).toThrow(
+        'MATERIAL_CONFIG_JSON',
+      );
+    }
+  });
+
   it('开发默认易读日志，正式默认 JSON；无效级别和正式 pretty 配置被拒绝', () => {
     expect(loadServerConfig({ ...BASE_ENV, NODE_ENV: 'development' }).logging).toEqual({
       level: 'info',

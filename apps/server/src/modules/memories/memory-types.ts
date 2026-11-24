@@ -1,4 +1,8 @@
-import type { MemoryConfiguration, MemoryItem } from '@memory-weave/contracts';
+import type {
+  MaterialEvidenceLocator,
+  MemoryConfiguration,
+  MemoryItem,
+} from '@memory-weave/contracts';
 /** 固定的原文输入，重启恢复不能重新选择范围或替换正文。 */
 export interface MemoryInputMessage {
   /** 精确原文身份。 */
@@ -9,6 +13,8 @@ export interface MemoryInputMessage {
   sequence: number;
   /** 本次取得的完整原文。 */
   text: string;
+  /** 当前代次已获有效阅读结果的有界材料内容。 */
+  materials?: { locator: MaterialEvidenceLocator; text: string }[];
   /** 发布者身份，不能由模型改写。 */
   speaker: { kind: 'user' | 'companion'; id: string };
   /** 发布时间，不冒充经历时间。 */

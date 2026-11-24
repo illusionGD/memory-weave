@@ -1,3 +1,4 @@
+import { MaterialsService, sharedLinks } from '../materials/materials.service';
 import { DatabaseService } from '../../database/database.service';
 import type {
   Chat,
@@ -46,6 +47,7 @@ export class ChatsService {
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
     @Inject(ConversationsService) private readonly originals: ConversationsService,
+    @Inject(MaterialsService) private readonly materials: MaterialsService,
   ) {}
 
   /** 创建用户与指定伴侣的聊天会话。 */
@@ -111,10 +113,21 @@ export class ChatsService {
    * 用户输入先保存并发布；同一事务建立回复任务，HTTP 不等待生成。
    */
   async send(ownerId: string, id: string, input: SendChatMessage): Promise<SentChatMessage> {
+    const materialIds = input.materialIds?.map((id) => id.toLowerCase()) ?? [];
+    if (
+      materialIds.length &&
+      !(await this.database.chatRuns.findOne(ownerId, {
+        where: { conversationId: id, requestId: input.requestId },
+      }))
+    )
+      await this.materials.checkOriginals(ownerId, materialIds);
     let cancelledCallId: string | null = null;
     const result = await this.store.locked(ownerId, async (tx, now) => {
       const thread = await this.thread(ownerId, id, tx);
-      const hash = fingerprint({ text: input.text });
+      const hash = fingerprint({
+        text: input.text,
+        ...(materialIds.length ? { materialIds } : {}),
+      });
       const replay = await this.database.chatRuns.findOne(
         ownerId,
         { where: { conversationId: id, requestId: input.requestId } },
@@ -138,11 +151,27 @@ export class ChatsService {
         reality: 'unspecified',
         sources: [],
       });
+      const materialScope = {
+        companionId: thread.companionId,
+        runtimeEpoch: thread.runtimeEpoch,
+        conversationId: id,
+      };
+      await this.materials.attach(
+        ownerId,
+        draft.id,
+        draft.contentVersion,
+        materialIds,
+        sharedLinks(input.text),
+        materialScope,
+        tx,
+        now,
+      );
       const message = await this.originals.publishInTransaction(ownerId, tx, id, draft.id, {
         requestId: input.requestId,
         expectedRevision: draft.revision,
         expectedConversationVersion: conversation.version,
       });
+      await this.materials.recordCorrection(ownerId, message.id, materialScope, input.text, tx);
       const settings = this.configuration.chatConfiguration ?? chatConfigurationSchema.parse({});
       let firstUserSequence = message.sequence!;
       let batchStartedAt = now;

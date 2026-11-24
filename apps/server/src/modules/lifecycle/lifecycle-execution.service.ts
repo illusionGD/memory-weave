@@ -1,3 +1,4 @@
+import { MaterialsService } from '../materials/materials.service';
 import { DatabaseService } from '../../database/database.service';
 import { AvatarFiles } from '../companions/avatar-files';
 import { Inject, Injectable } from '@nestjs/common';
@@ -20,6 +21,7 @@ export class LifecycleExecutionService {
   /** 初始化生命周期清理执行服务。 */
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(MaterialsService) private readonly materials: MaterialsService,
     @Inject(AvatarFiles) private readonly avatarFiles: AvatarFiles,
     @Inject(RetrievalVector) private readonly vectors: RetrievalVector,
     @Inject(ModelConfigurationService) private readonly models: ModelConfigurationService,
@@ -46,8 +48,13 @@ export class LifecycleExecutionService {
         );
         if (!operation) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
         if (operation.taskId !== lease.task.id) throw new ApiException(API_CODES.TASK_LEASE_LOST);
-        const stages = LIFECYCLE_STAGES;
+        const stages = LIFECYCLE_STAGES.slice(
+          0,
+          lease.task.progress.totalSteps ?? LIFECYCLE_STAGES.length,
+        );
         if (operation.stage >= stages.length) return true;
+        if (stages[operation.stage] === 'materials')
+          return { kind: 'materials' as const, operation };
         if (stages[operation.stage] === 'avatar_files')
           return { kind: 'avatar' as const, operation, ownerId };
         if (stages[operation.stage] === 'vector_points') {
@@ -103,7 +110,48 @@ export class LifecycleExecutionService {
         await this.jobs.guardDispatch(ownerId, tx, lease);
         return stage >= stages.length;
       });
-      if (typeof done === 'object' && done.kind === 'avatar') {
+      if (typeof done === 'object' && done.kind === 'materials') {
+        const operation = done.operation;
+        const changed = await this.materials.cleanupPage(
+          ownerId,
+          async (ownerId, tx) => {
+            await this.jobs.guardDispatch(ownerId, tx, lease);
+          },
+          operation.companionId && operation.previousEpoch
+            ? {
+                companionId: operation.companionId,
+                previousEpoch: operation.previousEpoch,
+              }
+            : undefined,
+        );
+        if (changed) continue;
+        await this.models.locked(ownerId, async (tx) => {
+          await this.jobs.guardDispatch(ownerId, tx, lease);
+          const current = await this.database.lifecycleOperations.findById(
+            ownerId,
+            operationId,
+            tx,
+          );
+          if (current?.taskId !== lease.task.id || current.stage !== operation.stage)
+            throw new ApiException(API_CODES.TASK_LEASE_LOST);
+          await this.database.lifecycleOperations.update(
+            ownerId,
+            operation.id,
+            { stage: operation.stage + 1 },
+            tx,
+          );
+          await this.database.tasks.update(
+            ownerId,
+            lease.task.id,
+            {
+              completedSteps: operation.stage + 1,
+              stage: 'cleanup_complete',
+              updatedAt: new Date(),
+            },
+            tx,
+          );
+        });
+      } else if (typeof done === 'object' && done.kind === 'avatar') {
         // 删除限制已持久生效；文件操作在事务外，重复删除同一目录安全。
         if (done.operation.kind === 'delete_companion' && done.operation.companionId)
           await this.avatarFiles.removeAll(done.ownerId, done.operation.companionId);
@@ -134,7 +182,10 @@ export class LifecycleExecutionService {
             lease.task.id,
             {
               completedSteps: operation.stage + 1,
-              stage: 'cleanup_complete',
+              stage:
+                operation.stage + 1 < (lease.task.progress.totalSteps ?? 0)
+                  ? 'materials'
+                  : 'cleanup_complete',
               updatedAt: new Date(),
             },
             tx,

@@ -217,6 +217,28 @@
           "tokens": 100000,
           "costMicros": 1000000
         }
+      },
+      "perception": {
+        "enabled": true,
+        "providerId": "test",
+        "model": "test-perception-v1",
+        "promptVersion": "perception-v1",
+        "preprocessingVersion": "utf8-v1",
+        "schemaVersion": "perception-v1",
+        "maxInputTokens": 16384,
+        "maxOutputTokens": 512,
+        "timeoutMs": 30000,
+        "maxAttempts": 1,
+        "retryDelayMs": 250,
+        "temperature": null,
+        "dimensions": null,
+        "inputMicrosPerMillion": null,
+        "outputMicrosPerMillion": null,
+        "dailyBudget": {
+          "requests": 20,
+          "tokens": 100000,
+          "costMicros": 1000000
+        }
       }
     }
   }

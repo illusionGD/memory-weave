@@ -1,3 +1,5 @@
+import { materialConfigurationSchema } from './modules/materials/material-config';
+import type { MaterialConfiguration } from './modules/materials/material-config';
 import type { LoggingConfig } from './logging';
 import { retrievalConfigurationSchema } from '@memory-weave/contracts';
 import type { RetrievalConfiguration } from '@memory-weave/contracts';
@@ -11,6 +13,8 @@ import type { ModelDeployment } from './modules/models/model-deployment';
 
 /** 由部署环境提供的服务端配置。 */
 export interface ServerConfig {
+  /** 集中材料解析和获取预算。 */
+  materialConfiguration?: MaterialConfiguration;
   /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
   logging?: LoggingConfig;
   /** 集中检索预算，向量不可用时仍保留直接读取。 */
@@ -244,7 +248,16 @@ export function loadServerConfig(
   } catch {
     throw new ConfigurationError('记忆配置无效，请检查 MEMORY_CONFIG_JSON。');
   }
+  let materialConfiguration: MaterialConfiguration;
+  try {
+    materialConfiguration = materialConfigurationSchema.parse(
+      JSON.parse(environment.MATERIAL_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('材料配置无效，请检查 MATERIAL_CONFIG_JSON。');
+  }
   return {
+    materialConfiguration,
     logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),
     memoryConfiguration,

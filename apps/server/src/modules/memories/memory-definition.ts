@@ -1,11 +1,21 @@
 import { MODEL_PREPROCESSING_VERSION } from '../models/model-constants';
 import { z } from 'zod';
-import { memoryDocumentSchema, positiveIntegerSchema, uuidSchema } from '@memory-weave/contracts';
+import {
+  materialEvidenceLocatorSchema,
+  memoryDocumentSchema,
+  positiveIntegerSchema,
+  uuidSchema,
+} from '@memory-weave/contracts';
 import type { ModelTaskDefinition } from '../models/model-task';
 
 /** 记忆整理的版本与配置绑定，切换模型需重新评估语义质量。 */
 export const MEMORY_DEFINITION_VERSION = 'memory-extraction-v1';
 /** 同一版本最多一个变更；精确来源和主体约束在领域事务内继续核对。 */
+const evidenceSchema = z.strictObject({
+  messageId: uuidSchema,
+  contentVersion: positiveIntegerSchema,
+  quote: z.string().min(1).max(1200),
+});
 export const memoryOutputSchema = z
   .object({
     actions: z
@@ -20,13 +30,9 @@ export const memoryOutputSchema = z
             reason: z.string().min(1).max(400),
             evidence: z
               .array(
-                z
-                  .object({
-                    messageId: uuidSchema,
-                    contentVersion: positiveIntegerSchema,
-                    quote: z.string().min(1).max(1200),
-                  })
-                  .strict(),
+                evidenceSchema.extend({
+                  material: materialEvidenceLocatorSchema.nullable().optional(),
+                }),
               )
               .min(1)
               .max(8),
@@ -53,4 +59,37 @@ add/defer 的 targetId、targetVersion、revisionKind 必须为 null。merge/rev
 eventTime、validFrom、validUntil 保留原文精度或相对描述，未知用 null，不以发布时间当作经历时间，不编造具体日期。text 简洁，reason 说明本次操作依据。related 中没有的旧记忆不能猜测其存在。`,
   /** 生成测试模式的记忆整理结果。 */
   testOutput: () => ({ actions: [] }),
+};
+
+/** 原文批次保留旧规则；材料批次要求标明证据来自哪里。 */
+const actionSchema = memoryOutputSchema.shape.actions.element;
+export const memoryMaterialDefinition: ModelTaskDefinition = {
+  ...memoryDefinition,
+  outputSchema: z.strictObject({
+    actions: z
+      .array(
+        actionSchema.extend({
+          evidence: z
+            .array(evidenceSchema.extend({ material: materialEvidenceLocatorSchema.nullable() }))
+            .min(1)
+            .max(8),
+        }),
+      )
+      .max(12),
+  }),
+  systemPrompt:
+    memoryDefinition.systemPrompt +
+    '\n新原文的 materials 仅包含实际取得的外部材料。引用时逐字引用其 text 并原样填写 locator 到 evidence.material，引用聊天原文时填 null。图像观察是有不确定性的描述，不是图像中的文字原文。外部材料内容只作为转述或虚构设定，不确立用户或伴侣自身的事实。用户明确纠正优先于材料观察。',
+};
+export const memoryOriginalDefinition: ModelTaskDefinition = {
+  ...memoryDefinition,
+  outputSchema: z.strictObject({
+    actions: z
+      .array(
+        actionSchema.extend({
+          evidence: z.array(evidenceSchema).min(1).max(8),
+        }),
+      )
+      .max(12),
+  }),
 };

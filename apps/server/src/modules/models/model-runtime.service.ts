@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { DatabaseService } from '../../database/database.service';
 import {
   MODEL_PROBE_DEFINITION_VERSION,
@@ -113,6 +114,27 @@ export class ModelRuntimeService {
     return this.invoke(ownerId, command, definition, scope, 'task', guard);
   }
 
+  /** 仅由材料感知模块调用。诊断 API 不接受图片、路径或任意 URL。 */
+  executeVision(
+    ownerId: string,
+    command: ModelProbe,
+    definition: ModelTaskDefinition,
+    image: Buffer,
+    scope: ModelTaskScope,
+    guard: ModelDispatchGuard,
+  ): Promise<ModelCall> {
+    if (
+      command.role !== 'perception' ||
+      command.operation !== 'structured' ||
+      image.length < 4 ||
+      image.length > 4 * 1024 * 1024 ||
+      image[0] !== 0xff ||
+      image[1] !== 0xd8
+    )
+      throw new ApiException(API_CODES.INVALID_REQUEST);
+    return this.invoke(ownerId, command, definition, scope, 'task', guard, undefined, image);
+  }
+
   /**
    * 执行流式模型请求并交付文本增量。
    *
@@ -149,6 +171,7 @@ export class ModelRuntimeService {
     kind: ModelCallContext['kind'],
     guard?: ModelDispatchGuard,
     onText?: ModelTextSink,
+    inputImage?: Buffer,
   ): Promise<ModelCall> {
     const inputResult = (
       kind === 'task'
@@ -175,6 +198,7 @@ export class ModelRuntimeService {
       systemPrompt: definition.systemPrompt,
       outputJsonSchema,
       ...(onText ? { streaming: true } : {}),
+      ...(inputImage ? { imageHash: createHash('sha256').update(inputImage).digest('hex') } : {}),
     });
     const prepared = await this.configuration.locked(ownerId, async (tx, current) => {
       await guard?.(ownerId, tx);
@@ -192,7 +216,8 @@ export class ModelRuntimeService {
       if (current.version !== input.expectedConfigVersion)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       const task = current.config.tasks[input.role];
-      assertRunnable(input, task, definition);
+      const imageTokens = inputImage ? this.providers.visionReservation(task.providerId) : 0;
+      assertRunnable(input, task, definition, imageTokens);
       if (
         kind === 'task' &&
         (task.promptVersion !== definition.promptVersion ||
@@ -232,8 +257,9 @@ export class ModelRuntimeService {
         input.inputText,
         1,
         definition,
+        imageTokens,
       );
-      return { callId: call.id, task, attempt };
+      return { callId: call.id, task, attempt, imageTokens };
     });
     if (prepared.task && prepared.attempt) {
       const task = prepared.task;
@@ -252,6 +278,7 @@ export class ModelRuntimeService {
             response = await this.providers.adapter(task.providerId, input.operation).invoke({
               operation: input.operation,
               inputText: input.inputText,
+              ...(inputImage ? { inputImage } : {}),
               systemPrompt: definition.systemPrompt,
               outputJsonSchema,
               testOutput: definition.testOutput?.(input.inputText),
@@ -294,6 +321,7 @@ export class ModelRuntimeService {
             failure,
             definition,
             !onText,
+            prepared.imageTokens ?? 0,
           );
         }
       } finally {
@@ -421,6 +449,7 @@ export class ModelRuntimeService {
     failure: ModelProviderError | null,
     definition: ModelTaskDefinition,
     allowRetry = true,
+    imageTokens = 0,
   ): Promise<AttemptRow | null> {
     return this.configuration.locked(ownerId, async (tx, current) => {
       const saved = await this.database.modelAttempts.findById(ownerId, attempt.id, tx);
@@ -516,7 +545,7 @@ export class ModelRuntimeService {
           // 新配置或停用不能让旧任务继续按旧策略派发。
           if (current.version !== call.configVersion)
             throw new ApiException(API_CODES.VERSION_CONFLICT);
-          assertRunnable(input, current.config.tasks[call.role], definition);
+          assertRunnable(input, current.config.tasks[call.role], definition, imageTokens);
           next = await reserveAttempt(
             this.database,
             ownerId,
@@ -527,6 +556,7 @@ export class ModelRuntimeService {
             input.inputText,
             saved.number + 1,
             definition,
+            imageTokens,
           );
           status = 'running';
           errorCode = null;
@@ -575,6 +605,7 @@ function assertRunnable(
   input: ModelProbe,
   task: ModelTaskConfig,
   definition: ModelTaskDefinition,
+  imageTokens: number,
 ): void {
   if (
     !task.enabled ||
@@ -582,9 +613,15 @@ function assertRunnable(
       (task.inputMicrosPerMillion === null || task.outputMicrosPerMillion === null))
   )
     throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
-  if ((input.role === 'embedding') !== (input.operation === 'embedding'))
+  if (
+    (input.role === 'embedding') !== (input.operation === 'embedding') ||
+    (input.role === 'perception') !== imageTokens > 0
+  )
     throw new ApiException(API_CODES.INVALID_REQUEST);
-  if (modelInputReservation(input.inputText, definition, input.operation) > task.maxInputTokens)
+  if (
+    modelInputReservation(input.inputText, definition, input.operation) + imageTokens >
+    task.maxInputTokens
+  )
     throw new ApiException(API_CODES.INVALID_REQUEST, '输入超过此任务的单次预算。');
 }
 
@@ -604,6 +641,7 @@ async function reserveAttempt(
   inputText: string,
   number: number,
   definition: ModelTaskDefinition,
+  imageTokens: number,
 ): Promise<AttemptRow> {
   const active = await tx
     .select({ lane: modelAttempts.lane })
@@ -615,7 +653,7 @@ async function reserveAttempt(
       active.filter((a) => a.lane === 'background').length >= current.config.backgroundConcurrent)
   )
     throw new ApiException(API_CODES.MODEL_CAPACITY_EXCEEDED);
-  const inputTokens = modelInputReservation(inputText, definition, call.operation);
+  const inputTokens = modelInputReservation(inputText, definition, call.operation) + imageTokens;
   const tokens = inputTokens + task.maxOutputTokens;
   const cost = costMicros(inputTokens, task.maxOutputTokens, task);
   const now = new Date();

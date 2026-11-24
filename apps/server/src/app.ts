@@ -1,3 +1,7 @@
+import { MaterialSummaryService } from './modules/materials/material-summary.service';
+import { materialConfigurationSchema } from './modules/materials/material-config';
+import { MaterialsService } from './modules/materials/materials.service';
+import { MaterialsController } from './modules/materials/materials.controller';
 import { Logger, LoggerModule } from 'nestjs-pino';
 import type { Logger as Pino } from 'pino';
 import { createLogger, createHttpLogger, safeError } from './logging';
@@ -90,6 +94,7 @@ class ApplicationModule {
         AuthController,
         LifecycleController,
         ChatsController,
+        MaterialsController,
         HealthController,
         SystemController,
         WorkspaceController,
@@ -120,6 +125,8 @@ class ApplicationModule {
         LifecycleService,
         LifecycleExecutionService,
         ChatsService,
+        MaterialsService,
+        MaterialSummaryService,
         ChatExecutionService,
         ChatEventsService,
         ChatContextService,
@@ -194,6 +201,19 @@ export async function createApplication(
           limit: AVATAR_MAX_BYTES,
           inflate: false,
         })(req, res, next);
+      else next();
+    },
+  );
+  const materialLimits = config.materialConfiguration ?? materialConfigurationSchema.parse({});
+  const rawMaterial = express.raw({
+    type: 'application/octet-stream',
+    limit: materialLimits.maxFileBytes,
+    inflate: false,
+  });
+  app.use(
+    '/api/materials',
+    (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (req.method === 'PUT' && req.path === '/') rawMaterial(req, res, next);
       else next();
     },
   );

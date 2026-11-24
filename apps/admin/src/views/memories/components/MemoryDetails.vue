@@ -59,6 +59,13 @@
             :key="`${quote.messageId}:${quote.startOffset}:${quote.endOffset}`"
             class="memory-details__quote"
           >
+            <p v-if="quote.material">
+              {{
+                quote.material.kind === 'image-observation'
+                  ? '图像观察'
+                  : `材料片段 ${quote.material.position}`
+              }}
+            </p>
             <p>{{ quote.quote }}</p>
             <NButton
               quaternary

@@ -1,3 +1,4 @@
+import { readMaterialEvidence } from '../materials/material-evidence';
 import type { DatabaseService } from '../../database/database.service';
 import { and, asc, eq, gt, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
@@ -252,20 +253,25 @@ export async function readMemoryGraph(
       )
       .orderBy(asc(memoryEvidence.id))
       .limit(query.limit + 1);
-    for (const row of evidence)
+    for (const row of evidence) {
+      const text = row.evidence.material
+        ? await readMaterialEvidence(ownerId, row.evidence.material, tx)
+        : row.message.text;
       candidates.push({
         edge: {
           id: `s:${row.evidence.id}`,
           source: centerKey,
           target: `message:${row.message.id}`,
           kind: row.evidence.kind,
+          ...(row.evidence.material ? { material: row.evidence.material } : {}),
           quote:
             row.evidence.kind === 'quote'
-              ? row.message.text.slice(row.evidence.startOffset, row.evidence.endOffset)
+              ? (text?.slice(row.evidence.startOffset, row.evidence.endOffset) ?? null)
               : null,
         },
         message: row.message,
       });
+    }
   }
   candidates.sort((a, b) => a.edge.id.localeCompare(b.edge.id));
   const selected = candidates.slice(0, query.limit);

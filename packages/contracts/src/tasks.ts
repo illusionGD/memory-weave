@@ -27,6 +27,8 @@ export const taskKindSchema = z.enum([
   'memory_index',
   'persona_initialization',
   'chat_reply',
+  'material_fetch',
+  'material_summary',
   'lifecycle_cleanup',
 ]);
 const diagnosticTaskShape = {

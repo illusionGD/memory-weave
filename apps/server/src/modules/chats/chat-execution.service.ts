@@ -1,3 +1,5 @@
+import { MaterialSummaryService } from '../materials/material-summary.service';
+import { MaterialsService } from '../materials/materials.service';
 import { DatabaseService } from '../../database/database.service';
 import {
   MODEL_PROBE_DEFINITION_VERSION,
@@ -10,7 +12,13 @@ import { and, asc, desc, eq, isNull, lte } from 'drizzle-orm';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { DatabaseTransaction } from '../../database/database.service';
-import { chatMemorySources, chatRuns, chatRunSources, messages } from '../../database/schema';
+import {
+  chatMemorySources,
+  chatRuns,
+  chatRunSources,
+  materialReadings,
+  messages,
+} from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import {
   assertVisible,
@@ -27,7 +35,7 @@ import { TaskStore } from '../tasks/task-store';
 import type { TaskLease } from '../tasks/task-types';
 import { TasksService } from '../tasks/tasks.service';
 import { ChatContextService } from './chat-context.service';
-import { CHAT_DEFINITION_VERSION, chatDefinition } from './chat-definition';
+import { CHAT_DEFINITION_VERSION, chatDefinition, chatMaterialDefinition } from './chat-definition';
 
 /** 持久任务执行聊天；每次发布均重查当前轮次和租约，迟到输出无法写入。 */
 @Injectable()
@@ -42,6 +50,8 @@ export class ChatExecutionService {
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
     @Inject(ModelProvidersService) private readonly providers: ModelProvidersService,
     @Inject(ConversationsService) private readonly originals: ConversationsService,
+    @Inject(MaterialSummaryService) private readonly summaries: MaterialSummaryService,
+    @Inject(MaterialsService) private readonly materials: MaterialsService,
     @Inject(ChatContextService) private readonly contexts: ChatContextService,
   ) {}
 
@@ -53,15 +63,58 @@ export class ChatExecutionService {
   async execute(lease: TaskLease): Promise<void> {
     const ownerId = lease.ownerId;
     const saved = await this.store.locked(ownerId, (tx) => this.guard(ownerId, tx, lease));
+    if (!saved.context) {
+      const until = Date.now() + 18_000;
+      while (
+        Date.now() < until &&
+        (await this.store.locked(ownerId, async (tx) => {
+          await this.guard(ownerId, tx, lease);
+          return this.materials.pendingWeb(
+            ownerId,
+            saved.conversationId,
+            saved.firstUserSequence,
+            tx,
+          );
+        }))
+      )
+        await delay(Math.min(lease.config.pollMs, 500));
+    }
     const config =
       saved.context && saved.modelConfigVersion
         ? await this.configuration.getVersion(ownerId, saved.modelConfigVersion)
         : await this.activateDefinition(ownerId);
-    const definition = chatDefinition;
+    const summaryTaskId = saved.context
+      ? undefined
+      : await this.summaries.startForChat(
+          ownerId,
+          saved.conversationId,
+          saved.triggerMessageId,
+          saved.id,
+        );
+    const observation =
+      !saved.context &&
+      (await this.materials.observe(
+        lease,
+        saved.triggerMessageId,
+        saved.firstUserSequence,
+        config,
+        async (ownerId, tx) => {
+          await this.guard(ownerId, tx, lease);
+        },
+      ));
     const recall = !saved.context ? await this.recall(lease, saved) : undefined;
     const prepared = await this.store.locked(ownerId, async (tx) => {
       const run = await this.guard(ownerId, tx, lease);
-      const built = await this.contexts.prepare(ownerId, tx, lease, run, config, recall);
+      const built = await this.contexts.prepare(
+        ownerId,
+        tx,
+        lease,
+        run,
+        config,
+        recall,
+        observation || undefined,
+        summaryTaskId,
+      );
       if (!run.context) {
         await tx
           .insert(chatRunSources)
@@ -108,6 +161,10 @@ export class ChatExecutionService {
         run,
         inputText: built.inputText,
         configVersion: run.modelConfigVersion ?? config.version,
+        definition:
+          built.context.materials?.length || built.context.materialSummaryTaskId
+            ? chatMaterialDefinition
+            : chatDefinition,
       };
     });
     const initial = await this.store.locked(ownerId, (tx) =>
@@ -150,7 +207,7 @@ export class ChatExecutionService {
           lane: 'interactive',
           inputText: prepared.inputText,
         },
-        definition,
+        prepared.definition,
         async (delta) => {
           if (failure) throw failure;
           buffer += delta;
@@ -205,6 +262,12 @@ export class ChatExecutionService {
       if (failure) throw failure;
       await this.jobs.complete(lease, async (ownerId, tx) => {
         await this.guard(ownerId, tx, lease);
+        await tx
+          .update(materialReadings)
+          .set({ finishedAt: new Date() })
+          .where(
+            and(eq(materialReadings.ownerId, ownerId), eq(materialReadings.runId, lease.task.id)),
+          );
       });
     } finally {
       if (timer) clearTimeout(timer);
@@ -217,7 +280,10 @@ export class ChatExecutionService {
    *
    * 只用已授权的少量前文理解指代，片段身份随回复来源图保存。
    */
-  private async recall(lease: TaskLease, run: typeof chatRuns.$inferSelect): Promise<RecallResult> {
+  private async recall(
+    lease: TaskLease,
+    run: typeof chatRuns.$inferSelect,
+  ): Promise<RecallResult | undefined> {
     const ownerId = lease.ownerId;
     const prepared = await this.store.locked(ownerId, async (tx) => {
       await this.guard(ownerId, tx, lease);
@@ -236,6 +302,7 @@ export class ChatExecutionService {
       );
       if (!source?.sequence) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
       await assertVisible(member, source.sequence, tx);
+      if (!source.text.trim()) return undefined;
       const previous = await this.database.messages.findMany(
         ownerId,
         {
@@ -274,6 +341,7 @@ export class ChatExecutionService {
         })),
       };
     });
+    if (!prepared) return undefined;
     const result = await this.retrieval.recall(
       ownerId,
       lease.task.scope.companionId!,

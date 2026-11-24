@@ -43,7 +43,21 @@ export class OpenAiCompatibleAdapter implements ModelAdapter {
               role: 'system',
               content: request.systemPrompt,
             },
-            { role: 'user', content: request.inputText },
+            {
+              role: 'user',
+              content: request.inputImage
+                ? [
+                    { type: 'text', text: request.inputText },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:image/jpeg;base64,${request.inputImage.toString('base64')}`,
+                        detail: 'high',
+                      },
+                    },
+                  ]
+                : request.inputText,
+            },
           ],
           [this.provider.outputTokenParameter]: request.task.maxOutputTokens,
           ...(request.task.temperature === null ? {} : { temperature: request.task.temperature }),

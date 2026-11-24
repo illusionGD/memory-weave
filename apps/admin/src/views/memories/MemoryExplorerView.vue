@@ -183,6 +183,11 @@
               {{ memoryTime(source.publishedAt) }}
             </p>
             <p class="memory-explorer__body">{{ source.text }}</p>
+            <MaterialSources
+              v-if="source.materials?.length"
+              :key="source.id"
+              :materials="source.materials"
+            />
           </section>
         </aside>
       </div>
@@ -190,6 +195,7 @@
   </AdminLayout>
 </template>
 <script setup lang="ts">
+import MaterialSources from './components/MaterialSources.vue';
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { NAlert, NButton, NEmpty, NSpin, NTag } from 'naive-ui';

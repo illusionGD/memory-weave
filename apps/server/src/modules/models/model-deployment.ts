@@ -38,6 +38,7 @@ const providerSchema = z
       .regex(/^MODEL_[A-Z0-9_]+$/)
       .nullable(),
     capabilities: z.array(modelOperationSchema).min(1).max(3),
+    visionInputTokens: z.number().int().min(1).max(65_536).optional(),
     streaming: z.boolean().default(false),
     outputTokenParameter: z
       .enum(['max_completion_tokens', 'max_tokens'])
@@ -171,7 +172,10 @@ export function parseModelFile(
       throw new ModelFileError(`模型部署配置无效：configuration.tasks.${role}.providerId 未登记。`);
     if (!task.enabled) continue;
     const operation = role === 'embedding' ? 'embedding' : role === 'chat' ? 'text' : 'structured';
-    if (!provider.capabilities.includes(operation))
+    if (
+      !provider.capabilities.includes(operation) ||
+      (role === 'perception' && !provider.visionInputTokens)
+    )
       throw new ModelFileError(
         `模型部署配置无效：configuration.tasks.${role} 的供应商能力不匹配。`,
       );

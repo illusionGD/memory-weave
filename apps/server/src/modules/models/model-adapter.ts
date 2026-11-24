@@ -8,6 +8,8 @@ export interface ModelAdapterRequest {
   task: ModelTaskConfig;
   /** 已限制体积的原文输入，不写日志。 */
   inputText: string;
+  /** 只允许内部提交的经过格式校验的 JPEG。 */
+  inputImage?: Buffer;
   /** 服务端任务定义提供的实际系统提示词。 */
   systemPrompt: string;
   /** 从输出规则生成的 JSON schema，非结构化任务为 null。 */

@@ -1,3 +1,4 @@
+import { materialSummarySchema } from './materials';
 import { z } from 'zod';
 import {
   nonnegativeIntegerSchema,
@@ -165,7 +166,9 @@ const messageCommonShape = {
   /** 消息保存修订号，草稿初始为 1，发布后为 2；与内容版本独立。 */
   revision: positiveIntegerSchema,
   /** 唯一保存的完整正文，长度为 1～4000 个 UTF-16 代码单元。 */
-  text: z.string().min(1).max(4000),
+  text: z.string().max(4000),
+  /** 材料版本按本条分享的顺序排列；普通原文省略。 */
+  materials: z.array(materialSummarySchema).optional(),
   /** 内容发生的 UTC 时间；无法确定时为 null，与服务端接收和实例实际取得时间独立。 */
   occurredAt: utcDateTimeSchema.nullable(),
   /** 服务端首次保存正文的 UTC 时间，不表示伴侣已读取。 */

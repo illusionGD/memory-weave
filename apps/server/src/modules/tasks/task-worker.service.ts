@@ -1,3 +1,5 @@
+import { MaterialSummaryService } from '../materials/material-summary.service';
+import { MaterialsService } from '../materials/materials.service';
 import { RetrievalIndexService } from '../retrieval/retrieval-index.service';
 import { MemoryExecutionService } from '../memories/memory-execution.service';
 import { MemoriesService } from '../memories/memories.service';
@@ -33,6 +35,8 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(MemoryExecutionService) private readonly memoryExecution: MemoryExecutionService,
     @Inject(MemoriesService) private readonly memories: MemoriesService,
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
+    @Inject(MaterialSummaryService) private readonly materialSummary: MaterialSummaryService,
+    @Inject(MaterialsService) private readonly materials: MaterialsService,
     @Inject(ChatExecutionService) private readonly chats: ChatExecutionService,
     @Inject(TasksService) private readonly tasks: TasksService,
     @Inject(TaskOutboxService) private readonly outbox: TaskOutboxService,
@@ -95,6 +99,7 @@ export class TaskWorkerService implements OnModuleDestroy {
 
     if (current.config.enabled) {
       await this.outbox.dispatch(ownerId);
+      await this.materials.sweep(ownerId);
       await this.memories.schedule(ownerId);
       if (!this.indexing)
         this.indexing = this.indexes
@@ -105,7 +110,7 @@ export class TaskWorkerService implements OnModuleDestroy {
           .finally(() => {
             this.indexing = null;
           });
-      while (!signal.aborted && this.active.size < current.config.maxConcurrent + 2) {
+      while (!signal.aborted && this.active.size < current.config.maxConcurrent + 4) {
         const lease = await this.tasks.claim(ownerId);
         if (!lease) break;
         const execution = this.execute(lease);
@@ -165,6 +170,10 @@ export class TaskWorkerService implements OnModuleDestroy {
         await this.memoryExecution.execute(lease);
       } else if (lease.input.kind === 'lifecycle_cleanup') {
         await this.lifecycle.execute(lease);
+      } else if (lease.input.kind === 'material_summary') {
+        await this.materialSummary.execute(lease);
+      } else if (lease.input.kind === 'material_fetch') {
+        await this.materials.fetch(lease);
       } else if (lease.input.kind === 'chat_reply') {
         await this.chats.execute(lease);
       } else if (lease.input.kind === 'persona_initialization') {

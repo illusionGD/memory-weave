@@ -53,6 +53,12 @@
           "sendEmbeddingDimensions": {
             "default": true,
             "type": "boolean"
+          },
+          "visionInputTokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65536,
+            "description": "按供应商规定，为单张最长边不超过 1600 像素的高细节 JPEG 保留的保守 token 上界。"
           }
         },
         "required": ["id", "baseUrl", "apiKeyEnv", "capabilities"],
@@ -154,7 +160,8 @@
               "growth_validation",
               "relationship",
               "retrieval",
-              "embedding"
+              "embedding",
+              "perception"
             ]
           },
           "additionalProperties": {

@@ -1,3 +1,4 @@
+import { materialEvidenceLocatorSchema } from './materials';
 import { z } from 'zod';
 import {
   idPaginationQueryShape,
@@ -183,6 +184,8 @@ const memoryEvidenceShape = {
   endOffset: z.number().int().nonnegative(),
   /** 读取时从有效原文取出，不另存一份可能漏删的正文。 */
   quote: z.string(),
+  /** 图像观察与材料引文均有固定原件位置。 */
+  material: materialEvidenceLocatorSchema.optional(),
 };
 export const memoryEvidenceSchema: z.ZodObject<typeof memoryEvidenceShape> =
   z.object(memoryEvidenceShape);

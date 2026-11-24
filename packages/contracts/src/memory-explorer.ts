@@ -1,3 +1,4 @@
+import { materialEvidenceLocatorSchema } from './materials';
 import { z } from 'zod';
 import { runtimeEpochQuerySchema, uuidSchema, utcDateTimeSchema, pageLimitSchema } from './common';
 import { memoryItemSchema, memoryDocumentSchema } from './memories';
@@ -147,6 +148,7 @@ const graphEdgeShape = {
   ]),
   /** 仅 quote 关系含有效原文的精确片段，其余为空。 */
   quote: z.string().nullable(),
+  material: materialEvidenceLocatorSchema.optional(),
 };
 /** 有记录的关系不等于内容已经得到事实核实。 */
 export const memoryGraphEdgeSchema: z.ZodObject<typeof graphEdgeShape> = z.object(graphEdgeShape);

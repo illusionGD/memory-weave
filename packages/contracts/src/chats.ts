@@ -1,3 +1,4 @@
+import { materialContextSchema } from './materials';
 import { companionAvatarSchema } from './avatars';
 import { z } from 'zod';
 import {
@@ -43,17 +44,23 @@ export type CreateChat = z.infer<typeof createChatSchema>;
 const sendChatMessageShape = {
   /** 单次发送身份，网络重试沿用此值。 */
   requestId: uuidSchema,
-  /** 用户原文，保持内容不变；纯空白不发送。 */
-  text: z
-    .string()
-    .min(1)
-    .max(4000)
-    .refine((value) => value.trim().length > 0),
+  /** 用户原文保持原样；只发材料时可为空。 */
+  text: z.string().max(4000),
+  /** 已上传材料版本，依产品选择顺序提交。 */
+  materialIds: z
+    .array(uuidSchema)
+    .max(4)
+    .optional()
+    .refine(
+      (items) => !items || new Set(items.map((item) => item.toLowerCase())).size === items.length,
+    ),
 };
 /** 输入直接保存并触发回复，不要求先等待提取或整理。 */
-export const sendChatMessageSchema: z.ZodObject<typeof sendChatMessageShape, z.core.$strict> = z
-  .object(sendChatMessageShape)
-  .strict();
+export const sendChatMessageSchema = z
+  .strictObject(sendChatMessageShape)
+  .refine((input) => input.text.trim().length > 0 || Boolean(input.materialIds?.length), {
+    path: ['text'],
+  });
 /** 发送原文命令。 */
 export type SendChatMessage = z.infer<typeof sendChatMessageSchema>;
 
@@ -66,6 +73,10 @@ const chatContextSourceShape = {
 const chatContextSourceSchema: z.ZodObject<typeof chatContextSourceShape> =
   z.object(chatContextSourceShape);
 const chatContextShape = {
+  /** 本轮明确提出全文阅读时安排的独立摘要任务。 */
+  materialSummaryTaskId: uuidSchema.optional(),
+  /** 首次构建后冻结的材料范围，恢复不重新选择。 */
+  materials: z.array(materialContextSchema).max(4).optional(),
   /** 本轮实际采用的检索结果与覆盖限制；旧轮次缺省以保持原模型输入。 */
   recall: recallResultSchema.optional(),
   /** 原稿阶段的显式初始约束；旧轮次缺省以保持其模型输入身份。 */

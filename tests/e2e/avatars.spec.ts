@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test } from './fixtures';
 
 const png = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4XkAAAAASUVORK5CYII=',
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=',
   'base64',
 );
 test('头像预览、保存与跨端修改同步，不清空正在编辑的聊天草稿', async ({

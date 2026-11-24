@@ -11,7 +11,11 @@ import { TasksService } from '../tasks/tasks.service';
 import type { TaskLease } from '../tasks/task-types';
 import { ModelRuntimeService } from '../models/model-runtime.service';
 import { requireMemoryBatch } from './memory-access';
-import { memoryDefinition, memoryOutputSchema } from './memory-definition';
+import {
+  memoryMaterialDefinition,
+  memoryOriginalDefinition,
+  memoryOutputSchema,
+} from './memory-definition';
 
 /** 模型只提出候选，领域提交与独立进度保持同一事务。 */
 @Injectable()
@@ -45,7 +49,9 @@ export class MemoryExecutionService {
         inputText: JSON.stringify(batch.input),
         lane: 'background',
       },
-      memoryDefinition,
+      batch.input?.messages.some((item) => item.materials?.length)
+        ? memoryMaterialDefinition
+        : memoryOriginalDefinition,
       lease.task.scope,
       (ownerId, tx) => this.jobs.guardDispatch(ownerId, tx, lease),
     );

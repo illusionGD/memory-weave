@@ -297,11 +297,12 @@ export class ReceivingService {
         );
         const batch = await this.database.receiveBatches.findById(ownerId, batchId, tx);
         if (!batch) throw new Error('Failed to persist the receive batch.');
-        if (rows.length > 0) {
+        const textRows = rows.filter((row) => row.text.length > 0);
+        if (textRows.length > 0) {
           await tx
             .insert(readReceipts)
             .values(
-              rows.map((row) => ({
+              textRows.map((row) => ({
                 ownerId,
                 companionId,
                 runtimeEpoch: input.runtimeEpoch,

@@ -1,3 +1,4 @@
+import { materialEvidenceForMemory } from '../materials/material-evidence';
 import { DatabaseService } from '../../database/database.service';
 import {
   MODEL_PROBE_DEFINITION_VERSION,
@@ -446,11 +447,23 @@ export class MemoriesService {
     const selected: typeof ranges = [];
     for (const row of ranges) {
       await assertVisible(member, row.range.startSequence, tx);
+      const material =
+        row.message.sourceKind === 'user_input'
+          ? await materialEvidenceForMemory(
+              ownerId,
+              companionId,
+              command.runtimeEpoch,
+              row.message.id,
+              row.message.contentVersion,
+              tx,
+            )
+          : [];
       const source = {
         messageId: row.message.id,
         contentVersion: row.message.contentVersion,
         sequence: row.range.startSequence,
         text: row.message.text,
+        ...(material.length ? { materials: material } : {}),
         speaker: { kind: row.speaker.kind, id: row.speaker.companionId ?? row.speaker.userId! },
         publishedAt: row.message.publishedAt!.toISOString(),
         target: true,
@@ -601,21 +614,23 @@ export class MemoriesService {
         },
         tx,
       );
-      await tx
-        .insert(readReceipts)
-        .values(
-          input.messages.map((source) => ({
-            ownerId,
-            companionId,
-            runtimeEpoch: command.runtimeEpoch,
-            conversationId: command.conversationId,
-            messageId: source.messageId,
-            contentVersion: source.contentVersion,
-            startOffset: 0,
-            endOffset: source.text.length,
-          })),
-        )
-        .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
+      const textMessages = input.messages.filter((source) => source.text.length > 0);
+      if (textMessages.length)
+        await tx
+          .insert(readReceipts)
+          .values(
+            textMessages.map((source) => ({
+              ownerId,
+              companionId,
+              runtimeEpoch: command.runtimeEpoch,
+              conversationId: command.conversationId,
+              messageId: source.messageId,
+              contentVersion: source.contentVersion,
+              startOffset: 0,
+              endOffset: source.text.length,
+            })),
+          )
+          .onDuplicateKeyUpdate({ set: { id: sql`${readReceipts.id}` } });
       await this.database.processingRanges.updateWhere(
         ownerId,
         {

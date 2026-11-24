@@ -1,3 +1,4 @@
+import { hasPngAnimationControl } from '../shared/image-formats';
 import type { AvatarState, ChangeAvatar } from '@memory-weave/contracts';
 import { API_CODES, AVATAR_MAX_BYTES, AVATAR_MEDIA_TYPES } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
@@ -64,7 +65,7 @@ export class AvatarsService {
       if (
         `image/${metadata.format}` !== mime ||
         (metadata.pages ?? 1) > 1 ||
-        (metadata.format === 'png' && hasAnimationControl(body))
+        (metadata.format === 'png' && hasPngAnimationControl(body))
       )
         throw new Error('无效图片格式');
       bytes = await image
@@ -153,20 +154,4 @@ export class AvatarsService {
       return this.files.read(ownerId, id, row.avatar);
     });
   }
-}
-
-/**
- * 检测 PNG 数据是否包含动画控制块。
- *
- * PNG 解码器可能只暴露首帧，单独检查有界块结构，不能把 APNG 当作静态图。
- */
-function hasAnimationControl(bytes: Buffer): boolean {
-  let offset = 8;
-  while (offset + 12 <= bytes.length) {
-    const length = bytes.readUInt32BE(offset);
-    if (bytes.toString('ascii', offset + 4, offset + 8) === 'acTL') return true;
-    if (length > bytes.length - offset - 12) return false;
-    offset += length + 12;
-  }
-  return false;
 }

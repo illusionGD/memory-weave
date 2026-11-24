@@ -96,7 +96,23 @@
               {{ bubble.user ? '你' : (chat?.companionName ?? '伴侣') }}
               <time :datetime="bubble.time">{{ displayTime(bubble.time) }}</time>
             </p>
-            <p class="chat-view__text">{{ bubble.text }}</p>
+            <p v-if="bubble.text" class="chat-view__text">{{ bubble.text }}</p>
+            <MaterialCard
+              v-for="material in bubble.materials"
+              :key="material.id"
+              :material="material"
+              :message-id="bubble.id"
+              :content-version="bubble.targets[0]?.contentVersion ?? 1"
+              :active="chat?.availability === 'active'"
+              :reading="
+                chat?.currentRun?.context?.materials?.find(
+                  (item) => item.materialId === material.id && item.messageId === bubble.id,
+                )
+              "
+              :finished="chat?.currentRun?.status === 'succeeded'"
+              :scheduled-summary="chat?.currentRun?.context?.materialSummaryTaskId"
+              @retry-link="retryMaterialLink"
+            />
             <NButton
               v-if="bubble.targets.length && chat?.availability !== 'cleaning'"
               quaternary
@@ -129,7 +145,13 @@
         这个会话属于已结束的人生阶段。请从伴侣页面开始新的私聊。
       </p>
       <p v-if="replyHint" class="chat-view__reply-hint" role="status">{{ replyHint }}</p>
-      <form class="chat-view__composer" @submit.prevent="send">
+      <form
+        class="chat-view__composer"
+        @submit.prevent="send"
+        @dragover.prevent
+        @drop.prevent="dropMaterials"
+        @paste="pasteMaterials"
+      >
         <label class="chat-view__label visually-hidden" for="chat-message">消息</label>
         <NInput
           v-model:value="draft"
@@ -143,12 +165,40 @@
           placeholder="把想说的话，轻轻放在这里…"
           @keydown="handleKeydown"
         />
+        <NSpace v-if="attachments.length" size="small" aria-label="待发送材料">
+          <NTag
+            v-for="attachment in attachments"
+            :key="attachment.requestId"
+            :closable="!saving"
+            @close="removeAttachment(attachment.requestId)"
+            >{{ attachment.file.name }}</NTag
+          >
+        </NSpace>
+        <input
+          ref="materialPicker"
+          type="file"
+          class="visually-hidden"
+          tabindex="-1"
+          aria-label="选择材料文件"
+          accept=".jpg,.jpeg,.png,.webp,.txt,.md,.markdown,.pdf"
+          multiple
+          @change="pickMaterials"
+        />
         <div class="chat-view__actions">
+          <NButton
+            size="small"
+            quaternary
+            :disabled="saving || chat?.availability !== 'active'"
+            @click="materialPicker?.click()"
+            >添加材料</NButton
+          >
           <p>Enter 发送 · Shift + Enter 换行</p>
           <NButton
             type="primary"
             attr-type="submit"
-            :disabled="saving || chat?.availability !== 'active' || !draft.trim()"
+            :disabled="
+              saving || chat?.availability !== 'active' || (!draft.trim() && !attachments.length)
+            "
           >
             {{ saving ? '正在保存…' : '发送' }}
           </NButton>
@@ -161,11 +211,12 @@
 <script setup lang="ts">
 import CompanionAvatar from '@/components/CompanionAvatar.vue';
 import { computed, nextTick, onScopeDispose, ref, watch } from 'vue';
-import { NAlert, NButton, NInput, useDialog } from 'naive-ui';
+import { NAlert, NButton, NInput, NSpace, NTag, useDialog } from 'naive-ui';
 import type { DialogReactive } from 'naive-ui';
 import UiLink from '@/components/UiLink.vue';
 import { RouterLink, useRoute } from 'vue-router';
 import ChatLayout from '@/components/ChatLayout.vue';
+import MaterialCard from './components/MaterialCard.vue';
 import RecallDetails from './components/RecallDetails.vue';
 import { useChat } from '@/composables/useChat';
 import type { ChatBubble } from '@/composables/useChat';
@@ -174,6 +225,9 @@ const id = computed(() => String(route.params.id));
 const {
   chat,
   draft,
+  attachments,
+  addAttachments,
+  removeAttachment,
   bubbles,
   loading,
   saving,
@@ -191,6 +245,34 @@ const {
   reload,
   remove,
 } = useChat(id);
+const materialPicker = ref<HTMLInputElement | null>(null);
+
+/** 保留同一草稿中已有的内容，重发前由用户确认。 */
+function retryMaterialLink(url: string): void {
+  if (saving.value || draft.value.includes(url)) return;
+  const text = draft.value ? `${draft.value}\n${url}` : url;
+  if (text.length <= 4000) draft.value = text;
+}
+
+/** 从本地文件选择器取得材料。 */
+function pickMaterials(event: Event): void {
+  const input = event.currentTarget as HTMLInputElement;
+  if (input.files) addAttachments(input.files);
+  input.value = '';
+}
+
+/** 允许拖拽文件加入当前草稿。 */
+function dropMaterials(event: DragEvent): void {
+  if (event.dataTransfer?.files.length) addAttachments(event.dataTransfer.files);
+}
+
+/** 普通文字粘贴沿用输入框默认行为。 */
+function pasteMaterials(event: ClipboardEvent): void {
+  if (!event.clipboardData?.files.length) return;
+  event.preventDefault();
+  addAttachments(event.clipboardData.files);
+}
+
 const log = ref<HTMLElement | null>(null);
 let following = true;
 

@@ -1,11 +1,14 @@
+import type { MaterialsService } from '../materials/materials.service';
+import { selectMaterialContext } from '../materials/material-context';
 import { DatabaseService } from '../../database/database.service';
 import type { ChatContext, ModelConfigurationVersion, RecallResult } from '@memory-weave/contracts';
-import { API_CODES, recallResultSchema } from '@memory-weave/contracts';
+import { API_CODES, materialContextSchema, recallResultSchema } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
 import {
   chatRuns,
+  materialReadings,
   conversationMembers,
   messages,
   personaFoundations,
@@ -20,7 +23,7 @@ import {
 import { modelInputReservation } from '../models/model-runtime.service';
 import { validateRecallSnapshot } from '../retrieval/retrieval-snapshot';
 import type { TaskLease } from '../tasks/task-types';
-import { chatDefinition } from './chat-definition';
+import { chatDefinition, chatMaterialDefinition } from './chat-definition';
 
 /** 选取有界的当前会话原文，固定来源后才能派发模型；不依赖记忆整理。 */
 @Injectable()
@@ -46,6 +49,8 @@ export class ChatContextService {
     run: typeof chatRuns.$inferSelect,
     config: ModelConfigurationVersion,
     recall?: RecallResult,
+    observation?: Awaited<ReturnType<MaterialsService['observe']>>,
+    materialSummaryTaskId?: string,
   ): Promise<{ context: ChatContext; inputText: string }> {
     const scope = lease.task.scope;
     const companion = await requireCompanion(
@@ -163,11 +168,33 @@ export class ChatContextService {
       environment: 'web',
       userName: owner!.displayName,
     };
+    if (!context) {
+      if (materialSummaryTaskId) snapshot.materialSummaryTaskId = materialSummaryTaskId;
+      const materialContext = await selectMaterialContext(
+        ownerId,
+        selected,
+        run.firstUserSequence,
+        tx,
+      );
+      const image = materialContext.find(
+        (item) =>
+          item.materialId === observation?.materialId && item.messageId === observation?.messageId,
+      );
+      if (image && observation) {
+        image.observation = observation.observation;
+        if (image.reason === 'image-not-read') image.reason = null;
+      }
+      if (materialContext.length) snapshot.materials = materialContext;
+    }
+    if (snapshot.materials)
+      snapshot.materials = snapshot.materials.map((item) => materialContextSchema.parse(item));
     // MySQL JSON 会调整字段顺序；每次按同一 schema 重建新格式，确保恢复时 inputText 字节一致。
     if (snapshot.recall) snapshot.recall = recallResultSchema.parse(snapshot.recall);
     /** 组装聊天模型所需的上下文消息。 */
     const assemble = (): string =>
       JSON.stringify({
+        ...(snapshot.materials?.length ? { materials: snapshot.materials } : {}),
+        ...(snapshot.materialSummaryTaskId ? { materialSummary: 'scheduled' } : {}),
         ...(snapshot.recall ? { recall: snapshot.recall } : {}),
         persona: {
           name: persona.document?.name ?? companion.name,
@@ -198,8 +225,13 @@ export class ChatContextService {
       if (!selected.some((row) => row.sequence === run.firstUserSequence))
         throw new ApiException(API_CODES.CHAT_CONTEXT_LIMIT);
       while (
-        modelInputReservation(inputText, chatDefinition, 'text') >
-          config.config.tasks.chat.maxInputTokens ||
+        modelInputReservation(
+          inputText,
+          snapshot.materials?.length || snapshot.materialSummaryTaskId
+            ? chatMaterialDefinition
+            : chatDefinition,
+          'text',
+        ) > config.config.tasks.chat.maxInputTokens ||
         inputText.length > 65536
       ) {
         const next = selected.findIndex(
@@ -227,10 +259,27 @@ export class ChatContextService {
             inputText = assemble();
             continue;
           }
+          const material = snapshot.materials?.findLast((item) => item.excerpts.length > 0);
+          if (material) {
+            material.excerpts.pop();
+            inputText = assemble();
+            continue;
+          }
+          const image = snapshot.materials?.find((item) => item.observation);
+          if (image) {
+            delete image.observation;
+            image.reason = 'image-not-in-reply-budget';
+            inputText = assemble();
+            continue;
+          }
           throw new ApiException(API_CODES.CHAT_CONTEXT_LIMIT);
         }
         snapshot.omittedThroughSequence = selected[next - 1]!.sequence!;
         selected.splice(0, next);
+        if (snapshot.materials)
+          snapshot.materials = snapshot.materials.filter((item) =>
+            selected.some((row) => row.id === item.messageId),
+          );
         inputText = assemble();
       }
       snapshot.sources = selected.map((row) => ({
@@ -238,11 +287,43 @@ export class ChatContextService {
         contentVersion: row.contentVersion,
       }));
     }
-    if (selected.length)
+    if (!context) {
+      const readings = snapshot.materials?.filter(
+        (item) => item.excerpts.length || item.observation,
+      );
+      for (const item of readings ?? []) {
+        const excerpts = item.excerpts.map(({ position, truncated }) => ({ position, truncated }));
+        const reading = {
+          ownerId,
+          materialId: item.materialId,
+          messageId: item.messageId,
+          contentVersion: item.contentVersion,
+          companionId: companion.id,
+          runtimeEpoch: scope.runtimeEpoch!,
+          conversationId: scope.conversationId!,
+          runId: run.id,
+          modelCallId: item.observation?.modelCallId ?? null,
+          region: item.observation?.region ?? null,
+          excerpts,
+        };
+        await tx
+          .insert(materialReadings)
+          .values(reading)
+          .onDuplicateKeyUpdate({
+            set: {
+              excerpts,
+              modelCallId: reading.modelCallId,
+              region: reading.region,
+            },
+          });
+      }
+    }
+    const textRows = selected.filter((row) => row.text.length > 0);
+    if (textRows.length)
       await tx
         .insert(readReceipts)
         .values(
-          selected.map((row) => ({
+          textRows.map((row) => ({
             ownerId,
             companionId: companion.id,
             runtimeEpoch: scope.runtimeEpoch!,

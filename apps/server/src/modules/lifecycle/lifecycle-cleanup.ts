@@ -48,6 +48,7 @@ export const LIFECYCLE_STAGES = [
   'drafts',
   'messages',
   'avatar_files',
+  'materials',
 ] as const;
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */
 export type LifecycleRecord = typeof lifecycleOperations.$inferSelect;

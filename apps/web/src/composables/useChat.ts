@@ -13,6 +13,8 @@ import {
 import { readChatEvents } from '@memory-weave/browser-client/chat-events';
 import type { ChatEvent } from '@memory-weave/browser-client/chat-events';
 import { createLifecycle, getLifecycleConversation } from '@memory-weave/browser-client/lifecycle';
+import { uploadMaterial } from '@memory-weave/browser-client/materials';
+import type { MaterialSummary, MaterialUpload } from '@memory-weave/contracts';
 import { ApiError } from '@memory-weave/browser-client/http';
 import { useAuthStore } from '@/stores/auth';
 
@@ -27,14 +29,35 @@ export interface ChatBubble {
   /** 首段正式发布时间。 */
   time: string;
   /** 当前显示且尚未删除的确切片段，最多一页。 */
+  materials: MaterialSummary[];
   targets: { messageId: string; contentVersion: number }[];
 }
+interface DraftMaterial {
+  requestId: string;
+  file: File;
+  kind: MaterialUpload['kind'];
+  materialId?: string;
+}
+const MATERIAL_EXTENSIONS: Readonly<Record<string, MaterialUpload['kind']>> = {
+  txt: 'text',
+  md: 'markdown',
+  markdown: 'markdown',
+  pdf: 'pdf',
+  jpg: 'jpeg',
+  jpeg: 'jpeg',
+  png: 'png',
+  webp: 'webp',
+};
+
 /** 页面只保存当前页及连接状态，不在浏览器长期保存私密原文。 */
 export interface ChatPageState {
   /** 当前私聊持久快照。 */
   chat: Ref<Chat | null>;
   /** 编辑中的用户原文。 */
   draft: Ref<string>;
+  attachments: Ref<DraftMaterial[]>;
+  addAttachments(files: Iterable<File>): void;
+  removeAttachment(requestId: string): void;
   /** 已发布原文的合并视图。 */
   bubbles: ComputedRef<ChatBubble[]>;
   /** 页面首次加载或翻页中。 */
@@ -81,6 +104,7 @@ export function useChat(id: Ref<string>): ChatPageState {
   const chat = ref<Chat | null>(null);
   const items = ref<ChatMessage[]>([]);
   const draft = ref('');
+  const attachments = ref<DraftMaterial[]>([]);
   const loading = ref(true);
   const saving = ref(false);
   const connected = ref(false);
@@ -113,6 +137,7 @@ export function useChat(id: Ref<string>): ChatPageState {
         result.push({
           id: key,
           targets,
+          materials: item.message.materials ?? [],
           text: item.message.text,
           user: item.message.speaker.kind === 'user',
           time: item.message.publishedAt ?? item.message.receivedAt,
@@ -309,6 +334,7 @@ export function useChat(id: Ref<string>): ChatPageState {
     chat.value = null;
     items.value = [];
     draft.value = '';
+    attachments.value = [];
     error.value = null;
     connected.value = false;
     historical.value = false;
@@ -387,20 +413,75 @@ export function useChat(id: Ref<string>): ChatPageState {
     if (!loading.value) await page();
   }
 
+  /** 选取支持的本地原件；文件只保存在当前页面。 */
+  function addAttachments(files: Iterable<File>): void {
+    if (saving.value || chat.value?.availability !== 'active') return;
+    error.value = null;
+    for (const file of files) {
+      if (attachments.value.length >= 4) {
+        error.value = '每条消息最多发送 4 份材料。';
+        break;
+      }
+      const extension = file.name.split('.').at(-1)?.toLowerCase() ?? '';
+      const kind = Object.hasOwn(MATERIAL_EXTENSIONS, extension)
+        ? MATERIAL_EXTENSIONS[extension]
+        : undefined;
+      if (!kind) {
+        error.value = '请选择 JPG、PNG、WebP、TXT、Markdown 或 PDF 文件。';
+        continue;
+      }
+      attachments.value.push({ requestId: crypto.randomUUID(), file, kind });
+    }
+  }
+
+  /** 取消选定材料，保留同一草稿中的其他文件。 */
+  function removeAttachment(requestId: string): void {
+    if (!saving.value)
+      attachments.value = attachments.value.filter((file) => file.requestId !== requestId);
+  }
+
   /**
    * 发送用户输入并更新回复状态。
    *
    * 发送失败保留文字和命令身份；确认保存后再次发送相同文字属于新命令。
    */
   async function send(): Promise<void> {
-    if (saving.value || !draft.value.trim() || chat.value?.availability !== 'active') return;
+    if (
+      saving.value ||
+      (!draft.value.trim() && !attachments.value.length) ||
+      chat.value?.availability !== 'active'
+    )
+      return;
     const token = generation;
+    const text = draft.value;
+    const selected = [...attachments.value];
     saving.value = true;
     error.value = null;
-    if (!pendingCommand || pendingCommand.text !== draft.value)
-      pendingCommand = { requestId: crypto.randomUUID(), text: draft.value };
-    const command = pendingCommand;
     try {
+      const materialIds: string[] = [];
+      for (const attachment of selected) {
+        if (!attachment.materialId) {
+          const material = await uploadMaterial(attachment.file, {
+            requestId: attachment.requestId,
+            kind: attachment.kind,
+            filename: attachment.file.name,
+          });
+          if (token !== generation) return;
+          attachment.materialId = material.id;
+        }
+        materialIds.push(attachment.materialId);
+      }
+      if (
+        !pendingCommand ||
+        pendingCommand.text !== text ||
+        JSON.stringify(pendingCommand.materialIds ?? []) !== JSON.stringify(materialIds)
+      )
+        pendingCommand = {
+          requestId: crypto.randomUUID(),
+          text,
+          ...(materialIds.length ? { materialIds } : {}),
+        };
+      const command = pendingCommand;
       const sent = await sendChatMessage(id.value, command);
       if (token !== generation) return;
       if (historical.value) await page();
@@ -411,6 +492,7 @@ export function useChat(id: Ref<string>): ChatPageState {
       if (token !== generation) return;
       adoptState(refreshed);
       if (draft.value === command.text) draft.value = '';
+      attachments.value = [];
       pendingCommand = null;
       void acknowledge(token);
     } catch (cause) {
@@ -489,6 +571,9 @@ export function useChat(id: Ref<string>): ChatPageState {
   return {
     chat,
     draft,
+    attachments,
+    addAttachments,
+    removeAttachment,
     bubbles,
     loading,
     saving,

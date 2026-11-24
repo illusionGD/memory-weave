@@ -4,7 +4,7 @@ import {
   MODEL_PREPROCESSING_VERSION,
 } from './model-constants';
 import { MEMORY_DEFINITION_VERSION } from '../memories/memory-definition';
-import { MODEL_TASK_ROLES } from '@memory-weave/contracts';
+import { defaultPerceptionTask, MODEL_TASK_ROLES } from '@memory-weave/contracts';
 import type { ModelConfiguration, ModelTaskConfig, ModelTaskRole } from '@memory-weave/contracts';
 import { PERSONA_DEFINITION_VERSION } from '../companions/persona-definition';
 import { CHAT_DEFINITION_VERSION } from '../chats/chat-definition';
@@ -28,6 +28,7 @@ const diagnosticDefaults = { definition: MODEL_PROBE_DEFINITION_VERSION, input: 
 export function defaultModelConfiguration(): ModelConfiguration {
   const tasks = Object.fromEntries(
     MODEL_TASK_ROLES.map((role) => {
+      if (role === 'perception') return [role, structuredClone(defaultPerceptionTask)];
       const defaults = taskDefaults[role] ?? diagnosticDefaults;
       const embedding = role === 'embedding';
       return [

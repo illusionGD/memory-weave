@@ -129,6 +129,11 @@
         <div v-if="source" class="memory-page__source" role="region" aria-label="来源原文">
           <h3>来源原文</h3>
           <p class="persona-page__text">{{ source.text }}</p>
+          <MaterialSources
+            v-if="source.materials?.length"
+            :key="source.id"
+            :materials="source.materials"
+          />
         </div>
       </section>
       <section class="persona-page__panel" aria-label="整理进度">
@@ -174,6 +179,7 @@
 </template>
 
 <script setup lang="ts">
+import MaterialSources from './components/MaterialSources.vue';
 import { computed } from 'vue';
 import { NAlert, NButton, NCollapse, NCollapseItem, NEmpty, NSpin, NTag } from 'naive-ui';
 import { useRoute } from 'vue-router';

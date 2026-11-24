@@ -4,6 +4,7 @@ import { positiveIntegerSchema, utcDateTimeSchema, uuidSchema } from './common';
 /** 各任务独立选择模型与预算；成长提案和追加验证不是同一次调用。 */
 export const MODEL_TASK_ROLES = [
   'chat',
+  'perception',
   'persona',
   'memory',
   'reflection',
@@ -74,6 +75,36 @@ export const modelTaskConfigSchema: z.ZodObject<typeof modelTaskConfigShape, z.c
 /** 模型任务配置。 */
 export type ModelTaskConfig = z.infer<typeof modelTaskConfigSchema>;
 
+/** 旧配置的缺省感知页保持停用，升级不会意外派发付费请求。 */
+export const defaultPerceptionTask: ModelTaskConfig = {
+  enabled: false,
+  providerId: 'test',
+  model: 'test-perception-v1',
+  promptVersion: 'perception-v1',
+  preprocessingVersion: 'utf8-v1',
+  schemaVersion: 'perception-v1',
+  maxInputTokens: 16_384,
+  maxOutputTokens: 512,
+  timeoutMs: 30_000,
+  maxAttempts: 1,
+  retryDelayMs: 250,
+  temperature: null,
+  dimensions: null,
+  inputMicrosPerMillion: null,
+  outputMicrosPerMillion: null,
+  dailyBudget: { requests: 20, tokens: 100_000, costMicros: 1_000_000 },
+};
+const taskSchemas = Object.fromEntries(
+  MODEL_TASK_ROLES.filter((role) => role !== 'perception').map((role) => [
+    role,
+    modelTaskConfigSchema,
+  ]),
+) as Record<Exclude<ModelTaskRole, 'perception'>, typeof modelTaskConfigSchema>;
+const modelTasksSchema = z.strictObject({
+  ...taskSchemas,
+  perception: modelTaskConfigSchema.default(defaultPerceptionTask),
+});
+
 const modelConfigurationShape = {
   /** 当前费用统一以美元计量，不把不同币种直接累加。 */
   currency: z.literal('USD'),
@@ -86,7 +117,7 @@ const modelConfigurationShape = {
   /** 后台请求并发上限；零可暂停后台，仍保留前台入口。 */
   backgroundConcurrent: z.number().int().min(0).max(8),
   /** 所有任务的独立完整配置；不允许省略某个任务或隐式继承其他任务。 */
-  tasks: z.record(modelTaskRoleSchema, modelTaskConfigSchema),
+  tasks: modelTasksSchema,
 };
 /** 统一配置文档；跨字段与部署上限由服务端继续校验。 */
 export const modelConfigurationSchema: z.ZodObject<typeof modelConfigurationShape, z.core.$strict> =
@@ -358,8 +389,8 @@ const modelProviderInfoShape = {
   streaming: z.boolean(),
   /** 本阶段不发送工具定义或执行工具调用。 */
   tools: z.literal(false),
-  /** 本阶段不发送图片内容。 */
-  vision: z.literal(false),
+  /** 供应商允许受控的图像输入。 */
+  vision: z.boolean(),
 };
 /** 供应商公共能力声明。 */
 export const modelProviderInfoSchema: z.ZodObject<typeof modelProviderInfoShape> =

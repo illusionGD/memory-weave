@@ -12,6 +12,7 @@ import {
   int,
   json,
   mysqlTable,
+  mediumtext,
   text,
   datetime,
   varchar,
@@ -599,7 +600,7 @@ export const messages = mysqlTable(
     check('messages_versions_positive', sql`${table.contentVersion} > 0 AND ${table.revision} > 0`),
     check(
       'messages_text_length',
-      sql`(${table.deletedAt} IS NULL AND char_length(${table.text}) BETWEEN 1 AND 4000) OR (${table.deletedAt} IS NOT NULL AND char_length(${table.text}) = 0)`,
+      sql`(${table.deletedAt} IS NULL AND char_length(${table.text}) BETWEEN IF(${table.sourceKind} = 'user_input', 0, 1) AND 4000) OR (${table.deletedAt} IS NOT NULL AND char_length(${table.text}) = 0)`,
     ),
     check(
       'messages_publication_valid',
@@ -1261,6 +1262,8 @@ export const memoryEvidence = mysqlTable(
     contentVersion: int('content_version').notNull(),
     startOffset: int('start_offset').notNull(),
     endOffset: int('end_offset').notNull(),
+    material: json('material').$type<import('@memory-weave/contracts').MaterialEvidenceLocator>(),
+    locatorHash: varchar('locator_hash', { length: 64 }).notNull().default(''),
     kind: varchar('kind', { length: 12 }).$type<'quote' | 'context'>().notNull(),
   },
   (table) => [
@@ -1286,6 +1289,7 @@ export const memoryEvidence = mysqlTable(
       table.startOffset,
       table.endOffset,
       table.kind,
+      table.locatorHash,
     ),
     index('memory_evidence_source').on(table.ownerId, table.messageId, table.contentVersion),
     index('memory_evidence_version').on(table.ownerId, table.versionId),
@@ -1469,5 +1473,145 @@ export const lifecycleMemoryTargets = mysqlTable(
   },
   (table) => [
     unique('lifecycle_memory_target_unique').on(table.ownerId, table.operationId, table.versionId),
+  ],
+);
+
+/** 每份原件或网页快照对应一个独立版本，首次分享后保留原始关联。 */
+export const materialVersions = mysqlTable(
+  'material_versions',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    requestId: uuid('request_id'),
+    kind: varchar('kind', {
+      length: 16,
+      enum: ['text', 'markdown', 'pdf', 'jpeg', 'png', 'webp', 'web'],
+    }).notNull(),
+    title: varchar('title', { length: 512 }).notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }),
+    fileId: uuid('file_id'),
+    hash: varchar('hash', { length: 64 }),
+    byteLength: int('byte_length').notNull().default(0),
+    sourceUrl: text('source_url'),
+    finalUrl: text('final_url'),
+    acquiredAt: datetime('acquired_at', { fsp: 3 }),
+    sharedAt: datetime('shared_at', { fsp: 3 }),
+    state: varchar('state', { length: 16, enum: ['pending', 'parsed', 'partial', 'unavailable'] })
+      .notNull()
+      .default('pending'),
+    reason: varchar('reason', { length: 64 }),
+    partCount: int('part_count').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('mat_ver_owner_id').on(table.ownerId, table.id),
+    unique('mat_ver_owner_request').on(table.ownerId, table.requestId),
+    index('mat_ver_expiration').on(table.ownerId, table.sharedAt, table.createdAt),
+  ],
+);
+
+/** 分片位置固定，文字与图片区域按原件顺序排列。 */
+export const materialParts = mysqlTable(
+  'material_parts',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    materialId: uuid('material_id').notNull(),
+    position: int('position').notNull(),
+    page: int('page'),
+    status: varchar('status', { length: 16, enum: ['text', 'no-text-layer', 'image'] }).notNull(),
+    text: mediumtext('text'),
+    region: json('region').$type<import('@memory-weave/contracts').MaterialPart['region']>(),
+    asset:
+      json('asset').$type<import('../modules/materials/material-files').MaterialFileReference>(),
+  },
+  (table) => [
+    unique('mat_part_position').on(table.ownerId, table.materialId, table.position),
+    foreignKey({
+      name: 'mat_part_version_ref',
+      columns: [table.ownerId, table.materialId],
+      foreignColumns: [materialVersions.ownerId, materialVersions.id],
+    }).onDelete('cascade'),
+  ],
+);
+
+/** 每次分享单独记录，不以原件去重抹掉交流事件。 */
+export const messageMaterials = mysqlTable(
+  'message_materials',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    messageId: uuid('message_id').notNull(),
+    contentVersion: int('content_version').notNull(),
+    materialId: uuid('material_id').notNull(),
+    position: int('position').notNull(),
+  },
+  (table) => [
+    unique('msg_mat_position').on(
+      table.ownerId,
+      table.messageId,
+      table.contentVersion,
+      table.position,
+    ),
+    unique('msg_mat_version').on(
+      table.ownerId,
+      table.messageId,
+      table.contentVersion,
+      table.materialId,
+    ),
+    foreignKey({
+      name: 'msg_mat_message_ref',
+      columns: [table.ownerId, table.messageId, table.contentVersion],
+      foreignColumns: [messages.ownerId, messages.id, messages.contentVersion],
+    }),
+    foreignKey({
+      name: 'msg_mat_version_ref',
+      columns: [table.ownerId, table.materialId],
+      foreignColumns: [materialVersions.ownerId, materialVersions.id],
+    }),
+  ],
+);
+
+/** 阅读记录按确切的分享消息、伴侣代次与聊天轮次保存。 */
+export const materialReadings = mysqlTable(
+  'material_readings',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    materialId: uuid('material_id').notNull(),
+    messageId: uuid('message_id').notNull(),
+    contentVersion: int('content_version').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    batch: int('batch').notNull().default(0),
+    summary: text('summary'),
+    correctedByMessageId: uuid('corrected_by_message_id'),
+    modelRequestId: uuid('model_request_id'),
+    modelCallId: uuid('model_call_id'),
+    region: json('region').$type<import('@memory-weave/contracts').MaterialPart['region']>(),
+    excerpts: json('excerpts').$type<{ position: number; truncated: boolean }[]>().notNull(),
+    finishedAt: datetime('finished_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('mat_read_key').on(
+      table.ownerId,
+      table.runId,
+      table.materialId,
+      table.messageId,
+      table.batch,
+    ),
+    index('mat_read_version').on(table.ownerId, table.materialId, table.finishedAt),
+    foreignKey({
+      name: 'mat_read_share_ref',
+      columns: [table.ownerId, table.messageId, table.contentVersion, table.materialId],
+      foreignColumns: [
+        messageMaterials.ownerId,
+        messageMaterials.messageId,
+        messageMaterials.contentVersion,
+        messageMaterials.materialId,
+      ],
+    }).onDelete('cascade'),
   ],
 );

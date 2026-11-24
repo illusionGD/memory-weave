@@ -1,3 +1,4 @@
+import { materialsForMessage } from '../materials/material-queries';
 import type { DatabaseService } from '../../database/database.service';
 import type { Conversation, ConversationMember, Message } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
@@ -195,7 +196,12 @@ export async function toMessage(
     .from(messageSources)
     .where(and(eq(messageSources.ownerId, row.ownerId), eq(messageSources.messageId, row.id)))
     .orderBy(asc(messageSources.sourceMessageId), asc(messageSources.relation));
+  const materials =
+    !row.deletedAt && row.state === 'published' && row.sourceKind === 'user_input'
+      ? await materialsForMessage(ownerId, row.id, row.contentVersion, db)
+      : [];
   const common = {
+    ...(materials.length ? { materials } : {}),
     id: row.id,
     ownerId: row.ownerId,
     conversationId: row.conversationId,

@@ -5,7 +5,7 @@ import type {
   ModelConfigurationVersion,
   UpdateModelConfiguration,
 } from '@memory-weave/contracts';
-import { API_CODES, MODEL_TASK_ROLES } from '@memory-weave/contracts';
+import { API_CODES, MODEL_TASK_ROLES, modelConfigurationSchema } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -226,7 +226,7 @@ function toVersion(row: typeof modelConfigurationVersions.$inferSelect): ModelCo
     version: row.version,
     source: row.source,
     fingerprint: row.fingerprint,
-    config: row.config,
+    config: modelConfigurationSchema.parse(row.config),
     evaluationNote: row.evaluationNote,
     createdAt: row.createdAt.toISOString(),
   };

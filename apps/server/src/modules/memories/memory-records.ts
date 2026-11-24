@@ -1,3 +1,4 @@
+import { readMaterialEvidence } from '../materials/material-evidence';
 import type { DatabaseService } from '../../database/database.service';
 import type {
   MemoryDetail,
@@ -142,13 +143,22 @@ async function evidenceFor(
     .orderBy(asc(memoryEvidence.id))
     .limit(limit + 1);
   return {
-    items: rows.slice(0, limit).map(({ evidence, source }) => ({
-      messageId: evidence.messageId,
-      contentVersion: evidence.contentVersion,
-      startOffset: evidence.startOffset,
-      endOffset: evidence.endOffset,
-      quote: source.text.slice(evidence.startOffset, evidence.endOffset),
-    })),
+    items: await Promise.all(
+      rows.slice(0, limit).map(async ({ evidence, source }) => {
+        const text = evidence.material
+          ? await readMaterialEvidence(ownerId, evidence.material, tx)
+          : source.text;
+        if (text === null) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+        return {
+          messageId: evidence.messageId,
+          contentVersion: evidence.contentVersion,
+          startOffset: evidence.startOffset,
+          endOffset: evidence.endOffset,
+          quote: text.slice(evidence.startOffset, evidence.endOffset),
+          ...(evidence.material ? { material: evidence.material } : {}),
+        };
+      }),
+    ),
     nextAfterId: rows.length > limit ? rows[limit - 1]!.evidence.id : null,
   };
 }
@@ -301,9 +311,20 @@ export async function adoptMemories(
       const source = input.messages.find(
         (s) => s.messageId === e.messageId && s.contentVersion === e.contentVersion,
       );
-      const startOffset = source?.text.indexOf(e.quote) ?? -1;
+      const material = e.material;
+      const evidenceText = material
+        ? source?.materials?.find((item) => fingerprint(item.locator) === fingerprint(material))
+            ?.text
+        : source?.text;
+      const startOffset = evidenceText?.indexOf(e.quote) ?? -1;
       if (!source || startOffset < 0) return invalid();
-      return { source, startOffset, endOffset: startOffset + e.quote.length };
+      return {
+        source,
+        material,
+        quote: e.quote,
+        startOffset,
+        endOffset: startOffset + e.quote.length,
+      };
     });
     if (!quotes.some((q) => q.source.target)) invalid();
     for (const quote of quotes) if (quote.source.target) used.add(quote.source.messageId);
@@ -330,6 +351,17 @@ export async function adoptMemories(
       !quotes.some((q) => q.source.speaker.kind === 'user' && q.source.sourceKind === 'user_input')
     )
       invalid();
+    for (const quote of quotes)
+      if (quote.material) {
+        if (
+          doc.subject.kind === 'user' ||
+          doc.subject.kind === 'self' ||
+          (doc.reality !== 'fictional' && doc.epistemic !== 'report')
+        )
+          invalid();
+        const text = await readMaterialEvidence(ownerId, quote.material, tx);
+        if (!text || text.slice(quote.startOffset, quote.endOffset) !== quote.quote) invalid();
+      }
     if (action.action === 'revise' ? !action.revisionKind : action.revisionKind !== null) invalid();
     const hash = fingerprint(doc);
     let entry: Entry | undefined;
@@ -461,6 +493,7 @@ export async function adoptMemories(
         startOffset: q.startOffset,
         endOffset: q.endOffset,
         kind: 'quote' as const,
+        ...(q.material ? { material: q.material, locatorHash: fingerprint(q.material) } : {}),
       })),
     ];
     const unique = [...new Map(dependencies.map((e) => [JSON.stringify(e), e])).values()];
