@@ -1,3 +1,4 @@
+import { activeGrowth } from '../growth/growth-persona';
 import {
   MODEL_PROBE_DEFINITION_VERSION,
   MODEL_PREPROCESSING_VERSION,
@@ -305,7 +306,7 @@ export class CompanionPersonasService {
       db,
     );
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-    return toPersonaVersion(row);
+    return toPersonaVersion((await activeGrowth(row, db)).persona);
   }
 
   /**
@@ -327,7 +328,7 @@ export class CompanionPersonasService {
       if (replay) {
         if (replay.commandFingerprint !== hash)
           throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
-        return toPersonaVersion(replay);
+        return toPersonaVersion((await activeGrowth(replay, tx)).persona);
       }
       const companion = await this.instances.readInTransaction(ownerId, tx, id);
       const parent = companion.currentPersonaVersion;

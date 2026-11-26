@@ -1,3 +1,4 @@
+import { GrowthExecution } from '../growth/growth-execution';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_CODES } from '@memory-weave/contracts';
 import type { ReflectionEvidence } from '@memory-weave/contracts';
@@ -36,6 +37,7 @@ export class ReflectionExecution {
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
+    @Inject(GrowthExecution) private readonly growth: GrowthExecution,
   ) {}
 
   /** 使用持久的有界输入处理增量，未知结果沿用同一调用身份。 */
@@ -86,6 +88,7 @@ export class ReflectionExecution {
       const run = await this.guard(lease, tx);
       const now = await taskDatabaseTime(this.database, ownerId, tx);
       const result = await this.adopt(run, output.data, tx, now);
+      if (result.adopted) await this.growth.schedule(run, configVersion, tx, now);
       await tx
         .update(reflectionRuns)
         .set({ result, completedAt: now })

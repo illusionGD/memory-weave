@@ -263,7 +263,9 @@ export const personaVersions = mysqlTable(
     profileText: text('profile_text').notNull(),
     document: json('document').$type<PersonaDocument>(),
     origin: varchar('origin', { length: 24 })
-      .$type<'initial_text' | 'initialization' | 'lock_revision' | 'reset'>()
+      .$type<
+        'initial_text' | 'initialization' | 'lock_revision' | 'reset' | 'growth' | 'growth_rollback'
+      >()
       .notNull()
       .default('initial_text'),
     parentVersionId: uuid('parent_version_id'),
@@ -2114,6 +2116,83 @@ export const reflectionFindings = mysqlTable(
     foreignKey({
       name: 'reflection_finding_run_ref',
       columns: [table.ownerId, table.runId],
+      foreignColumns: [reflectionRuns.ownerId, reflectionRuns.id],
+    }),
+  ],
+);
+
+/** 冻结命令逐次追加，旧租约不能跨控制版本提交。 */
+export const growthControls = mysqlTable(
+  'growth_controls',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    version: int('version').notNull(),
+    frozen: boolean('frozen').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('growth_control_version').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.version,
+    ),
+    unique('growth_control_request').on(table.ownerId, table.companionId, table.requestId),
+    foreignKey({
+      name: 'growth_control_companion_ref',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+    check('growth_control_positive', sql`${table.runtimeEpoch} > 0 AND ${table.version} > 0`),
+  ],
+);
+
+/** 成长采用明确绑定反思、当前人格、配额、冻结与追加验证。 */
+export const growthCandidates = mysqlTable(
+  'growth_candidates',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    sourceRunId: uuid('source_run_id').notNull(),
+    expectedPersonaVersionId: uuid('expected_persona_version_id').notNull(),
+    expectedControlVersion: int('expected_control_version').notNull(),
+    adoptedPersonaVersionId: uuid('adopted_persona_version_id'),
+    proposal: json('proposal').$type<import('@memory-weave/contracts').GrowthProposal>(),
+    validation:
+      json('validation').$type<import('@memory-weave/contracts').GrowthValidationResult>(),
+    status: varchar('status', { length: 16 })
+      .$type<import('@memory-weave/contracts').GrowthCandidate['status']>()
+      .notNull(),
+    mode: varchar('mode', { length: 10 }).$type<'test' | 'model'>().notNull(),
+    reason: varchar('reason', { length: 64 }),
+    adoptedAt: datetime('adopted_at', { fsp: 3 }),
+    erasedAt: datetime('erased_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('growth_candidate_scope_run').on(table.ownerId, table.sourceRunId),
+    index('growth_candidate_scope').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.createdAt,
+    ),
+    foreignKey({
+      name: 'growth_candidate_task_ref',
+      columns: [table.ownerId, table.id],
+      foreignColumns: [tasks.ownerId, tasks.id],
+    }),
+    foreignKey({
+      name: 'growth_candidate_run_ref',
+      columns: [table.ownerId, table.sourceRunId],
       foreignColumns: [reflectionRuns.ownerId, reflectionRuns.id],
     }),
   ],

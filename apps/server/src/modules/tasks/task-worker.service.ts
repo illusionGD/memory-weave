@@ -1,3 +1,4 @@
+import { GrowthExecution } from '../growth/growth-execution';
 import { ReflectionExecution } from '../reflections/reflection-execution';
 import { ReflectionPlanning } from '../reflections/reflection-planning';
 import { RelationshipExecution } from '../relationships/relationship-execution';
@@ -41,6 +42,7 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
     @Inject(MaterialSummaryService) private readonly materialSummary: MaterialSummaryService,
     @Inject(MaterialsService) private readonly materials: MaterialsService,
+    @Inject(GrowthExecution) private readonly growth: GrowthExecution,
     @Inject(ReflectionExecution) private readonly reflection: ReflectionExecution,
     @Inject(ReflectionPlanning) private readonly reflectionPlanning: ReflectionPlanning,
     @Inject(RelationshipExecution) private readonly relationships: RelationshipExecution,
@@ -180,6 +182,8 @@ export class TaskWorkerService implements OnModuleDestroy {
         await this.memoryExecution.execute(lease);
       } else if (lease.input.kind === 'lifecycle_cleanup') {
         await this.lifecycle.execute(lease);
+      } else if (lease.input.kind === 'growth') {
+        await this.growth.execute(lease);
       } else if (lease.input.kind === 'reflection') {
         await this.reflection.execute(lease);
       } else if (lease.input.kind === 'relationship_update') {

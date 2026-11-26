@@ -1,3 +1,4 @@
+import { activeGrowth } from '../growth/growth-persona';
 import type {
   CompanionDetail,
   CompanionListResponse,
@@ -129,7 +130,7 @@ export class CompanionsService {
     const rows = await this.repository.list(ownerId, query);
     const page = idCursorPage(rows, query.limit, (row) => row.companion.id);
     return {
-      items: page.items.map((row) => this.toDetail(row)),
+      items: await Promise.all(page.items.map((row) => this.toDetail(row, this.database.sql))),
       nextAfterId: page.nextAfterId,
     };
   }
@@ -146,7 +147,7 @@ export class CompanionsService {
   ): Promise<CompanionDetail> {
     const row = await this.repository.get(ownerId, id, db);
     if (!row) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
-    return this.toDetail(row);
+    return this.toDetail(row, db);
   }
 
   /**
@@ -154,10 +155,14 @@ export class CompanionsService {
    *
    * 只映射公共字段，幂等指纹等内部字段不进入响应。
    */
-  private toDetail(row: {
-    companion: typeof companions.$inferSelect;
-    persona: typeof personaVersions.$inferSelect;
-  }): CompanionDetail {
+  private async toDetail(
+    row: {
+      companion: typeof companions.$inferSelect;
+      persona: typeof personaVersions.$inferSelect;
+    },
+    db: Database | DatabaseTransaction,
+  ): Promise<CompanionDetail> {
+    const { persona } = await activeGrowth(row.persona, db);
     return {
       id: row.companion.id,
       ownerId: row.companion.ownerId,
@@ -169,7 +174,7 @@ export class CompanionsService {
       initialSnapshot: row.companion.initialSnapshot!,
       lifecycleOperationId: row.companion.lifecycleOperationId,
       currentPersonaVersionId: row.persona.id,
-      currentPersonaVersion: toPersonaVersion(row.persona),
+      currentPersonaVersion: toPersonaVersion(persona),
       createdAt: row.companion.createdAt.toISOString(),
     };
   }

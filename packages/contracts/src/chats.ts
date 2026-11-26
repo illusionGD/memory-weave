@@ -86,6 +86,8 @@ const chatContextShape = {
   explicitLocks: z.array(z.string()).optional(),
   /** 本轮固定的当前人格版本；不重复注入旧初始人格。 */
   personaVersionId: uuidSchema,
+  personaGrowthIds: z.array(uuidSchema).max(12).optional(),
+  personaGrowthSources: z.array(chatContextSourceSchema).optional(),
   /** 按发布顺序固定的原文集合。 */
   sources: z.array(chatContextSourceSchema).max(500),
   /** 未选入的更早历史截止序号；零表示未省略。 */

@@ -1,3 +1,4 @@
+import { activeGrowth } from '../growth/growth-persona';
 import { ReflectionService } from '../reflections/reflection-service';
 import { RelationshipService } from '../relationships/relationship-service';
 import { TerminalService } from '../terminals/terminal-service';
@@ -87,7 +88,7 @@ export class ChatContextService {
     if (context?.recall)
       await validateRecallSnapshot(this.database, ownerId, scope, context.recall, tx);
     if (recall) await validateRecallSnapshot(this.database, ownerId, scope, recall, tx);
-    const persona = await this.database.personaVersions.findOne(
+    const storedPersona = await this.database.personaVersions.findOne(
       ownerId,
       {
         where: {
@@ -98,7 +99,12 @@ export class ChatContextService {
       },
       tx,
     );
-    if (!persona) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    if (!storedPersona) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    const mode = config.config.tasks.chat.providerId === 'test' ? 'test' : 'model';
+    const { persona, sources: growthSources } = await activeGrowth(storedPersona, tx, mode);
+    const growthIds = persona.document?.growth?.map((trait) => trait.growthId) ?? [];
+    if (context && JSON.stringify(context.personaGrowthIds ?? []) !== JSON.stringify(growthIds))
+      throw new ApiException(API_CODES.VERSION_CONFLICT);
     const [foundation] = !persona.document
       ? await tx
           .select()
@@ -176,6 +182,9 @@ export class ChatContextService {
     const snapshot: ChatContext = context ?? {
       ...(recall ? { recall: structuredClone(recall) } : {}),
       personaVersionId: persona.id,
+      ...(growthIds.length
+        ? { personaGrowthIds: growthIds, personaGrowthSources: growthSources }
+        : {}),
       explicitLocks: persona.document ? [] : (foundation?.explicitLocks ?? []),
       sources: [],
       omittedThroughSequence: Math.max(0, (selected[0]?.sequence ?? 1) - 1),
@@ -193,14 +202,14 @@ export class ChatContextService {
         tx,
       );
       if (capabilities.length) snapshot.terminalCapabilities = capabilities;
-      const relationMode = config.config.tasks.chat.providerId === 'test' ? 'test' : 'model';
-      const relationships = await this.relationships.snapshot(member, relationMode, tx);
+
+      const relationships = await this.relationships.snapshot(member, mode, tx);
       if (relationships.length) snapshot.relationships = relationships;
       const topic = selected
         .filter((row) => row.sequence! >= run.firstUserSequence)
         .map((row) => row.text)
         .join(' ');
-      const reflections = await this.reflections.snapshot(member, relationMode, topic, tx);
+      const reflections = await this.reflections.snapshot(member, mode, topic, tx);
       if (reflections.length) snapshot.reflections = reflections;
       if (materialSummaryTaskId) snapshot.materialSummaryTaskId = materialSummaryTaskId;
       const materialContext = await selectMaterialContext(

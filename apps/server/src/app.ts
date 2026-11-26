@@ -1,3 +1,6 @@
+import { GrowthController } from './modules/growth/growth-controller';
+import { GrowthExecution } from './modules/growth/growth-execution';
+import { GrowthService } from './modules/growth/growth-service';
 import { ReflectionController } from './modules/reflections/reflection-controller';
 import { ReflectionExecution } from './modules/reflections/reflection-execution';
 import { ReflectionPlanning } from './modules/reflections/reflection-planning';
@@ -121,6 +124,7 @@ class ApplicationModule {
         ActivityController,
         RelationshipController,
         ReflectionController,
+        GrowthController,
       ],
       providers: [
         MemoryExplorerService,
@@ -173,6 +177,8 @@ class ApplicationModule {
         ReflectionExecution,
         ReflectionPlanning,
         ReflectionService,
+        GrowthExecution,
+        GrowthService,
       ],
     };
   }

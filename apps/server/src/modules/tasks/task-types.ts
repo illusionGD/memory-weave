@@ -6,6 +6,7 @@ export type TaskInput =
   | { kind: 'activity'; activityId: string; version: number; configVersion: number }
   | { kind: 'relationship_update'; batchId: string; configVersion: number }
   | { kind: 'reflection'; configVersion: number }
+  | { kind: 'growth'; configVersion: number }
   | { kind: 'redacted' }
   | { kind: 'chat_reply'; runId: string }
   | { kind: 'material_fetch'; materialId: string; messageId: string; contentVersion: number }

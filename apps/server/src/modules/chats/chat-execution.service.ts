@@ -1,3 +1,4 @@
+import { activeGrowth } from '../growth/growth-persona';
 import { ReflectionService } from '../reflections/reflection-service';
 import { RelationshipService } from '../relationships/relationship-service';
 import { MaterialSummaryService } from '../materials/material-summary.service';
@@ -125,6 +126,7 @@ export class ChatExecutionService {
           .values(
             [
               ...built.context.sources,
+              ...(built.context.personaGrowthSources ?? []),
               ...(built.context.relationships ?? []).flatMap((state) => state.sources),
               ...(built.context.reflections ?? []).flatMap((record) => record.sources),
               ...(built.context.recall?.querySources ?? []).map((source) => ({
@@ -402,6 +404,24 @@ export class ChatExecutionService {
       const companion = await this.database.companions.findById(ownerId, thread.companionId, tx);
       if (companion?.currentPersonaVersionId !== run.context.personaVersionId)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
+      if (run.context.personaGrowthIds?.length) {
+        const storedPersona = await this.database.personaVersions.findOne(
+          ownerId,
+          {
+            where: {
+              companionId: companion.id,
+              runtimeEpoch: companion.runtimeEpoch,
+              id: run.context.personaVersionId,
+            },
+          },
+          tx,
+        );
+        if (!storedPersona) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+        const { persona } = await activeGrowth(storedPersona, tx, run.mode ?? undefined);
+        const actual = persona.document?.growth?.map((trait) => trait.growthId) ?? [];
+        if (JSON.stringify(run.context.personaGrowthIds) !== JSON.stringify(actual))
+          throw new ApiException(API_CODES.VERSION_CONFLICT);
+      }
     }
     return run;
   }

@@ -1,3 +1,4 @@
+import { growthTraitSchema } from './growth';
 import { z } from 'zod';
 
 const evidenceShape = {
@@ -29,6 +30,7 @@ const documentShape = {
   core: z.array(personaEvidenceSchema).max(20),
   /** 可逐渐成长的兴趣、表达、思考方式与观点。 */
   inclinations: z.array(personaEvidenceSchema).max(30),
+  growth: z.array(growthTraitSchema).max(12).optional(),
   /** 起初的知识与技能状态，不等同于喜恶或成长约束。 */
   knowledge: z.array(personaEvidenceSchema).max(20),
   /** 管理者明确要求长期保留的约束。 */

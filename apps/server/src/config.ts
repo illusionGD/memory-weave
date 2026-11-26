@@ -1,3 +1,5 @@
+import { growthConfigurationSchema } from './modules/growth/growth-config';
+import type { GrowthConfiguration } from './modules/growth/growth-config';
 import { reflectionConfigurationSchema } from './modules/reflections/reflection-config';
 import type { ReflectionConfiguration } from './modules/reflections/reflection-config';
 import { relationshipConfigurationSchema } from './modules/relationships/relationship-config';
@@ -23,6 +25,7 @@ export interface ServerConfig {
   terminalConfiguration?: TerminalConfiguration;
   relationshipConfiguration?: RelationshipConfiguration;
   reflectionConfiguration?: ReflectionConfiguration;
+  growthConfiguration?: GrowthConfiguration;
   /** 集中材料解析和获取预算。 */
   materialConfiguration?: MaterialConfiguration;
   /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
@@ -266,6 +269,14 @@ export function loadServerConfig(
   } catch {
     throw new ConfigurationError('材料配置无效，请检查 MATERIAL_CONFIG_JSON。');
   }
+  let growthConfiguration: GrowthConfiguration;
+  try {
+    growthConfiguration = growthConfigurationSchema.parse(
+      JSON.parse(environment.GROWTH_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('成长配置无效，请检查 GROWTH_CONFIG_JSON。');
+  }
   let reflectionConfiguration: ReflectionConfiguration;
   try {
     reflectionConfiguration = reflectionConfigurationSchema.parse(
@@ -294,6 +305,7 @@ export function loadServerConfig(
     terminalConfiguration,
     relationshipConfiguration,
     reflectionConfiguration,
+    growthConfiguration,
     materialConfiguration,
     logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),
