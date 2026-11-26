@@ -1,3 +1,7 @@
+import { MemoryPinService } from './modules/administration/memory-pin.service';
+import { AdministrationController } from './modules/administration/administration.controller';
+import { AdministrationConfig } from './modules/administration/administration-config';
+import { AdministrationObservations } from './modules/administration/administration-observations';
 import { EmbeddingSpaces } from './modules/memory-maintenance/embedding-spaces';
 import { MemoryMaintenanceController } from './modules/memory-maintenance/memory-maintenance.controller';
 import { MemoryMaintenanceService } from './modules/memory-maintenance/memory-maintenance.service';
@@ -125,6 +129,7 @@ class ApplicationModule {
         MemoryExplorerController,
         RetrievalController,
         MemoryMaintenanceController,
+        AdministrationController,
         MemoriesController,
         AuthController,
         LifecycleController,
@@ -157,6 +162,9 @@ class ApplicationModule {
         RetrievalVector,
         EmbeddingSpaces,
         MemoryMaintenanceService,
+        AdministrationConfig,
+        MemoryPinService,
+        AdministrationObservations,
         RetrievalService,
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
         {

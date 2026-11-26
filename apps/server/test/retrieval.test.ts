@@ -571,6 +571,23 @@ describe('检索与未整理补读的公开协议', () => {
       summary: `${first}傍晚回家。`,
       evidence: [{ contentVersion: 1 }],
     });
+    const pinPath = `/api/management/companions/${a}/memories/${memory.id}/pin`;
+    const pin = {
+      runtimeEpoch: 1,
+      requestId: randomUUID(),
+      expectedMemoryVersion: 1,
+      expectedPinVersion: 0,
+      pinned: true,
+    };
+    const adopted = (await agent.put(pinPath).send(pin).expect(200)).body.data;
+    expect(adopted).toMatchObject({ memoryId: memory.id, version: 1, pinned: true });
+    expect((await agent.put(pinPath).send(pin).expect(200)).body.data).toEqual(adopted);
+    await agent
+      .put(pinPath)
+      .send({ ...pin, pinned: false })
+      .expect(409);
+    expect((await agent.get(path).expect(200)).body.data).toBeNull();
+    await agent.get(`${pinPath}?runtimeEpoch=2`).expect(404);
     const history = (
       await agent
         .post(`/api/companions/${a}/recall`)

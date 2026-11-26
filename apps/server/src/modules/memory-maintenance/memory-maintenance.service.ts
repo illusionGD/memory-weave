@@ -14,6 +14,7 @@ import {
   memoryMaintenanceHeads,
   memoryMaintenanceViews,
   memoryOriginalSources,
+  memoryPinChanges,
   memoryVersions,
   messages,
   reflectionEvents,
@@ -174,6 +175,17 @@ export class MemoryMaintenanceService {
           inArray(growthCandidates.status, ['queued', 'observing', 'adopted']),
         ),
       );
+    const pinned = tx
+      .select({ id: memoryPinChanges.memoryId })
+      .from(memoryPinChanges)
+      .where(
+        and(
+          eq(memoryPinChanges.ownerId, ownerId),
+          eq(memoryPinChanges.memoryId, memoryEntries.id),
+          eq(memoryPinChanges.current, true),
+          eq(memoryPinChanges.pinned, true),
+        ),
+      );
     const rows = await tx
       .select({
         entry: memoryEntries,
@@ -195,6 +207,7 @@ export class MemoryMaintenanceService {
           sql`${latest} <= ${recent} and (${memoryMaintenanceViews.versionId} is null or (${memoryMaintenanceViews.tier} = 'compressed' and ${latest} <= ${archive}))`,
           notExists(busy),
           notExists(growth),
+          notExists(pinned),
         ),
       )
       .orderBy(asc(memoryVersions.createdAt), asc(memoryVersions.id))
@@ -265,5 +278,47 @@ export async function cleanupMaintenancePage(
           inArray(memoryMaintenanceViews.versionId, ids),
         ),
       );
-  return { done: rows.length < limit, changed: rows.length };
+  if (rows.length >= limit) return { done: false, changed: rows.length };
+  const remaining = limit - rows.length;
+  const pins = await tx
+    .select({ id: memoryPinChanges.requestId })
+    .from(memoryPinChanges)
+    .innerJoin(memoryEntries, eq(memoryEntries.id, memoryPinChanges.memoryId))
+    .where(
+      and(
+        eq(memoryPinChanges.ownerId, ownerId),
+        operation.kind === 'delete_messages'
+          ? and(
+              eq(memoryEntries.status, 'invalidated'),
+              inArray(
+                memoryEntries.currentVersionId,
+                tx
+                  .select({ id: lifecycleMemoryTargets.versionId })
+                  .from(lifecycleMemoryTargets)
+                  .where(
+                    and(
+                      eq(lifecycleMemoryTargets.ownerId, ownerId),
+                      eq(lifecycleMemoryTargets.operationId, operation.id),
+                    ),
+                  ),
+              ),
+            )
+          : and(
+              eq(memoryEntries.companionId, operation.companionId!),
+              sql`${memoryEntries.runtimeEpoch} <= ${operation.previousEpoch}`,
+            ),
+      ),
+    )
+    .limit(remaining);
+  if (pins.length)
+    await tx.delete(memoryPinChanges).where(
+      and(
+        eq(memoryPinChanges.ownerId, ownerId),
+        inArray(
+          memoryPinChanges.requestId,
+          pins.map((row) => row.id),
+        ),
+      ),
+    );
+  return { done: pins.length < remaining, changed: rows.length + pins.length };
 }

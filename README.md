@@ -18,6 +18,7 @@
 - [F19 自主探索、活动与联系](docs/features/f19-autonomy.md)
 - [F20 自主同伴交流](docs/features/f20-peer-talk.md)
 - [F21 记忆维护与向量切换](docs/features/f21-memory-maintenance.md)
+- [F22 后台管理接口](docs/features/f22-administration.md)
 - [F11 材料阅读与升级](docs/features/f11-materials.md)
 - [Pino 日志、Nest 开发启动与 PM2 轮转](docs/features/logging-and-dev.md)
 - [模型 JSON 配置与环境区分](docs/features/model-json-config.md)

@@ -134,3 +134,5 @@ export * from './autonomy';
 export * from './peer-talk';
 
 export * from './memory-maintenance';
+
+export * from './administration';

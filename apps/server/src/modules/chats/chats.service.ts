@@ -82,6 +82,17 @@ export class ChatsService {
     return this.store.locked(ownerId, (tx) => this.read(ownerId, id, tx));
   }
 
+  /** 根据原轮次读取仍有权查看的实际诊断。 */
+  async getRun(ownerId: string, id: string, runId: string): Promise<ChatRun> {
+    return this.store.locked(ownerId, async (tx) => {
+      const detail = await this.read(ownerId, id, tx);
+      if (detail.availability !== 'active') throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
+      const run = await this.run(ownerId, runId, tx);
+      if (run.conversationId !== id) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+      return run;
+    });
+  }
+
   /**
    * 分页查询用户已创建的私聊。
    *

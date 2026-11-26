@@ -2708,3 +2708,32 @@ export const memoryMaintenanceViews = mysqlTable(
     index('memory_maintenance_owner_tier').on(table.ownerId, table.tier, table.versionId),
   ],
 );
+
+/** 固定条目的管理命令可安全重放，当前状态独立于正文版本。 */
+export const memoryPinChanges = mysqlTable(
+  'memory_pin_changes',
+  {
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    memoryId: uuid('memory_id')
+      .notNull()
+      .references(() => memoryEntries.id),
+    version: int('version').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    pinned: boolean('pinned').notNull(),
+    current: boolean('is_current').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('memory_pin_change_version').on(table.ownerId, table.memoryId, table.version),
+    unique('memory_pin_change_request').on(table.ownerId, table.requestId),
+    index('memory_pin_current_lookup').on(
+      table.ownerId,
+      table.memoryId,
+      table.current,
+      table.pinned,
+    ),
+  ],
+);
