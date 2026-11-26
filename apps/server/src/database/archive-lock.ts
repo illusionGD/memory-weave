@@ -5,18 +5,25 @@ import { mysqlConnectionOptions } from './connection';
 
 const runtimeSlots = 32;
 
+/** 已有运行服务或维护请求时的明确占用状态。 */
+export class StorageBusyError extends Error {}
+
 /** 主服务可共享运行许可，维护任务需要独占而且等待所有运行连接退出。 */
 export function acquireRuntimeStorageLock(databaseUrl: string) {
-  return acquireStorageLock(databaseUrl, 'runtime');
+  return acquireStorageLock(databaseUrl, 'runtime', 5);
 }
 
 /** 获取部署离线维护许可。 */
-export function acquireArchiveLock(databaseUrl: string) {
-  return acquireStorageLock(databaseUrl, 'offline');
+export function acquireArchiveLock(databaseUrl: string, waitSeconds = 0) {
+  return acquireStorageLock(databaseUrl, 'offline', waitSeconds);
 }
 
 /** 调度闸门保护短许可登记及长期离线维护。 */
-async function acquireStorageLock(databaseUrl: string, mode: 'runtime' | 'offline') {
+async function acquireStorageLock(
+  databaseUrl: string,
+  mode: 'runtime' | 'offline',
+  waitSeconds: number,
+) {
   const options = mysqlConnectionOptions(databaseUrl, 5000);
   const connection = createConnection({
     ...options,
@@ -29,8 +36,8 @@ async function acquireStorageLock(databaseUrl: string, mode: 'runtime' | 'offlin
   const gate = prefix;
   const slots = Array.from({ length: runtimeSlots }, (_, i) => `${prefix}:run:${i}`);
   try {
-    if (!(await take(client, gate, mode === 'runtime' ? 5 : 0)))
-      throw new Error('数据库正被服务或其他维护命令使用。');
+    if (!(await take(client, gate, waitSeconds)))
+      throw new StorageBusyError('数据库正被服务或其他维护命令使用。');
     let held = gate;
     if (mode === 'runtime') {
       const slot = await takeRuntimeSlot(client, slots);
@@ -41,7 +48,7 @@ async function acquireStorageLock(databaseUrl: string, mode: 'runtime' | 'offlin
       const checks = slots.map((_, index) => `IS_FREE_LOCK(?) AS slot_${index}`).join(', ');
       const [rows] = await client.query<RowDataPacket[]>(`SELECT ${checks}`, slots);
       if (!rows[0] || !Object.values(rows[0]).every((value) => Number(value) === 1))
-        throw new Error('数据库正被服务或其他维护命令使用。');
+        throw new StorageBusyError('数据库正被服务或其他维护命令使用。');
     }
     return {
       client,

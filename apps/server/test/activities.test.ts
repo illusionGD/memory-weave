@@ -370,6 +370,7 @@ describe('F13 活动公开协议', () => {
       coverage,
       artifact: { kind: 'read', coverage },
     });
+    await app.get(TaskWorkerService).stop();
     const version = (await agent.get(`/api/conversations/${scope.conversationId}`).expect(200)).body
       .data.conversation.version;
     const operation = (
@@ -385,6 +386,7 @@ describe('F13 活动公开协议', () => {
         .expect(201)
     ).body.data;
     await agent.get(`/api/activities/${read.id}`).expect(409);
+    await app.get(TaskWorkerService).start();
     await vi.waitFor(
       async () => {
         expect(

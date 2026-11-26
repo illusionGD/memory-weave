@@ -76,7 +76,13 @@ describe('F15 反思和自传公开协议', () => {
       (ownerId, command, definition, scope, guard) => {
         if (command.role === 'memory') {
           const input = JSON.parse(command.inputText) as MemoryBatchInput;
-          const source = input.messages.find((item) => item.target && item.text.includes('林雨'));
+          const source = input.messages.find(
+            (item) =>
+              item.target &&
+              item.sourceKind === 'user_input' &&
+              item.speaker.kind === 'user' &&
+              item.text.includes('林雨'),
+          );
           if (!source) return actual(ownerId, command, definition, scope, guard);
           const correction = source.text.includes('更正');
           const related = input.related.find((item) => item.document?.claim === 'experience');
@@ -353,6 +359,7 @@ describe('F15 反思和自传公开协议', () => {
       evidence: [{ excerpt: correction.text }],
     });
     expect(old).toMatchObject({ version: 1, status: 'invalidated', document: null });
+    await app.get(TaskWorkerService).stop();
     const conversation = (await agent.get(`/api/conversations/${scope.conversationId}`).expect(200))
       .body.data.conversation;
     const operation = (
@@ -367,6 +374,7 @@ describe('F15 反思和自传公开协议', () => {
         })
         .expect(201)
     ).body.data;
+    await app.get(TaskWorkerService).start();
     await vi.waitFor(
       async () => {
         expect(

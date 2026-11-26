@@ -100,6 +100,11 @@ async function readLocalMigrations(directory: string): Promise<MigrationEntry[]>
   }
 }
 
+/** 校验发布文件，在尝试取得数据库维护许可之前保留本地结构错误。 */
+export async function validateMigrationFiles(directory = defaultMigrationDirectory): Promise<void> {
+  await readLocalMigrations(directory);
+}
+
 /**
  * 读取并校验数据库已应用的迁移历史。
  *

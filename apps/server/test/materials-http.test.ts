@@ -517,12 +517,11 @@ describe('F11 材料公开 HTTP', () => {
           .send({ requestId: randomUUID(), text: '', materialIds: [id] })
           .expect(201)
       ).body.data.message;
-      const conversation = (await agent.get(`/api/conversations/${chat.id}`).expect(200)).body.data
-        .conversation;
-      shares.push({ chat, message, version: conversation.version });
+      shares.push({ chat, message });
     }
-    await app.get(TaskWorkerService).start();
     for (const [index, share] of shares.entries()) {
+      const conversation = (await agent.get(`/api/conversations/${share.chat.id}`).expect(200)).body
+        .data.conversation;
       const operation = (
         await agent
           .post('/api/lifecycle')
@@ -530,7 +529,7 @@ describe('F11 材料公开 HTTP', () => {
             requestId: randomUUID(),
             kind: 'delete_messages',
             conversationId: share.chat.id,
-            expectedVersion: share.version,
+            expectedVersion: conversation.version,
             messages: [
               { messageId: share.message.id, contentVersion: share.message.contentVersion },
             ],
@@ -538,6 +537,7 @@ describe('F11 材料公开 HTTP', () => {
           .expect(201)
       ).body.data;
       await agent.get(`/api/materials/${id}/original`).expect(index ? 404 : 200);
+      await app.get(TaskWorkerService).start();
       let status;
       for (let i = 0; i < 150; i++) {
         status = (await agent.get(`/api/lifecycle/${operation.id}`).expect(200)).body.data;
@@ -545,6 +545,7 @@ describe('F11 材料公开 HTTP', () => {
         await delay(45);
       }
       expect(status.completedAt).toEqual(expect.any(String));
+      await app.get(TaskWorkerService).stop();
       await agent.get(`/api/materials/${id}/parts`).expect(index ? 404 : 200);
     }
     const { readdir } = await import('node:fs/promises');

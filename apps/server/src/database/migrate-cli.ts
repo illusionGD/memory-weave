@@ -1,5 +1,10 @@
-import { acquireArchiveLock } from './archive-lock';
-import { getSchemaStatus, MigrationError, runMigrations } from './migrations';
+import { acquireArchiveLock, StorageBusyError } from './archive-lock';
+import {
+  getSchemaStatus,
+  MigrationError,
+  runMigrations,
+  validateMigrationFiles,
+} from './migrations';
 import { loadServerConfig } from '../config';
 import { resetDevelopment } from './reset-development';
 
@@ -25,6 +30,7 @@ async function main(): Promise<void> {
     throw new MigrationError('Invalid migration command.');
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new MigrationError('DATABASE_URL is required.');
+  if (command === 'migrate') await validateMigrationFiles(remaining[1]);
   const result =
     command === 'status'
       ? await getSchemaStatus(databaseUrl, remaining[1])
@@ -35,8 +41,10 @@ async function main(): Promise<void> {
 
 /** 更新结构与离线归档互斥，先停止正在使用目标数据库的服务。 */
 async function offline<T>(databaseUrl: string, maintain: () => Promise<T>): Promise<T> {
-  const lock = await acquireArchiveLock(databaseUrl).catch(() => {
-    throw new MigrationError('Database migration needs exclusive access to the deployment.');
+  const lock = await acquireArchiveLock(databaseUrl, 10).catch((error: unknown) => {
+    if (error instanceof StorageBusyError)
+      throw new MigrationError('Database migration needs exclusive access to the deployment.');
+    throw new MigrationError('Database migration failed.');
   });
   try {
     return await maintain();

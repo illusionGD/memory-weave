@@ -67,7 +67,7 @@ afterEach(async () => {
   );
 });
 
-describe('migration command with MySQL', () => {
+describe('migration command with MySQL', { timeout: 35000 }, () => {
   it('applies a release once and reports the same ready version on repeat deployment', async () => {
     const databaseUrl = await isolatedDatabase();
     const migrationDir = await createMigrations([
