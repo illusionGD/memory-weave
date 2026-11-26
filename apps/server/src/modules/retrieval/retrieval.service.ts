@@ -1,7 +1,9 @@
+import { EmbeddingSpaces } from '../memory-maintenance/embedding-spaces';
 import { DatabaseService } from '../../database/database.service';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, isNull, ne, isNotNull } from 'drizzle-orm';
-import { retrievalConfigurationSchema } from '@memory-weave/contracts';
+import { API_CODES, retrievalConfigurationSchema } from '@memory-weave/contracts';
+import { ApiException } from '../../http/api-exception';
 import type { RecallQuery, RecallResult, RecallSource } from '@memory-weave/contracts';
 import { SERVER_CONFIG } from '../../config';
 import type { RuntimeConfig } from '../../config';
@@ -18,12 +20,7 @@ import { recallConversationScope } from './retrieval-access';
 import { recallCandidates } from './retrieval-candidates';
 import { ModelConfigurationService } from '../models/model-configuration.service';
 import { ModelRuntimeService } from '../models/model-runtime.service';
-import {
-  embeddingDefinition,
-  embeddingSpace,
-  vectorCollection,
-  RetrievalVector,
-} from './retrieval-vector';
+import { embeddingDefinition, vectorCollection, RetrievalVector } from './retrieval-vector';
 import type { ModelDispatchGuard } from '../models/model-task';
 
 /** 查询与回复共用入口；未整理补读独立于向量索引和其他实例进度。 */
@@ -32,6 +29,7 @@ export class RetrievalService {
   /** 初始化记忆检索和新原文补读服务。 */
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(EmbeddingSpaces) private readonly spaces: EmbeddingSpaces,
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
     @Inject(RetrievalVector) private readonly vectors: RetrievalVector,
@@ -50,9 +48,12 @@ export class RetrievalService {
     guard?: ModelDispatchGuard,
   ): Promise<RecallResult> {
     const limits = this.config.retrievalConfiguration ?? retrievalConfigurationSchema.parse({});
-    const configuration = await this.configuration.get(ownerId);
+    const current = await this.configuration.get(ownerId);
+    const { configuration, space, vectorEnabled } = await this.spaces.queryConfiguration(
+      ownerId,
+      current,
+    );
     const embedding = configuration.config.tasks.embedding;
-    const space = embeddingSpace(embedding, this.config);
     const available = await this.store.locked(ownerId, async (tx) => {
       if (guard) await guard(ownerId, tx);
       const scope = await recallConversationScope(
@@ -114,6 +115,9 @@ export class RetrievalService {
     let vectorIds: string[] = [];
     if (
       limits.vectorEnabled &&
+      vectorEnabled &&
+      current.config.tasks.embedding.enabled &&
+      current.config.tasks.embedding.providerId !== 'test' &&
       embedding.enabled &&
       embedding.providerId !== 'test' &&
       !query.memoryId &&
@@ -138,6 +142,8 @@ export class RetrievalService {
             { companionId, runtimeEpoch: query.runtimeEpoch, conversationId: query.conversationId },
             async (ownerId, tx) => {
               if (guard) await guard(ownerId, tx);
+              if (!(await this.spaces.isCurrent(ownerId, space, tx)))
+                throw new ApiException(API_CODES.VERSION_CONFLICT);
               await recallConversationScope(
                 this.database,
                 ownerId,
@@ -245,6 +251,10 @@ export class RetrievalService {
           occurredAt: message.occurredAt?.toISOString() ?? null,
         });
       }
+      if (vectorIds.length && !(await this.spaces.isCurrent(ownerId, space, tx))) {
+        vectorIds = [];
+        vector = 'unavailable';
+      }
       const candidates = await recallCandidates(
         this.database,
         ownerId,
@@ -254,6 +264,7 @@ export class RetrievalService {
         limits,
         tx,
         vectorIds,
+        this.config.memoryMaintenanceConfiguration?.ageHalfLifeDays,
       );
       return {
         memories: candidates.memories,

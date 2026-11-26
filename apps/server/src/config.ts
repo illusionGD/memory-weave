@@ -1,3 +1,5 @@
+import { memoryMaintenanceConfigurationSchema } from '@memory-weave/contracts';
+import type { MemoryMaintenanceConfiguration } from '@memory-weave/contracts';
 import { peerConfigurationSchema } from './modules/peer-talk/peer-config';
 import type { PeerConfiguration } from './modules/peer-talk/peer-config';
 import { autonomyConfigurationSchema } from './modules/autonomy/autonomy-config';
@@ -32,6 +34,7 @@ export interface ServerConfig {
   growthConfiguration?: GrowthConfiguration;
   autonomyConfiguration?: AutonomyConfiguration;
   peerConfiguration?: PeerConfiguration;
+  memoryMaintenanceConfiguration?: MemoryMaintenanceConfiguration;
   /** 集中材料解析和获取预算。 */
   materialConfiguration?: MaterialConfiguration;
   /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
@@ -275,6 +278,14 @@ export function loadServerConfig(
   } catch {
     throw new ConfigurationError('材料配置无效，请检查 MATERIAL_CONFIG_JSON。');
   }
+  let memoryMaintenanceConfiguration: MemoryMaintenanceConfiguration;
+  try {
+    memoryMaintenanceConfiguration = memoryMaintenanceConfigurationSchema.parse(
+      JSON.parse(environment.MEMORY_MAINTENANCE_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('记忆维护配置无效，请检查 MEMORY_MAINTENANCE_CONFIG_JSON。');
+  }
   let peerConfiguration: PeerConfiguration;
   try {
     peerConfiguration = peerConfigurationSchema.parse(
@@ -330,6 +341,7 @@ export function loadServerConfig(
     growthConfiguration,
     autonomyConfiguration,
     peerConfiguration,
+    memoryMaintenanceConfiguration,
     materialConfiguration,
     logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),

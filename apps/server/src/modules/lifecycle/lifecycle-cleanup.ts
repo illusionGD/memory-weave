@@ -1,3 +1,4 @@
+import { cleanupMaintenancePage } from '../memory-maintenance/memory-maintenance.service';
 import { cleanupPeerPage } from '../peer-talk/peer-cleanup';
 import { cleanupAutonomyPage } from '../autonomy/autonomy-cleanup';
 import { cleanupGroupTurnPage } from '../group-turns/group-turn-cleanup';
@@ -65,6 +66,7 @@ export const LIFECYCLE_STAGES = [
   'group_turns',
   'autonomy',
   'peer_talk',
+  'memory_maintenance',
 ] as const;
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */
 export type LifecycleRecord = typeof lifecycleOperations.$inferSelect;
@@ -113,6 +115,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (
       ),
     );
   const stage = LIFECYCLE_STAGES[operation.stage];
+  if (stage === 'memory_maintenance') return cleanupMaintenancePage(ownerId, tx, operation, limit);
   if (stage === 'peer_talk') return cleanupPeerPage(database, ownerId, tx, operation, limit);
   if (stage === 'autonomy') return cleanupAutonomyPage(database, ownerId, tx, operation, limit);
   if (stage === 'group_turns') return cleanupGroupTurnPage(database, ownerId, tx, operation, limit);

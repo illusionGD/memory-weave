@@ -122,6 +122,8 @@ export const recallMemorySchema = z.object({
   learnedAt: utcDateTimeSchema,
   /** 命中渠道，不代表独立证据数量。 */
   channels: z.array(z.enum(['direct', 'lexical', 'vector', 'recent'])),
+  /** 此次返回的是有来源的压缩视图，或已显式找到归档条目。 */
+  maintenance: z.enum(['compressed', 'archived']).optional(),
   /** 版本的有限精确引文，完整来源可分页回查。 */
   evidence: z.array(
     z.object({

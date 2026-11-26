@@ -1,3 +1,4 @@
+import { MemoryMaintenanceService } from '../memory-maintenance/memory-maintenance.service';
 import { PeerService } from '../peer-talk/peer-service';
 import { AutonomyContacts } from '../autonomy/autonomy-contacts';
 import { AutonomyExecution } from '../autonomy/autonomy-execution';
@@ -44,6 +45,7 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(RetrievalIndexService) private readonly indexes: RetrievalIndexService,
     @Inject(MemoryExecutionService) private readonly memoryExecution: MemoryExecutionService,
     @Inject(MemoriesService) private readonly memories: MemoriesService,
+    @Inject(MemoryMaintenanceService) private readonly maintenance: MemoryMaintenanceService,
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
     @Inject(MaterialSummaryService) private readonly materialSummary: MaterialSummaryService,
     @Inject(MaterialsService) private readonly materials: MaterialsService,
@@ -126,6 +128,7 @@ export class TaskWorkerService implements OnModuleDestroy {
       await this.autonomyPlanning.wake(ownerId);
       await this.peers.wake(ownerId);
       await this.memories.schedule(ownerId);
+      await this.maintenance.wake(ownerId);
       if (!this.indexing)
         this.indexing = this.indexes
           .schedule(ownerId)

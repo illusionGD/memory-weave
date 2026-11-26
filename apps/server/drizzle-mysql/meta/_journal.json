@@ -78,6 +78,13 @@
       "when": 1795722715122,
       "tag": "0010_peer_talk",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1795723400351,
+      "tag": "0011_memory_maintenance",
+      "breakpoints": true
     }
   ]
 }

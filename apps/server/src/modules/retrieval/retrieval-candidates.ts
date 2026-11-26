@@ -6,6 +6,7 @@ import type { DatabaseTransaction } from '../../database/database.service';
 import {
   conversations,
   memoryEntries,
+  memoryMaintenanceViews,
   memorySearchTerms,
   memoryVersions,
 } from '../../database/schema';
@@ -27,6 +28,7 @@ export async function recallCandidates(
   limits: RetrievalConfiguration,
   tx: DatabaseTransaction,
   vectorIds: string[] = [],
+  ageHalfLifeDays = 30,
 ): Promise<{ memories: RecallMemory[]; limited: boolean }> {
   const count = limits.candidates * (query.mode === 'history' ? 2 : 1);
   const filter = and(
@@ -55,10 +57,15 @@ export async function recallCandidates(
   /** 构建当前检索范围的记忆版本查询。 */
   const base = () =>
     tx
-      .select({ entry: memoryEntries, version: memoryVersions })
+      .select({
+        entry: memoryEntries,
+        version: memoryVersions,
+        maintenance: memoryMaintenanceViews,
+      })
       .from(memoryEntries)
       .innerJoin(memoryVersions, eq(memoryVersions.memoryId, memoryEntries.id))
-      .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId));
+      .innerJoin(conversations, eq(conversations.id, memoryEntries.conversationId))
+      .leftJoin(memoryMaintenanceViews, eq(memoryMaintenanceViews.versionId, memoryVersions.id));
   const terms = lexicalTerms(`${query.query}\n${query.context}`).slice(0, 64);
   const termHits = terms.length
     ? await tx
@@ -105,24 +112,45 @@ export async function recallCandidates(
       current.channels.push(channel.name);
       ranks.set(id, current);
     });
-  const ids = [...ranks]
-    .sort((a, b) => b[1].score - a[1].score || a[0].localeCompare(b[0]))
-    .map(([id]) => id);
+  const ids = [...ranks.keys()];
   const rows = ids.length ? await base().where(and(filter, inArray(memoryVersions.id, ids))) : [];
-  const byId = new Map(rows.map((row) => [row.version.id, row]));
+  const now = Date.now();
+  const explicit = Boolean(query.memoryId || query.subjectName || query.mode === 'history');
+  /** 时间只影响普通经历的近期加分。 */
+  const score = (row: (typeof rows)[number]) => {
+    const { version, maintenance } = row;
+    const relevance = ranks.get(version.id)!.score;
+    if (explicit || version.document?.claim !== 'experience') return relevance;
+    const elapsed = Math.max(0, now - (maintenance?.lastEvidenceAt ?? version.createdAt).getTime());
+    const halfLife = (maintenance?.policy.ageHalfLifeDays ?? ageHalfLifeDays) * 86400000;
+    return relevance + 0.002 * 2 ** (-elapsed / halfLife);
+  };
+  rows.sort((a, b) => score(b) - score(a) || a.version.id.localeCompare(b.version.id));
   const memories: RecallMemory[] = [];
   let characters = 0;
   let budgetLimited = false;
-  for (const id of ids) {
-    const row = byId.get(id);
-    if (!row?.version.document) continue;
+  for (const row of rows) {
+    const id = row.version.id;
+    if (!row.version.document) continue;
+    const indexMatch = ranks.get(id)!;
+    const maintenance = row.maintenance;
+    if (
+      maintenance?.tier === 'archived' &&
+      !explicit &&
+      indexMatch.channels.every((channel) => channel === 'vector')
+    )
+      continue;
+    const summarized = !explicit && maintenance?.tier === 'compressed' && maintenance.summary;
+    const document = summarized
+      ? { ...row.version.document, text: maintenance.summary! }
+      : row.version.document;
     try {
       await assertVersionSources(database, ownerId, row.entry, row.version, tx);
     } catch (error) {
       if (error instanceof ApiException) continue;
       throw error;
     }
-    const serialized = JSON.stringify(row.version.document);
+    const serialized = JSON.stringify(document);
     if (
       memories.length >= limits.results ||
       characters + serialized.length > limits.memoryCharacters
@@ -148,9 +176,10 @@ export async function recallCandidates(
       current: id === row.entry.currentVersionId,
       operation: row.version.operation,
       status: row.entry.status === 'disputed' ? 'disputed' : 'active',
-      document: row.version.document,
+      document,
+      ...(maintenance ? { maintenance: maintenance.tier } : {}),
       learnedAt: row.version.createdAt.toISOString(),
-      channels: ranks.get(id)!.channels,
+      channels: indexMatch.channels,
       evidence: evidence.items.map((item) => ({
         messageId: item.messageId,
         contentVersion: item.contentVersion,

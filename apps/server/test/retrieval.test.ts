@@ -15,8 +15,16 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApplication } from '../src/app';
 import { createTestDatabase } from './support/database';
 import type { TestDatabase } from './support/database';
-import { retrievalConfigurationSchema } from '@memory-weave/contracts';
-import type { MemoryDocument, RecallQuery } from '@memory-weave/contracts';
+import {
+  embeddingSelectionSchema,
+  memoryMaintenanceSchema,
+  retrievalConfigurationSchema,
+} from '@memory-weave/contracts';
+import type {
+  MemoryDocument,
+  MemoryMaintenanceConfiguration,
+  RecallQuery,
+} from '@memory-weave/contracts';
 import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -34,6 +42,7 @@ describe('检索与未整理补读的公开协议', () => {
   let responseValue: unknown;
   let config: ServerConfig;
   let embeddingCalls = 0;
+  let queryDimensions: number[] = [];
   let ownerId = '';
   let child: ChildProcess | undefined;
   let proxy: Server | undefined;
@@ -55,6 +64,7 @@ describe('检索与未整理补读的公开协议', () => {
     };
     app = await createApplication(config);
     embeddingCalls = 0;
+    queryDimensions = [];
     ownerId = '';
     agent = request.agent(app.getHttpServer());
     await agent.post('/api/auth/login').send({ password: 'retrieval-test-password' }).expect(200);
@@ -89,7 +99,7 @@ describe('检索与未整理补读的公开协议', () => {
     if (dataDir) await rm(dataDir, { recursive: true, force: true });
   });
   /** 配置记忆检索验收使用的模型供应商。 */
-  async function useProvider() {
+  async function useProvider(maintenance?: Partial<MemoryMaintenanceConfiguration>) {
     provider = createServer(async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
       if (req.url?.endsWith('/embeddings')) {
@@ -101,6 +111,7 @@ describe('检索与未整理补读的公开协议', () => {
           dimensions?: number;
         };
         const cat = /猫|毛孩子|豆包/.test(input.input);
+        if (/^毛孩子/.test(input.input)) queryDimensions.push(input.dimensions ?? 4);
         res.end(
           JSON.stringify({
             model: 'embedding-fixture',
@@ -163,6 +174,7 @@ describe('检索与未整理补读的公开协议', () => {
       QDRANT_URL: process.env.TEST_QDRANT_URL,
       QDRANT_API_KEY: process.env.TEST_QDRANT_API_KEY,
       DATA_DIR: dataDir,
+      MEMORY_MAINTENANCE_CONFIG_JSON: JSON.stringify(maintenance ?? {}),
       MEMORY_CONFIG_JSON: JSON.stringify({ enabled: false, contextMessages: 0 }),
       MODEL_PROVIDERS_JSON: JSON.stringify([
         {
@@ -431,16 +443,168 @@ describe('检索与未整理补读的公开协议', () => {
         { timeout: 10000 },
       )
       .toBe('indexed');
-    const next = (
+    /** 查看当前选中和构建进度。 */
+    async function selection() {
+      const response = await agent.get('/api/retrieval/embedding-spaces').expect(200);
+      return embeddingSelectionSchema.parse(response.body.data);
+    }
+    /** 使用语义查询观察实际发送的编码维度。 */
+    async function semanticRecall() {
+      return (
+        await agent
+          .post(`/api/companions/${a}/recall`)
+          .send({ ...body, requestId: randomUUID() })
+          .expect(201)
+      ).body.data;
+    }
+    /** 两套空间以同一权威版本集合完成同步。 */
+    async function synced(total: number) {
+      await expect
+        .poll(
+          async () =>
+            (await selection()).spaces.map((space) => [
+              space.eligibleVersions,
+              space.indexedVersions,
+              space.staleVersions,
+            ]),
+          { timeout: 18000 },
+        )
+        .toEqual([
+          [total, total, 0],
+          [total, total, 0],
+        ]);
+    }
+    const initial = await selection();
+    expect(initial.active).toBe(firstSpace);
+    const secondSpace = initial.configured!;
+    expect(secondSpace).not.toBe(firstSpace);
+    const before = await semanticRecall();
+    expect(
+      before.memories.find((item: { id: string }) => item.id === memory.id).channels,
+    ).toContain('vector');
+    expect(queryDimensions.at(-1)).toBe(4);
+    const corrected = await remember(a, source, '猫咪豆包可以喝水和吃鱼。', {
+      targetId: memory.id,
+      targetVersion: memory.version,
+    });
+    const removable = await remember(a, source, '毛孩子豆包喜欢纸箱。');
+    const removableSource = (
+      await agent.get(`/api/conversations/${source}/messages`).expect(200)
+    ).body.data.items.find((item: { text: string }) => item.text === '毛孩子豆包喜欢纸箱。');
+    const forward = {
+      requestId: randomUUID(),
+      expectedVersion: initial.version,
+      targetSpace: secondSpace,
+      evaluationNote: '用固定猫咪语料观测 Qdrant 选中编码。',
+    };
+    await agent.post('/api/retrieval/embedding-spaces/switch').send(forward).expect(409);
+    await app.get(TaskWorkerService).start();
+    await synced(2);
+    const switched = (
+      await agent.post('/api/retrieval/embedding-spaces/switch').send(forward).expect(201)
+    ).body.data;
+    expect(switched).toMatchObject({
+      version: initial.version + 1,
+      previous: firstSpace,
+      space: secondSpace,
+    });
+    expect(
+      (await agent.post('/api/retrieval/embedding-spaces/switch').send(forward).expect(201)).body
+        .data,
+    ).toEqual(switched);
+    expect(
+      (await semanticRecall()).memories.map((item: { versionId: string }) => item.versionId),
+    ).toEqual(expect.arrayContaining([corrected.versionId, removable.versionId]));
+    expect(queryDimensions.at(-1)).toBe(6);
+    const detail = (await agent.get(`/api/conversations/${source}`).expect(200)).body.data;
+    const deletion = (
       await agent
-        .post(`/api/companions/${a}/recall`)
-        .send({ ...body, requestId: randomUUID() })
+        .post('/api/lifecycle')
+        .send({
+          requestId: randomUUID(),
+          kind: 'delete_messages',
+          conversationId: source,
+          expectedVersion: detail.conversation.version,
+          messages: [{ messageId: removableSource.id, contentVersion: 1 }],
+        })
         .expect(201)
     ).body.data;
-    expect(next.memories.find((item: { id: string }) => item.id === memory.id).channels).toContain(
-      'vector',
-    );
-  }, 30000);
+    await expect
+      .poll(
+        async () => (await agent.get(`/api/lifecycle/${deletion.id}`).expect(200)).body.data.status,
+        { timeout: 15000 },
+      )
+      .toBe('completed');
+    await synced(1);
+    await agent
+      .post('/api/retrieval/embedding-spaces/switch')
+      .send({
+        ...forward,
+        requestId: randomUUID(),
+        expectedVersion: switched.version,
+        targetSpace: firstSpace,
+      })
+      .expect(201);
+    expect(
+      (await semanticRecall()).memories.map((item: { versionId: string }) => item.versionId),
+    ).toEqual([corrected.versionId]);
+    expect(queryDimensions.at(-1)).toBe(4);
+  }, 85000);
+
+  it('压缩和归档保留原文，可从历史查询还原，删来源后停止读取', async () => {
+    await useProvider({ intervalMs: 1000, compressAfterDays: 0.00004, archiveAfterDays: 0.0001 });
+    const a = await companion('旧经历');
+    const source = await conversation([a]);
+    const first = '项目青果在桥上遇到小雨。';
+    const text = `${first}${first}傍晚回家。`;
+    const memory = await remember(a, source, text, {
+      document: { kind: 'episodic', claim: 'experience', eventTime: '去年秋天' },
+    });
+    await app.get(TaskWorkerService).start();
+    const path = `/api/companions/${a}/memories/${memory.id}/maintenance?runtimeEpoch=1`;
+    await expect
+      .poll(async () => (await agent.get(path).expect(200)).body.data?.tier, { timeout: 20000 })
+      .toBe('archived');
+    const view = memoryMaintenanceSchema.parse((await agent.get(path).expect(200)).body.data);
+    expect(view).toMatchObject({
+      versionId: memory.versionId,
+      summary: `${first}傍晚回家。`,
+      evidence: [{ contentVersion: 1 }],
+    });
+    const history = (
+      await agent
+        .post(`/api/companions/${a}/recall`)
+        .send({
+          requestId: randomUUID(),
+          runtimeEpoch: 1,
+          conversationId: source,
+          query: '青果',
+          mode: 'history',
+        })
+        .expect(201)
+    ).body.data;
+    expect(history.memories[0].document.text).toBe(text);
+    const detail = (await agent.get(`/api/conversations/${source}`).expect(200)).body.data;
+    const deletion = (
+      await agent
+        .post('/api/lifecycle')
+        .send({
+          requestId: randomUUID(),
+          kind: 'delete_messages',
+          conversationId: source,
+          expectedVersion: detail.conversation.version,
+          messages: view.evidence,
+        })
+        .expect(201)
+    ).body.data;
+    await expect
+      .poll(
+        async () => (await agent.get(`/api/lifecycle/${deletion.id}`).expect(200)).body.data.status,
+        { timeout: 15000 },
+      )
+      .toBe('completed');
+    await agent.get(path).expect(404);
+  }, 40000);
   it('真实聊天模型收到跨私聊新补充和旧记忆，不等整理即可使用新地址', async () => {
     await useProvider();
     const a = await companion('住址伴侣');

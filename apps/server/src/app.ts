@@ -1,3 +1,6 @@
+import { EmbeddingSpaces } from './modules/memory-maintenance/embedding-spaces';
+import { MemoryMaintenanceController } from './modules/memory-maintenance/memory-maintenance.controller';
+import { MemoryMaintenanceService } from './modules/memory-maintenance/memory-maintenance.service';
 import { PeerController } from './modules/peer-talk/peer-controller';
 import { PeerService } from './modules/peer-talk/peer-service';
 import { PeerBudget } from './modules/peer-talk/peer-budget';
@@ -121,6 +124,7 @@ class ApplicationModule {
       controllers: [
         MemoryExplorerController,
         RetrievalController,
+        MemoryMaintenanceController,
         MemoriesController,
         AuthController,
         LifecycleController,
@@ -151,6 +155,8 @@ class ApplicationModule {
         MemoryExplorerService,
         RetrievalIndexService,
         RetrievalVector,
+        EmbeddingSpaces,
+        MemoryMaintenanceService,
         RetrievalService,
         { provide: SERVER_CONFIG, useValue: runtimeConfig },
         {

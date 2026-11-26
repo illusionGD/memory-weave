@@ -45,6 +45,7 @@ export function embeddingDefinition(task: ModelTaskConfig): ModelTaskDefinition 
     schemaVersion: task.schemaVersion,
     preprocessingVersion: task.preprocessingVersion,
     systemPrompt: '',
+    pinnedEmbedding: true,
   };
 }
 
@@ -161,6 +162,27 @@ export class RetrievalVector {
       .parse(result)
       .result.points.map((point) => point.id);
   }
+  /** 查看集合中实际保存的点数，切换时核对已删除点确实移除。 */
+  async count(collection: string): Promise<number> {
+    const response = await this.request(`/collections/${collection}/points/count`, 'POST', {
+      exact: true,
+    });
+    return z.object({ result: z.object({ count: z.number().int().nonnegative() }) }).parse(response)
+      .result.count;
+  }
+
+  /** 核对主库指向的每个确切版本在目标集合中存在。 */
+  async contains(collection: string, ids: string[]): Promise<boolean> {
+    const response = await this.request(`/collections/${collection}/points`, 'POST', {
+      ids,
+      with_payload: false,
+      with_vector: false,
+    });
+    const result = z.object({ result: z.array(z.object({ id: z.uuid() })) }).parse(response).result;
+    const actual = new Set(result.map((point) => point.id));
+    return ids.every((id) => actual.has(id));
+  }
+
   /**
    * 删除指定集合中的向量点。
    *

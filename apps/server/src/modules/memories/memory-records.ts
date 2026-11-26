@@ -21,6 +21,7 @@ import {
   memoryEntries,
   memoryEvidence,
   memoryOriginalSources,
+  memoryMaintenanceViews,
   memoryVersions,
   messages,
   visibilityGrants,
@@ -519,6 +520,15 @@ export async function adoptMemories(
           })),
         )
         .onDuplicateKeyUpdate({ set: { versionId } });
+    if (duplicate && sourceIds.length)
+      await tx
+        .delete(memoryMaintenanceViews)
+        .where(
+          and(
+            eq(memoryMaintenanceViews.ownerId, ownerId),
+            eq(memoryMaintenanceViews.versionId, versionId),
+          ),
+        );
     if (!duplicate && input.related.length)
       await tx
         .insert(memoryDependencies)

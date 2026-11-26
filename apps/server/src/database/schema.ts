@@ -2642,3 +2642,69 @@ export const peerSessionAttempts = mysqlTable(
     }),
   ],
 );
+
+/** 已登记的独立编码空间，关联实际使用的模型配置。 */
+export const memoryEmbeddingSpaces = mysqlTable(
+  'memory_embedding_spaces',
+  {
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    space: varchar('space', { length: 64 }).notNull(),
+    configVersion: int('config_version').notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [unique('embedding_space_owner_id').on(table.ownerId, table.space)],
+);
+
+/** 查询选择追加版本，前一选择保持同步以便安全回滚。 */
+export const memoryEmbeddingSelections = mysqlTable(
+  'memory_embedding_selections',
+  {
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    version: int('version').notNull(),
+    requestId: uuid('request_id'),
+    fingerprint: varchar('fingerprint', { length: 64 }),
+    space: varchar('space', { length: 64 }).notNull(),
+    previous: varchar('previous', { length: 64 }),
+    evaluationNote: varchar('evaluation_note', { length: 500 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('embedding_selection_version').on(table.ownerId, table.version),
+    unique('embedding_selection_request').on(table.ownerId, table.requestId),
+  ],
+);
+
+/** 维护节奏跨 worker 和重启保持一致。 */
+export const memoryMaintenanceHeads = mysqlTable('memory_maintenance_heads', {
+  ownerId: uuid('owner_id')
+    .primaryKey()
+    .references(() => owners.id),
+  nextAt: datetime('next_at', { fsp: 3 }).notNull(),
+});
+
+/** 当前记忆版本的分层读取建议，保留全部原文与明细。 */
+export const memoryMaintenanceViews = mysqlTable(
+  'memory_maintenance_views',
+  {
+    versionId: uuid('version_id')
+      .primaryKey()
+      .references(() => memoryVersions.id),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    tier: varchar('tier', { length: 12, enum: ['compressed', 'archived'] }).notNull(),
+    summary: text('summary'),
+    lastEvidenceAt: datetime('last_evidence_at', { fsp: 3 }).notNull(),
+    evaluatedAt: datetime('evaluated_at', { fsp: 3 }).notNull(),
+    policy: json('policy')
+      .$type<import('@memory-weave/contracts').MemoryMaintenanceConfiguration>()
+      .notNull(),
+  },
+  (table) => [
+    index('memory_maintenance_owner_tier').on(table.ownerId, table.tier, table.versionId),
+  ],
+);

@@ -203,6 +203,10 @@ export class ModelRuntimeService {
       ...(onText ? { streaming: true } : {}),
       ...(inputImage ? { imageHash: createHash('sha256').update(inputImage).digest('hex') } : {}),
     });
+    const pinned =
+      definition.pinnedEmbedding && kind === 'task' && input.role === 'embedding'
+        ? await this.configuration.getVersion(ownerId, input.expectedConfigVersion)
+        : null;
     const prepared = await this.configuration.locked(ownerId, async (tx, current) => {
       await guard?.(ownerId, tx);
       await expireAttempts(this.database, ownerId, tx);
@@ -216,9 +220,16 @@ export class ModelRuntimeService {
         if (existing.fingerprint !== hash) throw new ApiException(API_CODES.IDEMPOTENCY_CONFLICT);
         return { callId: existing.id, task: null, attempt: null };
       }
-      if (current.version !== input.expectedConfigVersion)
+      if (!pinned && current.version !== input.expectedConfigVersion)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
-      const configured = current.config.tasks[input.role];
+      if (
+        pinned &&
+        (!current.config.tasks.embedding.enabled ||
+          current.config.tasks.embedding.providerId === 'test')
+      )
+        throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
+      const effective = pinned ?? current;
+      const configured = effective.config.tasks[input.role];
       const task =
         definition.maxOutputTokens === undefined
           ? configured
@@ -242,8 +253,8 @@ export class ModelRuntimeService {
         requestId: input.requestId,
         context,
         fingerprint: hash,
-        configId: current.id,
-        configVersion: current.version,
+        configId: effective.id,
+        configVersion: effective.version,
         role: input.role,
         operation: input.operation,
         lane: input.lane,
@@ -283,7 +294,7 @@ export class ModelRuntimeService {
           try {
             if (attempt.number > 1)
               await delay(task.retryDelayMs, undefined, { signal: cancellation.signal });
-            await this.checkDispatch(ownerId, prepared.callId, guard);
+            await this.checkDispatch(ownerId, prepared.callId, Boolean(pinned), guard);
             cancellation.signal.throwIfAborted();
             response = await this.providers.adapter(task.providerId, input.operation).invoke({
               operation: input.operation,
@@ -346,14 +357,25 @@ export class ModelRuntimeService {
    *
    * 等待后重新检查版本、取消和范围，避免按旧配置继续发送重试。
    */
-  private checkDispatch(ownerId: string, id: string, guard?: ModelDispatchGuard): Promise<void> {
+  private checkDispatch(
+    ownerId: string,
+    id: string,
+    pinned: boolean,
+    guard?: ModelDispatchGuard,
+  ): Promise<void> {
     return this.configuration.locked(ownerId, async (tx, current) => {
       await guard?.(ownerId, tx);
       await expireAttempts(this.database, ownerId, tx);
       const call = await readCall(this.database, ownerId, tx, id);
       if (call.status !== 'running')
         throw new ApiException(call.errorCode ?? API_CODES.MODEL_USAGE_UNKNOWN);
-      if (call.configVersion !== current.version)
+      if (
+        pinned &&
+        (!current.config.tasks.embedding.enabled ||
+          current.config.tasks.embedding.providerId === 'test')
+      )
+        throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
+      if (!pinned && call.configVersion !== current.version)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       await assertScope(this.database, ownerId, tx, call.context);
     });
@@ -552,10 +574,16 @@ export class ModelRuntimeService {
         saved.number < task.maxAttempts
       ) {
         try {
-          // 新配置或停用不能让旧任务继续按旧策略派发。
-          if (current.version !== call.configVersion)
+          const pinned = definition.pinnedEmbedding && call.role === 'embedding';
+          if (
+            pinned &&
+            (!current.config.tasks.embedding.enabled ||
+              current.config.tasks.embedding.providerId === 'test')
+          )
+            throw new ApiException(API_CODES.MODEL_NOT_CONFIGURED);
+          if (!pinned && current.version !== call.configVersion)
             throw new ApiException(API_CODES.VERSION_CONFLICT);
-          assertRunnable(input, current.config.tasks[call.role], definition, imageTokens);
+          assertRunnable(input, task, definition, imageTokens);
           next = await reserveAttempt(
             this.database,
             ownerId,

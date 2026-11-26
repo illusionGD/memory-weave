@@ -1,3 +1,5 @@
+import { EmbeddingSpaces } from '../memory-maintenance/embedding-spaces';
+import type { DatabaseTransaction } from '../../database/database.service';
 import { DatabaseService } from '../../database/database.service';
 import type { OrganizeMemory, RecallIndexList } from '@memory-weave/contracts';
 import { API_CODES, retrievalConfigurationSchema } from '@memory-weave/contracts';
@@ -37,6 +39,7 @@ export class RetrievalIndexService {
   /** 初始化记忆索引调度与执行服务。 */
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(EmbeddingSpaces) private readonly spaces: EmbeddingSpaces,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
@@ -52,8 +55,7 @@ export class RetrievalIndexService {
   async schedule(ownerId: string): Promise<void> {
     const limits = this.config.retrievalConfiguration ?? retrievalConfigurationSchema.parse({});
     const configuration = await this.configuration.get(ownerId);
-    const embedding = configuration.config.tasks.embedding;
-    const space = embeddingSpace(embedding, this.config);
+    const registered = await this.spaces.sync(ownerId, configuration);
     await this.reconcileDeleted(ownerId, limits.indexBatchSize);
     await this.store.locked(ownerId, async (tx) => {
       const old = await tx
@@ -84,7 +86,12 @@ export class RetrievalIndexService {
             row.version.document,
             tx,
           );
-      if (!limits.vectorEnabled || !embedding.enabled || embedding.providerId === 'test') return;
+      if (
+        !limits.vectorEnabled ||
+        !configuration.config.tasks.embedding.enabled ||
+        configuration.config.tasks.embedding.providerId === 'test'
+      )
+        return;
       const [waiting] = await tx
         .select({ count: sql<number>`count(*)` })
         .from(tasks)
@@ -96,67 +103,82 @@ export class RetrievalIndexService {
           ),
         );
       if (Number(waiting?.count ?? 0) >= limits.indexBatchSize * 2) return;
-      const documents = await tx
-        .select({ document: memorySearchDocuments, entry: memoryEntries, version: memoryVersions })
-        .from(memorySearchDocuments)
-        .innerJoin(memoryEntries, eq(memoryEntries.id, memorySearchDocuments.memoryId))
-        .innerJoin(memoryVersions, eq(memoryVersions.id, memorySearchDocuments.versionId))
-        .leftJoin(
-          memoryVectorIndexes,
-          and(
-            eq(memoryVectorIndexes.ownerId, ownerId),
-            eq(memoryVectorIndexes.versionId, memorySearchDocuments.versionId),
-            eq(memoryVectorIndexes.space, space),
-          ),
-        )
-        .where(
-          and(
-            eq(memorySearchDocuments.ownerId, ownerId),
-            isNull(memoryVectorIndexes.id),
-            isNull(memoryVersions.invalidatedAt),
-            ne(memoryEntries.status, 'invalidated'),
-            eq(memoryEntries.currentVersionId, memoryVersions.id),
-          ),
-        )
-        .orderBy(asc(memorySearchDocuments.createdAt))
-        .limit(limits.indexBatchSize);
-      for (const row of documents) {
-        const id = randomUUID(),
-          taskId = randomUUID();
-        const scope = {
-          companionId: row.entry.companionId,
-          runtimeEpoch: row.entry.runtimeEpoch,
-          conversationId: row.entry.conversationId,
-        };
-        await this.database.tasks.insert(
-          ownerId,
-          {
-            id: taskId,
-            requestKey: `memory_index:${id}`,
-            fingerprint: fingerprint({ space, versionId: row.version.id }),
-            kind: 'memory_index',
-            input: { kind: 'memory_index', indexId: id, modelRequestId: taskId },
-            scope,
-            totalSteps: 2,
-          },
-          tx,
-        );
-        await this.database.memoryVectorIndexes.insert(
-          ownerId,
-          {
-            id,
-            versionId: row.version.id,
-            memoryId: row.entry.id,
-            ...scope,
-            space,
-            collection: vectorCollection(ownerId, space),
-            configVersion: configuration.version,
-            taskId,
-          },
-          tx,
-        );
-      }
+      const maintained = registered.rows.filter((row) =>
+        this.spaces.isMaintained(row, registered.selected, registered.configured),
+      );
+      for (const row of maintained)
+        await this.scheduleSpace(ownerId, row.space, row.configVersion, limits.indexBatchSize, tx);
     });
+  }
+
+  /** 对每个受维护空间登记有界的当前版本编码任务。 */
+  private async scheduleSpace(
+    ownerId: string,
+    space: string,
+    configVersion: number,
+    limit: number,
+    tx: DatabaseTransaction,
+  ) {
+    const documents = await tx
+      .select({ document: memorySearchDocuments, entry: memoryEntries, version: memoryVersions })
+      .from(memorySearchDocuments)
+      .innerJoin(memoryEntries, eq(memoryEntries.id, memorySearchDocuments.memoryId))
+      .innerJoin(memoryVersions, eq(memoryVersions.id, memorySearchDocuments.versionId))
+      .leftJoin(
+        memoryVectorIndexes,
+        and(
+          eq(memoryVectorIndexes.ownerId, ownerId),
+          eq(memoryVectorIndexes.versionId, memorySearchDocuments.versionId),
+          eq(memoryVectorIndexes.space, space),
+        ),
+      )
+      .where(
+        and(
+          eq(memorySearchDocuments.ownerId, ownerId),
+          isNull(memoryVectorIndexes.id),
+          isNull(memoryVersions.invalidatedAt),
+          ne(memoryEntries.status, 'invalidated'),
+          eq(memoryEntries.currentVersionId, memoryVersions.id),
+        ),
+      )
+      .orderBy(asc(memorySearchDocuments.createdAt))
+      .limit(limit);
+    for (const row of documents) {
+      const id = randomUUID(),
+        taskId = randomUUID();
+      const scope = {
+        companionId: row.entry.companionId,
+        runtimeEpoch: row.entry.runtimeEpoch,
+        conversationId: row.entry.conversationId,
+      };
+      await this.database.tasks.insert(
+        ownerId,
+        {
+          id: taskId,
+          requestKey: `memory_index:${id}`,
+          fingerprint: fingerprint({ space, versionId: row.version.id }),
+          kind: 'memory_index',
+          input: { kind: 'memory_index', indexId: id, modelRequestId: taskId },
+          scope,
+          totalSteps: 2,
+        },
+        tx,
+      );
+      await this.database.memoryVectorIndexes.insert(
+        ownerId,
+        {
+          id,
+          versionId: row.version.id,
+          memoryId: row.entry.id,
+          ...scope,
+          space,
+          collection: vectorCollection(ownerId, space),
+          configVersion,
+          taskId,
+        },
+        tx,
+      );
+    }
   }
   /** 删除过期向量点并复查已失效的索引。 */
   private async reconcileDeleted(ownerId: string, limit: number): Promise<void> {
@@ -174,6 +196,7 @@ export class RetrievalIndexService {
                 ne(memoryVectorIndexes.status, 'deleted'),
                 or(
                   isNotNull(memoryVersions.invalidatedAt),
+                  eq(memoryEntries.status, 'invalidated'),
                   ne(memoryEntries.currentVersionId, memoryVersions.id),
                 ),
               ),
@@ -215,6 +238,10 @@ export class RetrievalIndexService {
       requireIndexSource(this.database, ownerId, id, tx),
     );
     const configuration = await this.configuration.getVersion(ownerId, row.index.configVersion);
+    if (embeddingSpace(configuration.config.tasks.embedding, this.config) !== row.index.space) {
+      await this.jobs.block(lease, 'embedding_space_incompatible');
+      return;
+    }
     const definition = embeddingDefinition(configuration.config.tasks.embedding);
     let call = await this.models.execute(
       ownerId,
@@ -228,7 +255,10 @@ export class RetrievalIndexService {
       },
       definition,
       lease.task.scope,
-      (ownerId, tx) => this.jobs.guardDispatch(ownerId, tx, lease),
+      async (ownerId, tx) => {
+        await this.jobs.guardDispatch(ownerId, tx, lease);
+        await requireIndexSource(this.database, ownerId, id, tx);
+      },
     );
     while (call.status === 'running') {
       await delay(lease.config.pollMs);
@@ -291,7 +321,6 @@ export class RetrievalIndexService {
     indexId: string,
     command: OrganizeMemory,
   ): Promise<{ taskId: string }> {
-    const current = await this.configuration.get(ownerId);
     return this.store.locked(ownerId, async (tx) => {
       const row = await requireIndexSource(this.database, ownerId, indexId, tx);
       if (
@@ -323,8 +352,6 @@ export class RetrievalIndexService {
       );
       if (call && ['running', 'unknown'].includes(call.status))
         throw new ApiException(API_CODES.MODEL_USAGE_UNKNOWN);
-      if (row.index.space !== embeddingSpace(current.config.tasks.embedding, this.config))
-        throw new ApiException(API_CODES.VERSION_CONFLICT);
       const taskId = randomUUID();
       await this.database.tasks.insert(
         ownerId,
@@ -350,7 +377,7 @@ export class RetrievalIndexService {
           taskId,
           status: 'pending',
           indexedAt: null,
-          configVersion: call?.status === 'succeeded' ? row.index.configVersion : current.version,
+          configVersion: row.index.configVersion,
         },
         tx,
       );
