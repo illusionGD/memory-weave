@@ -1,3 +1,4 @@
+import { stageReflectionEvent } from '../reflections/reflection-events';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_CODES } from '@memory-weave/contracts';
 import type {
@@ -359,6 +360,18 @@ export class ActivityService {
       await guard(ownerId, tx);
       const stored = await this.version(root, job.version, tx);
       if (!stored.artifact) throw new ApiException(API_CODES.TASK_STATE_CONFLICT);
+      await stageReflectionEvent(
+        ownerId,
+        root,
+        {
+          kind: 'activity',
+          sourceId: root.id,
+          sourceVersion: stored.version,
+          mode: stored.artifact.mode,
+          priority: 1,
+        },
+        tx,
+      );
     });
   }
 

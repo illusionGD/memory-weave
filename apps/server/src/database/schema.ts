@@ -1929,3 +1929,192 @@ export const relationshipSources = mysqlTable(
     }),
   ],
 );
+
+/** 可追溯的真实增量，在来源模块提交结果时登记。 */
+export const reflectionEvents = mysqlTable(
+  'reflection_events',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    kind: varchar('kind', { length: 16 })
+      .$type<import('@memory-weave/contracts').ReflectionSource['kind']>()
+      .notNull(),
+    sourceId: uuid('source_id').notNull(),
+    sourceVersion: int('source_version').notNull(),
+    mode: varchar('mode', { length: 10 }).$type<'test' | 'model'>().notNull(),
+    priority: int('priority').notNull(),
+    status: varchar('status', { length: 16 })
+      .$type<'pending' | 'assigned' | 'processed' | 'invalidated' | 'blocked'>()
+      .notNull()
+      .default('pending'),
+    taskId: uuid('task_id'),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('reflection_event_owner_id').on(table.ownerId, table.id),
+    unique('reflection_event_source').on(
+      table.ownerId,
+      table.kind,
+      table.sourceId,
+      table.sourceVersion,
+    ),
+    index('reflection_event_queue').on(
+      table.ownerId,
+      table.status,
+      table.priority,
+      table.createdAt,
+    ),
+    index('reflection_event_task').on(table.ownerId, table.taskId, table.status),
+    foreignKey({
+      name: 'reflection_event_companion_ref',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+    foreignKey({
+      name: 'reflection_event_conversation_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+    check(
+      'reflection_event_versions',
+      sql`${table.runtimeEpoch} > 0 AND ${table.sourceVersion} > 0`,
+    ),
+  ],
+);
+
+/** 轮次控制、输入快照及实际采用结果与 F04 任务身份绑定。 */
+export const reflectionRuns = mysqlTable(
+  'reflection_runs',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    mode: varchar('mode', { length: 10 }).$type<'test' | 'model'>().notNull(),
+    input: json('input').$type<import('../modules/reflections/reflection-types').ReflectionInput>(),
+    result:
+      json('result').$type<import('../modules/reflections/reflection-types').ReflectionRunResult>(),
+    eventCount: int('event_count').notNull(),
+    invalidatedAt: datetime('invalidated_at', { fsp: 3 }),
+    redactedAt: datetime('redacted_at', { fsp: 3 }),
+    completedAt: datetime('completed_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('reflection_run_owner_id').on(table.ownerId, table.id),
+    index('reflection_run_budget').on(table.ownerId, table.companionId, table.createdAt),
+    foreignKey({
+      name: 'reflection_run_task_ref',
+      columns: [table.ownerId, table.id],
+      foreignColumns: [tasks.ownerId, tasks.id],
+    }),
+  ],
+);
+
+/** 轮次与每项精确领域版本的依赖，对更正进行即时失效。 */
+export const reflectionRunEvents = mysqlTable(
+  'reflection_run_events',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    eventId: uuid('event_id').notNull(),
+  },
+  (table) => [
+    unique('reflection_run_event_unique').on(table.ownerId, table.runId, table.eventId),
+    index('reflection_run_event_source').on(table.ownerId, table.eventId),
+    foreignKey({
+      name: 'reflection_run_event_run_ref',
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [reflectionRuns.ownerId, reflectionRuns.id],
+    }),
+    foreignKey({
+      name: 'reflection_run_event_source_ref',
+      columns: [table.ownerId, table.eventId],
+      foreignColumns: [reflectionEvents.ownerId, reflectionEvents.id],
+    }),
+  ],
+);
+
+/** 删除原文时沿实际使用的内容清理反思结果。 */
+export const reflectionRunMessages = mysqlTable(
+  'reflection_run_messages',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    messageId: uuid('message_id').notNull(),
+    contentVersion: int('content_version').notNull(),
+  },
+  (table) => [
+    unique('reflection_run_message_unique').on(
+      table.ownerId,
+      table.runId,
+      table.messageId,
+      table.contentVersion,
+    ),
+    index('reflection_run_message_source').on(table.ownerId, table.messageId),
+    foreignKey({
+      name: 'reflection_run_message_run_ref',
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [reflectionRuns.ownerId, reflectionRuns.id],
+    }),
+  ],
+);
+
+/** 认识与自传各自保留版本，观察候选不会覆盖仍有效的旧认识。 */
+export const reflectionFindings = mysqlTable(
+  'reflection_findings',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    rootId: uuid('root_id').notNull(),
+    runId: uuid('run_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    kind: varchar('kind', { length: 16 })
+      .$type<import('@memory-weave/contracts').ReflectionKind>()
+      .notNull(),
+    topic: varchar('topic', { length: 48 }).notNull(),
+    version: int('version').notNull(),
+    status: varchar('status', { length: 16 })
+      .$type<import('@memory-weave/contracts').ReflectionFinding['status']>()
+      .notNull(),
+    mode: varchar('mode', { length: 10 }).$type<'test' | 'model'>().notNull(),
+    document: json('document').$type<import('@memory-weave/contracts').ReflectionDocument>(),
+    evidence: json('evidence').$type<import('@memory-weave/contracts').ReflectionEvidence[]>(),
+    erasedAt: datetime('erased_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index('reflection_finding_scope').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.conversationId,
+      table.status,
+      table.id,
+    ),
+    unique('reflection_finding_version').on(table.ownerId, table.rootId, table.version),
+    unique('reflection_finding_topic').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.conversationId,
+      table.mode,
+      table.kind,
+      table.topic,
+      table.version,
+    ),
+    foreignKey({
+      name: 'reflection_finding_run_ref',
+      columns: [table.ownerId, table.runId],
+      foreignColumns: [reflectionRuns.ownerId, reflectionRuns.id],
+    }),
+  ],
+);

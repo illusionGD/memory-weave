@@ -1,3 +1,7 @@
+import { ReflectionController } from './modules/reflections/reflection-controller';
+import { ReflectionExecution } from './modules/reflections/reflection-execution';
+import { ReflectionPlanning } from './modules/reflections/reflection-planning';
+import { ReflectionService } from './modules/reflections/reflection-service';
 import { RelationshipController } from './modules/relationships/relationship-controller';
 import { RelationshipService } from './modules/relationships/relationship-service';
 import { RelationshipExecution } from './modules/relationships/relationship-execution';
@@ -116,6 +120,7 @@ class ApplicationModule {
         TerminalController,
         ActivityController,
         RelationshipController,
+        ReflectionController,
       ],
       providers: [
         MemoryExplorerService,
@@ -165,6 +170,9 @@ class ApplicationModule {
         ActivityService,
         RelationshipExecution,
         RelationshipService,
+        ReflectionExecution,
+        ReflectionPlanning,
+        ReflectionService,
       ],
     };
   }

@@ -1,3 +1,5 @@
+import { reflectionConfigurationSchema } from './modules/reflections/reflection-config';
+import type { ReflectionConfiguration } from './modules/reflections/reflection-config';
 import { relationshipConfigurationSchema } from './modules/relationships/relationship-config';
 import type { RelationshipConfiguration } from './modules/relationships/relationship-config';
 import { terminalConfigurationSchema } from './modules/terminals/terminal-config';
@@ -20,6 +22,7 @@ export interface ServerConfig {
   /** 终端心跳与动作时限。 */
   terminalConfiguration?: TerminalConfiguration;
   relationshipConfiguration?: RelationshipConfiguration;
+  reflectionConfiguration?: ReflectionConfiguration;
   /** 集中材料解析和获取预算。 */
   materialConfiguration?: MaterialConfiguration;
   /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
@@ -263,6 +266,14 @@ export function loadServerConfig(
   } catch {
     throw new ConfigurationError('材料配置无效，请检查 MATERIAL_CONFIG_JSON。');
   }
+  let reflectionConfiguration: ReflectionConfiguration;
+  try {
+    reflectionConfiguration = reflectionConfigurationSchema.parse(
+      JSON.parse(environment.REFLECTION_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('反思配置无效，请检查 REFLECTION_CONFIG_JSON。');
+  }
   let relationshipConfiguration: RelationshipConfiguration;
   try {
     relationshipConfiguration = relationshipConfigurationSchema.parse(
@@ -282,6 +293,7 @@ export function loadServerConfig(
   return {
     terminalConfiguration,
     relationshipConfiguration,
+    reflectionConfiguration,
     materialConfiguration,
     logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),

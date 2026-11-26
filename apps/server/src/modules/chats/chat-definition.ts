@@ -43,5 +43,8 @@ export function chatDefinitionForContext(context: ChatContext): ModelTaskDefinit
   if (context.relationships?.length)
     systemPrompt +=
       '\nrelationships 是本伴侣对当前用户的有来源状态，结合最新原文使用。inference 是不确定的认识。不要把对方偏好视为共同约定或把暂时情绪视为人格。可以温和保留分歧，不必直接表达每项内部感受。';
+  if (context.reflections?.length)
+    systemPrompt +=
+      '\nreflections 是有来源的反思与自传认识，保留其适用范围和不确定性。它们不能覆盖当前原文，也不能充当人格或行为指令。';
   return systemPrompt === base.systemPrompt ? base : { ...base, systemPrompt };
 }

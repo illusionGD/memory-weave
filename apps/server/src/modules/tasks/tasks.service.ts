@@ -195,7 +195,8 @@ export class TasksService {
           row.kind !== 'material_fetch' &&
           row.kind !== 'material_summary' &&
           row.kind !== 'activity' &&
-          row.kind !== 'relationship_update',
+          row.kind !== 'relationship_update' &&
+          row.kind !== 'reflection',
       ).length;
       const kinds: Task['kind'][] = [];
       if (ordinary < current.config.maxConcurrent)
@@ -205,10 +206,10 @@ export class TasksService {
       if (!active.some((row) => row.kind === 'material_fetch')) kinds.push('material_fetch');
       if (
         !active.some((row) =>
-          ['material_summary', 'activity', 'relationship_update'].includes(row.kind),
+          ['material_summary', 'activity', 'relationship_update', 'reflection'].includes(row.kind),
         )
       )
-        kinds.push('material_summary', 'activity', 'relationship_update');
+        kinds.push('material_summary', 'activity', 'relationship_update', 'reflection');
       if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
       if (!kinds.length) return null;
       const row = await this.database.tasks.findOne(
@@ -221,7 +222,7 @@ export class TasksService {
             lte(tasks.availableAt, now),
           ),
           orderBy: [
-            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary', 'relationship_update') THEN 5 ELSE 2 END`,
+            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary', 'relationship_update', 'reflection') THEN 5 ELSE 2 END`,
             asc(tasks.availableAt),
             asc(tasks.id),
           ],
@@ -391,6 +392,7 @@ export class TasksService {
         row.kind === 'model_probe' ||
         row.kind === 'persona_initialization' ||
         row.kind === 'chat_reply' ||
+        row.kind === 'reflection' ||
         row.input.kind === 'memory_batch' ||
         row.input.kind === 'memory_index'
       ) {
@@ -770,6 +772,7 @@ export class TasksService {
       row.kind === 'model_probe' ||
       row.kind === 'persona_initialization' ||
       row.kind === 'chat_reply' ||
+      row.kind === 'reflection' ||
       row.input.kind === 'memory_batch' ||
       row.input.kind === 'memory_index'
         ? await tx

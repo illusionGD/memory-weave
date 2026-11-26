@@ -1,3 +1,7 @@
+import {
+  invalidateCorrectedReflection,
+  stageReflectionEvent,
+} from '../reflections/reflection-events';
 import { readMaterialEvidence } from '../materials/material-evidence';
 import type { DatabaseService } from '../../database/database.service';
 import type {
@@ -521,6 +525,23 @@ export async function adoptMemories(
         .values(
           input.related.map((item) => ({ ownerId, versionId, sourceVersionId: item.versionId })),
         );
+    if (!duplicate && doc.reality !== 'fictional' && doc.epistemic !== 'setting') {
+      const correction = action.revisionKind === 'correction';
+      if (correction) await invalidateCorrectedReflection(ownerId, entryId, version, tx);
+      if (correction || ['experience', 'interaction', 'commitment'].includes(doc.claim))
+        await stageReflectionEvent(
+          ownerId,
+          batch,
+          {
+            kind: 'memory',
+            sourceId: entryId,
+            sourceVersion: version,
+            mode: batch.mode,
+            priority: correction ? 2 : doc.claim === 'experience' ? 0 : 1,
+          },
+          tx,
+        );
+    }
     counts[duplicate ? 'merge' : action.action]++;
   }
   counts.defer += input.messages.filter((m) => m.target && !used.has(m.messageId)).length;

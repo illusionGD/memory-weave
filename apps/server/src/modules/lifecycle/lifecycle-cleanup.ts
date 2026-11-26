@@ -1,3 +1,4 @@
+import { cleanupReflectionPage } from '../reflections/reflection-cleanup';
 import { cleanupRelationshipPage } from '../relationships/relationship-cleanup';
 import { cleanupActivityPage } from '../activities/activity-cleanup';
 import { cleanupTerminalPage } from '../terminals/terminal-cleanup';
@@ -55,6 +56,7 @@ export const LIFECYCLE_STAGES = [
   'terminals',
   'activities',
   'relationships',
+  'reflections',
 ] as const;
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */
 export type LifecycleRecord = typeof lifecycleOperations.$inferSelect;
@@ -103,6 +105,8 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (
       ),
     );
   const stage = LIFECYCLE_STAGES[operation.stage];
+  if (stage === 'reflections')
+    return cleanupReflectionPage(database, ownerId, tx, operation, limit);
   if (stage === 'relationships')
     return cleanupRelationshipPage(database, ownerId, tx, operation, limit);
   if (stage === 'activities') return cleanupActivityPage(database, ownerId, tx, operation, limit);

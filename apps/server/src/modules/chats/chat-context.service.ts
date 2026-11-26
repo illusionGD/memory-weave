@@ -1,3 +1,4 @@
+import { ReflectionService } from '../reflections/reflection-service';
 import { RelationshipService } from '../relationships/relationship-service';
 import { TerminalService } from '../terminals/terminal-service';
 import type { MaterialsService } from '../materials/materials.service';
@@ -9,6 +10,7 @@ import {
   materialContextSchema,
   recallResultSchema,
   relationshipContextSchema,
+  reflectionContextSchema,
 } from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
@@ -40,6 +42,7 @@ export class ChatContextService {
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(TerminalService) private readonly terminals: TerminalService,
     @Inject(RelationshipService) private readonly relationships: RelationshipService,
+    @Inject(ReflectionService) private readonly reflections: ReflectionService,
   ) {}
 
   /**
@@ -193,6 +196,12 @@ export class ChatContextService {
       const relationMode = config.config.tasks.chat.providerId === 'test' ? 'test' : 'model';
       const relationships = await this.relationships.snapshot(member, relationMode, tx);
       if (relationships.length) snapshot.relationships = relationships;
+      const topic = selected
+        .filter((row) => row.sequence! >= run.firstUserSequence)
+        .map((row) => row.text)
+        .join(' ');
+      const reflections = await this.reflections.snapshot(member, relationMode, topic, tx);
+      if (reflections.length) snapshot.reflections = reflections;
       if (materialSummaryTaskId) snapshot.materialSummaryTaskId = materialSummaryTaskId;
       const materialContext = await selectMaterialContext(
         ownerId,
@@ -218,6 +227,10 @@ export class ChatContextService {
       snapshot.relationships = snapshot.relationships.map((item) =>
         relationshipContextSchema.parse(item),
       );
+    if (snapshot.reflections)
+      snapshot.reflections = snapshot.reflections.map((item) =>
+        reflectionContextSchema.parse(item),
+      );
     /** 组装聊天模型所需的上下文消息。 */
     const assemble = (): string =>
       JSON.stringify({
@@ -228,6 +241,18 @@ export class ChatContextService {
           ? {
               relationships: snapshot.relationships.map(
                 ({ kind, topic, document, observedAt }) => ({ kind, topic, document, observedAt }),
+              ),
+            }
+          : {}),
+        ...(snapshot.reflections?.length
+          ? {
+              reflections: snapshot.reflections.map(
+                ({ kind, interpretation, applicability, uncertainty }) => ({
+                  kind,
+                  interpretation,
+                  applicability,
+                  uncertainty,
+                }),
               ),
             }
           : {}),
@@ -309,6 +334,11 @@ export class ChatContextService {
           if (image) {
             delete image.observation;
             image.reason = 'image-not-in-reply-budget';
+            inputText = assemble();
+            continue;
+          }
+          if (snapshot.reflections?.length) {
+            snapshot.reflections.pop();
             inputText = assemble();
             continue;
           }

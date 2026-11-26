@@ -1,3 +1,4 @@
+import { stageReflectionEvent } from '../reflections/reflection-events';
 import { SERVER_CONFIG } from '../../config';
 import type { ServerConfig } from '../../config';
 import { relationshipConfigurationSchema } from './relationship-config';
@@ -342,6 +343,19 @@ export class RelationshipExecution {
       expiresAt,
       createdAt: now,
     });
+    if (kind === 'agreement' || kind === 'disagreement')
+      await stageReflectionEvent(
+        ownerId,
+        batch,
+        {
+          kind: 'relationship',
+          sourceId: stateId,
+          sourceVersion: version,
+          mode,
+          priority: 1,
+        },
+        tx,
+      );
     await tx.insert(relationshipSources).values(
       sources.map(({ messageId, contentVersion }) => ({
         ownerId,

@@ -1,3 +1,5 @@
+import { ReflectionExecution } from '../reflections/reflection-execution';
+import { ReflectionPlanning } from '../reflections/reflection-planning';
 import { RelationshipExecution } from '../relationships/relationship-execution';
 import { ActivityService } from '../activities/activity-service';
 import { MaterialSummaryService } from '../materials/material-summary.service';
@@ -39,6 +41,8 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
     @Inject(MaterialSummaryService) private readonly materialSummary: MaterialSummaryService,
     @Inject(MaterialsService) private readonly materials: MaterialsService,
+    @Inject(ReflectionExecution) private readonly reflection: ReflectionExecution,
+    @Inject(ReflectionPlanning) private readonly reflectionPlanning: ReflectionPlanning,
     @Inject(RelationshipExecution) private readonly relationships: RelationshipExecution,
     @Inject(ActivityService) private readonly activities: ActivityService,
     @Inject(ChatExecutionService) private readonly chats: ChatExecutionService,
@@ -105,6 +109,7 @@ export class TaskWorkerService implements OnModuleDestroy {
       await this.outbox.dispatch(ownerId);
       await this.materials.sweep(ownerId);
       await this.activities.wake(ownerId);
+      await this.reflectionPlanning.wake(ownerId);
       await this.memories.schedule(ownerId);
       if (!this.indexing)
         this.indexing = this.indexes
@@ -175,6 +180,8 @@ export class TaskWorkerService implements OnModuleDestroy {
         await this.memoryExecution.execute(lease);
       } else if (lease.input.kind === 'lifecycle_cleanup') {
         await this.lifecycle.execute(lease);
+      } else if (lease.input.kind === 'reflection') {
+        await this.reflection.execute(lease);
       } else if (lease.input.kind === 'relationship_update') {
         await this.relationships.execute(lease);
       } else if (lease.input.kind === 'activity') {

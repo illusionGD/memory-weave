@@ -32,6 +32,7 @@ export const taskKindSchema = z.enum([
   'lifecycle_cleanup',
   'activity',
   'relationship_update',
+  'reflection',
 ]);
 const diagnosticTaskShape = {
   /** 客户端命令身份，同键同内容返回原任务。 */

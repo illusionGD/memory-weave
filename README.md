@@ -11,6 +11,7 @@
 - [F12 终端协议与回执](docs/features/f12-terminals.md)
 - [F13 委托活动与成果](docs/features/f13-activities.md)
 - [F14 感受与定向关系](docs/features/f14-relationships.md)
+- [F15 增量反思、自传与旧认识复核](docs/features/f15-reflections.md)
 - [F11 材料阅读与升级](docs/features/f11-materials.md)
 - [Pino 日志、Nest 开发启动与 PM2 轮转](docs/features/logging-and-dev.md)
 - [模型 JSON 配置与环境区分](docs/features/model-json-config.md)
