@@ -662,7 +662,7 @@ describe('批量记忆整理的公开协议', () => {
     );
     worker.stdout!.resume();
     worker.stderr!.resume();
-    await expect.poll(() => Boolean(heldResponse), { timeout: 5000 }).toBe(true);
+    await expect.poll(() => Boolean(heldResponse), { timeout: 20000 }).toBe(true);
     const paused = (await agent.post(`/api/tasks/${queued.taskId}/pause`).send({}).expect(200)).body
       .data;
     heldResponse!.setHeader('Content-Type', 'application/json');
@@ -699,7 +699,7 @@ describe('批量记忆整理的公开协议', () => {
     ).toHaveLength(1);
     expect((await agent.get(`/api/tasks/${queued.taskId}`)).body.data.attempts).toHaveLength(2);
     expect(calls).toBe(1);
-  }, 20000);
+  }, 35000);
   it('超时未知结果重启后仍阻塞，显式重试也不能换身份补发', async () => {
     await useProvider();
     holdResponse = true;

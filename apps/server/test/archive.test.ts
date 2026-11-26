@@ -14,7 +14,7 @@ import {
   importArchive,
   inspectArchive,
 } from '../src/database/archive-data';
-import { acquireArchiveLock } from '../src/database/archive-lock';
+import { acquireArchiveLock, acquireRuntimeStorageLock } from '../src/database/archive-lock';
 import { replayArchive } from '../src/database/archive-replay';
 import { readLifecycleJournal } from '../src/modules/lifecycle/lifecycle-journal';
 import { TaskWorkerService } from '../src/modules/tasks/task-worker.service';
@@ -221,6 +221,15 @@ it('F23 用旧备份恢复附件、人格版本及待办，同时应用新删除
       await expect(exportArchive(config, archive)).rejects.toThrow('正被');
     } finally {
       await liveLock.close();
+    }
+    const aRuntime = await acquireRuntimeStorageLock(config.databaseUrl);
+    const bRuntime = await acquireRuntimeStorageLock(config.databaseUrl);
+    try {
+      await expect(exportArchive(config, archive)).rejects.toThrow('正被');
+      await expect(acquireArchiveLock(config.databaseUrl)).rejects.toThrow('正被');
+    } finally {
+      await bRuntime.close();
+      await aRuntime.close();
     }
     const snapshot = await exportArchive(config, archive);
     expect(await inspectArchive(archive)).toEqual(snapshot);

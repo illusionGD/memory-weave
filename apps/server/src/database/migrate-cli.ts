@@ -13,7 +13,8 @@ async function main(): Promise<void> {
   const command = argumentsList[0] ?? 'migrate';
   const remaining = argumentsList.slice(1);
   if (command === 'reset' && remaining.length === 0) {
-    await resetDevelopment(loadServerConfig(process.env, { loadModels: false }));
+    const config = loadServerConfig(process.env, { loadModels: false });
+    await offline(config.databaseUrl, () => resetDevelopment(config));
     console.info(JSON.stringify({ status: 'ready', reset: true }));
     return;
   }
@@ -27,18 +28,18 @@ async function main(): Promise<void> {
   const result =
     command === 'status'
       ? await getSchemaStatus(databaseUrl, remaining[1])
-      : await migrateOffline(databaseUrl, remaining[1]);
+      : await offline(databaseUrl, () => runMigrations(databaseUrl, remaining[1]));
   console.info(JSON.stringify(result));
   if (result.status !== 'ready') process.exitCode = 1;
 }
 
 /** 更新结构与离线归档互斥，先停止正在使用目标数据库的服务。 */
-async function migrateOffline(databaseUrl: string, directory?: string) {
+async function offline<T>(databaseUrl: string, maintain: () => Promise<T>): Promise<T> {
   const lock = await acquireArchiveLock(databaseUrl).catch(() => {
     throw new MigrationError('Database migration needs exclusive access to the deployment.');
   });
   try {
-    return await runMigrations(databaseUrl, directory);
+    return await maintain();
   } finally {
     await lock.close();
   }

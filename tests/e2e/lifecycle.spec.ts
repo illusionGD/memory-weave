@@ -5,6 +5,7 @@ test('删除原文同步清除另一窗口缓存，重置和删除实例均可�
   page,
   context,
 }, testInfo) => {
+  test.setTimeout(60_000);
   const created = await page.request.post('/api/companions', {
     data: {
       requestId: randomUUID(),

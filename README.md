@@ -20,6 +20,7 @@
 - [F21 记忆维护与向量切换](docs/features/f21-memory-maintenance.md)
 - [F22 后台管理接口](docs/features/f22-administration.md)
 - [F23 模板、备份与恢复](docs/features/f23-data-archive.md)
+- [F24 后端发布验收与部署](docs/features/f24-release.md)
 - [F11 材料阅读与升级](docs/features/f11-materials.md)
 - [Pino 日志、Nest 开发启动与 PM2 轮转](docs/features/logging-and-dev.md)
 - [模型 JSON 配置与环境区分](docs/features/model-json-config.md)

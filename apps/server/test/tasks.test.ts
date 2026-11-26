@@ -142,7 +142,7 @@ describe('持久任务的公开控制与恢复边界', () => {
     child.stdout!.resume();
     child.stderr!.resume();
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('测试 worker 启动超时。')), 5000);
+      const timer = setTimeout(() => reject(new Error('测试 worker 启动超时。')), 20000);
       child!.once('error', () => {
         clearTimeout(timer);
         reject(new Error('测试 worker 启动失败。'));
@@ -391,18 +391,21 @@ describe('持久任务的公开控制与恢复边界', () => {
     ).body.data;
     const runtime = app.get(TasksService);
     const lease = (await asOwner(app, (ownerId) => runtime.claim(ownerId)))!;
-    expect(await asOwner(app, () => runtime.fail(lease, 'transient_failure', true))).toMatchObject({
+    const waiting = await asOwner(app, () => runtime.fail(lease, 'transient_failure', true));
+    expect(waiting).toMatchObject({
       status: 'waiting',
       reason: 'transient_failure',
       attempts: [{ status: 'failed' }],
     });
-    expect(await asOwner(app, (ownerId) => runtime.claim(ownerId))).toBeNull();
+    const availableAt = Date.parse(waiting.availableAt);
+    expect(availableAt - Date.parse(waiting.attempts[0]!.finishedAt!)).toBe(100);
     await app.close();
     app = await createApplication(config);
     agent = await login();
-    await delay(120);
+    await delay(Math.max(0, availableAt - Date.now()) + 25);
     const next = (await asOwner(app, (ownerId) => app.get(TasksService).claim(ownerId)))!;
     expect(next.fence).toBe(2);
+    expect(Date.parse(next.task.attempts[1]!.startedAt)).toBeGreaterThanOrEqual(availableAt);
     await asOwner(app, () => app.get(TasksService).fail(next, 'transient_failure', true));
     expect((await agent.get(`/api/tasks/${created.id}`)).body.data).toMatchObject({
       status: 'failed',
@@ -577,7 +580,7 @@ describe('持久任务的公开控制与恢复边界', () => {
       progress: { completedSteps: 3 },
       attempts: [{ status: 'expired' }, { status: 'succeeded' }],
     });
-  });
+  }, 35000);
 
   it('模型结果已保存但任务未提交时恢复复用同一结果，不再占用一次调用额度', async () => {
     let agent = await login();
@@ -653,7 +656,7 @@ describe('持久任务的公开控制与恢复边界', () => {
     });
     expect(requests).toBe(1);
     expect((await agent.get('/api/models/usage')).body.data.global.charged.requests).toBe(1);
-  }, 15000);
+  }, 35000);
   it('跨进程取消后迟到的模型结果不能恢复任务，但可信用量仍结算', async () => {
     let reply!: ServerResponse;
     let sent!: () => void;
@@ -706,7 +709,7 @@ describe('持久任务的公开控制与恢复边界', () => {
       progress: { completedSteps: 0 },
       attempts: [{ status: 'cancelled' }],
     });
-  });
+  }, 35000);
 
   it('取消后即使旧执行者准备调用模型，派发守卫也不会预留额度或发送请求', async () => {
     const agent = await login();

@@ -43,12 +43,12 @@ function configureRedisUrl() {
   process.env.REDIS_URL = redisUrl.toString();
 }
 
-configureDatabaseUrl();
 const command = process.argv[2];
+if (command !== 'archive' || process.argv[3] !== 'inspect') configureDatabaseUrl();
 if (command === 'migrate' || command === 'status') {
   await import('../dist/database/migrate-cli.js');
 } else if (command === 'archive') {
-  configureRedisUrl();
+  if (process.argv[3] !== 'inspect') configureRedisUrl();
   process.argv.splice(2, 1);
   await import('../dist/database/archive-cli.js');
 } else if (command === undefined) {

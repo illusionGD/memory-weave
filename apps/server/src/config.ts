@@ -1,3 +1,4 @@
+import { assertSeparate } from './database/archive-format';
 import { memoryMaintenanceConfigurationSchema } from '@memory-weave/contracts';
 import type { MemoryMaintenanceConfiguration } from '@memory-weave/contracts';
 import { peerConfigurationSchema } from './modules/peer-talk/peer-config';
@@ -243,6 +244,11 @@ export function loadServerConfig(
   const host = environment.HOST?.trim() || '127.0.0.1';
   const dataDir = resolve(environment.DATA_DIR ?? './data');
   const lifecycleJournalDir = resolve(environment.LIFECYCLE_JOURNAL_DIR || `${dataDir}.lifecycle`);
+  try {
+    assertSeparate(dataDir, lifecycleJournalDir);
+  } catch {
+    throw new ConfigurationError('LIFECYCLE_JOURNAL_DIR 必须使用独立于 DATA_DIR 的目录。');
+  }
   const webDistDir = environment.WEB_DIST_DIR ? resolve(environment.WEB_DIST_DIR) : null;
   let modelDeployment: ModelDeployment | undefined;
   try {

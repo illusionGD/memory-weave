@@ -69,18 +69,16 @@ export class MemoryPinService {
             eq(memoryPinChanges.current, true),
           ),
         );
-      await tx
-        .insert(memoryPinChanges)
-        .values({
-          ownerId,
-          memoryId,
-          version,
-          requestId: command.requestId,
-          fingerprint: hash,
-          pinned: command.pinned,
-          current: true,
-          createdAt: now,
-        });
+      await tx.insert(memoryPinChanges).values({
+        ownerId,
+        memoryId,
+        version,
+        requestId: command.requestId,
+        fingerprint: hash,
+        pinned: command.pinned,
+        current: true,
+        createdAt: now,
+      });
       if (command.pinned)
         await tx
           .delete(memoryMaintenanceViews)

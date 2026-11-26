@@ -1,9 +1,11 @@
 import { createConnection } from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2/promise';
 import { createClient } from 'redis';
-import { rm } from 'node:fs/promises';
+import { rename, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { ServerConfig } from '../config';
+import { journalPath } from '../modules/lifecycle/lifecycle-journal';
 import { mysqlConnectionOptions } from './connection';
 import { runMigrations, MigrationError } from './migrations';
 
@@ -70,7 +72,8 @@ export async function resetDevelopment(config: ServerConfig): Promise<void> {
       if (keys.length) await redis.unlink(keys);
     }
     for (const ownerId of owners)
-      await rm(join(config.dataDir, 'avatars', ownerId), { recursive: true, force: true });
+      for (const kind of ['avatars', 'materials'])
+        await rm(join(config.dataDir, kind, ownerId), { recursive: true, force: true });
     await mysql.query(`DROP DATABASE \`${name}\``);
     await mysql.query(`CREATE DATABASE \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin`);
   } finally {
@@ -78,4 +81,11 @@ export async function resetDevelopment(config: ServerConfig): Promise<void> {
     await mysql.end();
   }
   await runMigrations(config.databaseUrl);
+  if (config.lifecycleJournalDir)
+    await rename(
+      journalPath(config.lifecycleJournalDir),
+      join(config.lifecycleJournalDir, `restrictions.reset.${randomUUID()}.jsonl`),
+    ).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
+    });
 }
