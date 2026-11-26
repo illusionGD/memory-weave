@@ -47,6 +47,10 @@ configureDatabaseUrl();
 const command = process.argv[2];
 if (command === 'migrate' || command === 'status') {
   await import('../dist/database/migrate-cli.js');
+} else if (command === 'archive') {
+  configureRedisUrl();
+  process.argv.splice(2, 1);
+  await import('../dist/database/archive-cli.js');
 } else if (command === undefined) {
   configureRedisUrl();
   await import('../dist/main.js');

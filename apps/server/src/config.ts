@@ -69,6 +69,8 @@ export interface ServerConfig {
   cookieSecure: boolean;
   /** 附件等文件的持久存储目录。 */
   dataDir: string;
+  /** 与业务数据目录分离的权限限制日志。 */
+  lifecycleJournalDir?: string;
   /** 前端构建产物目录；为 null 时不启用静态页面托管。 */
   webDistDir: string | null;
   /** 独立管理端构建目录；未配置时不托管管理页面。 */
@@ -240,6 +242,7 @@ export function loadServerConfig(
 
   const host = environment.HOST?.trim() || '127.0.0.1';
   const dataDir = resolve(environment.DATA_DIR ?? './data');
+  const lifecycleJournalDir = resolve(environment.LIFECYCLE_JOURNAL_DIR || `${dataDir}.lifecycle`);
   const webDistDir = environment.WEB_DIST_DIR ? resolve(environment.WEB_DIST_DIR) : null;
   let modelDeployment: ModelDeployment | undefined;
   try {
@@ -361,6 +364,7 @@ export function loadServerConfig(
     adminAppOrigin,
     cookieSecure,
     dataDir,
+    lifecycleJournalDir,
     webDistDir,
     adminDistDir: environment.ADMIN_DIST_DIR ? resolve(environment.ADMIN_DIST_DIR) : null,
     modelDeployment,

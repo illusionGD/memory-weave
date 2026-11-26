@@ -72,3 +72,17 @@ export type CreatePersonaTemplate = z.infer<typeof createPersonaTemplateSchema>;
 export type PersonaTemplate = z.infer<typeof personaTemplateSchema>;
 /** 模板分页结果。 */
 export type PersonaTemplateList = z.infer<typeof personaTemplateListSchema>;
+
+/** 可移植模板只含主动保存的原稿及约束，不包含实例、聊天或部署凭据。 */
+export const personaTemplateBundleSchema = z.strictObject({
+  format: z.literal('memory-weave-persona-template'),
+  version: z.literal(1),
+  template: createPersonaTemplateSchema.omit({ requestId: true }),
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export const importPersonaTemplateSchema = z.strictObject({
+  requestId: uuidSchema,
+  bundle: personaTemplateBundleSchema,
+});
+export type PersonaTemplateBundle = z.infer<typeof personaTemplateBundleSchema>;
+export type ImportPersonaTemplate = z.infer<typeof importPersonaTemplateSchema>;

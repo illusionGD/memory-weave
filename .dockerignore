@@ -15,6 +15,7 @@
 .env.*
 !.env.example
 data
+data.lifecycle
 .data
 tmp
 .tmp

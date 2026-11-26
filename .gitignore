@@ -7,6 +7,7 @@ test-results/
 .env.*
 !.env.example
 data/
+data.lifecycle/
 .data/
 .pnpm-store/
 *.tsbuildinfo

@@ -1,3 +1,4 @@
+import { acquireArchiveLock } from './archive-lock';
 import { getSchemaStatus, MigrationError, runMigrations } from './migrations';
 import { loadServerConfig } from '../config';
 import { resetDevelopment } from './reset-development';
@@ -26,9 +27,21 @@ async function main(): Promise<void> {
   const result =
     command === 'status'
       ? await getSchemaStatus(databaseUrl, remaining[1])
-      : await runMigrations(databaseUrl, remaining[1]);
+      : await migrateOffline(databaseUrl, remaining[1]);
   console.info(JSON.stringify(result));
   if (result.status !== 'ready') process.exitCode = 1;
+}
+
+/** 更新结构与离线归档互斥，先停止正在使用目标数据库的服务。 */
+async function migrateOffline(databaseUrl: string, directory?: string) {
+  const lock = await acquireArchiveLock(databaseUrl).catch(() => {
+    throw new MigrationError('Database migration needs exclusive access to the deployment.');
+  });
+  try {
+    return await runMigrations(databaseUrl, directory);
+  } finally {
+    await lock.close();
+  }
 }
 
 void main().catch((error: unknown) => {

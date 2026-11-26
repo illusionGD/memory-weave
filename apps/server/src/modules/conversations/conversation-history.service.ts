@@ -1,3 +1,4 @@
+import { LifecycleJournal } from '../lifecycle/lifecycle-journal';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_CODES } from '@memory-weave/contracts';
 import type {
@@ -34,6 +35,7 @@ export class ConversationHistory {
   constructor(
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(LifecycleJournal) private readonly journal: LifecycleJournal,
   ) {}
 
   /** 登记待审批范围，不提前授予历史。 */
@@ -159,6 +161,16 @@ export class ConversationHistory {
         .where(
           and(eq(conversationHistoryShares.ownerId, ownerId), eq(conversationHistoryShares.id, id)),
         );
+      if (decision === 'revoke')
+        await this.journal.append(ownerId, {
+          kind: 'revoke_history',
+          requestId,
+          conversationId,
+          shareId: id,
+          membershipId: member.id,
+          startSequence: row.fromSequence,
+          endSequence: row.throughSequence,
+        });
       return saveMembershipCommand(ownerId, conversationId, requestId, hash, result, now, tx);
     });
   }

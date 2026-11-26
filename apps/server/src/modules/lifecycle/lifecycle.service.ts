@@ -1,3 +1,4 @@
+import { LifecycleJournal } from './lifecycle-journal';
 import { DatabaseService } from '../../database/database.service';
 import type {
   IdPaginationQuery,
@@ -37,6 +38,7 @@ export class LifecycleService {
     @Inject(ModelConfigurationService) private readonly models: ModelConfigurationService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
+    @Inject(LifecycleJournal) private readonly journal: LifecycleJournal,
   ) {}
 
   /**
@@ -156,6 +158,7 @@ export class LifecycleService {
           },
           tx,
         );
+        await this.journal.append(ownerId, { kind: 'lifecycle', command: input });
         return this.read(ownerId, tx, id);
       }
       const companion = await requireCompanion(
@@ -276,6 +279,7 @@ export class LifecycleService {
         },
         tx,
       );
+      await this.journal.append(ownerId, { kind: 'lifecycle', command: input });
       return this.read(ownerId, tx, id);
     });
   }

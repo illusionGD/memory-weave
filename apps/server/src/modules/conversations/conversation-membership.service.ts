@@ -1,3 +1,4 @@
+import { LifecycleJournal } from '../lifecycle/lifecycle-journal';
 import { interruptGroupTurn } from '../group-turns/group-turn-store';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_CODES } from '@memory-weave/contracts';
@@ -33,6 +34,7 @@ export class ConversationMembership {
   constructor(
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(TasksService) private readonly jobs: TasksService,
+    @Inject(LifecycleJournal) private readonly journal: LifecycleJournal,
   ) {}
 
   /** 管理员移除伴侣或退出自己的成员身份。 */
@@ -96,6 +98,13 @@ export class ConversationMembership {
         tx,
         now,
       );
+    await this.journal.append(ownerId, {
+      kind: 'leave',
+      requestId,
+      conversationId,
+      membershipId,
+      actor,
+    });
     return saveMembershipCommand(
       ownerId,
       conversationId,
@@ -139,6 +148,7 @@ export class ConversationMembership {
       }
       const closed = await advanceConversation(conversation, tx, { closedAt: now });
       await this.cancelReplies(ownerId, conversationId, null, tx, now);
+      await this.journal.append(ownerId, { kind: 'close', requestId, conversationId });
       return saveMembershipCommand(
         ownerId,
         conversationId,
@@ -175,6 +185,8 @@ export class ConversationMembership {
       const updated = await advanceConversation(conversation, tx, {
         peerInvitationsEnabled: command.peerInvitationsEnabled,
       });
+      if (!command.peerInvitationsEnabled)
+        await this.journal.append(ownerId, { kind: 'deny_invitations', requestId, conversationId });
       return saveMembershipCommand(
         ownerId,
         conversationId,

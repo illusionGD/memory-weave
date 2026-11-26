@@ -1,3 +1,4 @@
+import { LifecycleJournal } from './modules/lifecycle/lifecycle-journal';
 import { MemoryPinService } from './modules/administration/memory-pin.service';
 import { AdministrationController } from './modules/administration/administration.controller';
 import { AdministrationConfig } from './modules/administration/administration-config';
@@ -177,6 +178,7 @@ class ApplicationModule {
         MemoryExecutionService,
         SystemService,
         LifecycleService,
+        LifecycleJournal,
         LifecycleExecutionService,
         ChatsService,
         MaterialsService,

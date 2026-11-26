@@ -124,6 +124,7 @@ services:
       APP_ORIGIN: ${DEPLOY_APP_ORIGIN:-http://localhost:8080}
       COOKIE_SECURE: ${DEPLOY_COOKIE_SECURE:-false}
       DATA_DIR: /app/data
+      LIFECYCLE_JOURNAL_DIR: /app/lifecycle-journal
       WEB_DIST_DIR: /app/web
       ADMIN_DIST_DIR: /app/admin
       ADMIN_APP_ORIGIN: ${DEPLOY_ADMIN_APP_ORIGIN:-${DEPLOY_APP_ORIGIN:-http://localhost:8080}}
@@ -138,6 +139,7 @@ services:
       - '${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8080}:3000'
     volumes:
       - app-data:/app/data
+      - lifecycle-journal:/app/lifecycle-journal
       - ../config/models.production.json:/app/config/models.production.json:ro
     healthcheck:
       test:
@@ -157,4 +159,5 @@ volumes:
   qdrant-data:
   qdrant-snapshots:
   app-data:
+  lifecycle-journal:
   redis-data:

@@ -178,11 +178,11 @@ export class TasksService {
    *
    * 在部署锁下原子检查容量并领取一个任务；返回后立即释放数据库锁。
    */
-  claim(ownerId: string): Promise<TaskLease | null> {
+  claim(ownerId: string, maintenanceOnly = false): Promise<TaskLease | null> {
     return this.store.locked(ownerId, async (tx, now) => {
       const current = await this.configuration.current(ownerId, tx);
       await this.expire(ownerId, tx, now, current.config);
-      if (!current.config.enabled) return null;
+      if (!current.config.enabled && !maintenanceOnly) return null;
       const active = await tx
         .select({ kind: tasks.kind })
         .from(tasks)
@@ -236,14 +236,17 @@ export class TasksService {
           'peer_turn',
         );
       if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
-      if (!kinds.length) return null;
+      const eligible = maintenanceOnly
+        ? kinds.filter((kind) => kind === 'lifecycle_cleanup')
+        : kinds;
+      if (!eligible.length) return null;
       const row = await this.database.tasks.findOne(
         ownerId,
         {
           where: and(
             eq(tasks.ownerId, ownerId),
             inArray(tasks.status, ['queued', 'waiting']),
-            inArray(tasks.kind, kinds),
+            inArray(tasks.kind, eligible),
             lte(tasks.availableAt, now),
           ),
           orderBy: [

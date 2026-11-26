@@ -3,12 +3,14 @@ import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/commo
 import {
   uuidSchema,
   createPersonaTemplateSchema,
+  importPersonaTemplateSchema,
   updatePersonaTemplateSchema,
   idPaginationQuerySchema,
   runtimeEpochQuerySchema,
 } from '@memory-weave/contracts';
 import type {
   CreatePersonaTemplate,
+  ImportPersonaTemplate,
   UpdatePersonaTemplate,
   IdPaginationQuery,
   PersonaTemplate,
@@ -24,6 +26,34 @@ export class PersonaTemplatesController {
   constructor(
     @Inject(PersonaTemplatesService) private readonly templates: PersonaTemplatesService,
   ) {}
+
+  /** 导入可移植模板，并使用新的模板身份。 */
+  @Post('import')
+  importBundle(
+    @CurrentOwner() ownerId: string,
+    @Body(new ZodValidationPipe(importPersonaTemplateSchema)) input: ImportPersonaTemplate,
+  ) {
+    return this.templates.importBundle(ownerId, input);
+  }
+
+  /** 导出选中的模板版本。 */
+  @Get(':id/export')
+  exportBundle(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+  ) {
+    return this.templates.exportBundle(ownerId, id);
+  }
+
+  /** 导出指定的历史模板版本。 */
+  @Get(':id/versions/:version/export')
+  exportVersion(
+    @CurrentOwner() ownerId: string,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Param('version', new ZodValidationPipe(runtimeEpochQuerySchema)) version: number,
+  ) {
+    return this.templates.exportBundle(ownerId, id, version);
+  }
 
   /** 保存人设模板的首个版本。 */
   @Post()

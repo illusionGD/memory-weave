@@ -10,6 +10,7 @@
   },
   "scripts": {
     "setup": "node scripts/setup-env.mjs",
+    "data:archive": "node --env-file-if-exists=.env --env-file-if-exists=.env.models scripts/data-archive.mjs",
     "db:migrate": "node --env-file-if-exists=.env scripts/database.mjs migrate",
     "db:status": "node --env-file-if-exists=.env scripts/database.mjs status",
     "db:reset": "node --env-file-if-exists=.env scripts/database.mjs reset",
@@ -33,6 +34,7 @@
     "verify:f09": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f09.mjs",
     "dev:web": "node --env-file=.env --env-file-if-exists=.env.models scripts/dev.mjs web",
     "dev:admin": "node --env-file=.env --env-file-if-exists=.env.models scripts/dev.mjs admin",
+    "verify:f23": "pnpm --filter @memory-weave/contracts build && pnpm --filter @memory-weave/server exec vitest run test/archive.test.ts --hookTimeout=30000",
     "verify:f22": "pnpm --filter @memory-weave/contracts build && pnpm --filter @memory-weave/server exec vitest run test/administration.test.ts --hookTimeout=30000",
     "verify:f21": "pnpm --filter @memory-weave/contracts build && pnpm --filter @memory-weave/server exec vitest run test/retrieval.test.ts --hookTimeout=30000",
     "verify:f20": "pnpm --filter @memory-weave/contracts build && pnpm --filter @memory-weave/server exec vitest run test/peer-talk.test.ts --hookTimeout=30000",

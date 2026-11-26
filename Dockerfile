@@ -51,7 +51,7 @@ COPY --from=builder --chown=node:node /out/ ./
 COPY --from=builder --chown=node:node /workspace/apps/web/dist/ ./web/
 COPY --from=builder --chown=node:node /workspace/apps/admin/dist/ ./admin/
 COPY --chown=node:node deploy/docker-entrypoint.mjs ./deploy/docker-entrypoint.mjs
-RUN mkdir -p /app/data && chown node:node /app/data
+RUN mkdir -p /app/data /app/lifecycle-journal && chown node:node /app/data /app/lifecycle-journal
 
 USER node
 EXPOSE 3000

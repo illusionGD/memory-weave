@@ -1,3 +1,4 @@
+import { LifecycleJournal } from '../lifecycle/lifecycle-journal';
 import { API_CODES } from '@memory-weave/contracts';
 import type {
   ConnectTerminal,
@@ -45,6 +46,7 @@ export class TerminalService {
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(TaskStore) private readonly store: TaskStore,
     @Inject(SERVER_CONFIG) configuration: RuntimeConfig,
+    @Inject(LifecycleJournal) private readonly journal: LifecycleJournal,
   ) {
     this.limits = configuration.terminalConfiguration ?? terminalConfigurationSchema.parse({});
   }
@@ -106,6 +108,7 @@ export class TerminalService {
         .update(terminals)
         .set({ revokedAt: now, expiresAt: now, connectionId: null })
         .where(and(eq(terminals.ownerId, ownerId), eq(terminals.id, id)));
+      await this.journal.append(ownerId, { kind: 'revoke_terminal', terminalId: current.id });
       return terminalView({ ...current, revokedAt: now }, now);
     });
   }
@@ -198,6 +201,13 @@ export class TerminalService {
           .set({ enabled: input.enabled, version: updated.version })
           .where(and(eq(terminalGrants.ownerId, ownerId), eq(terminalGrants.id, current.id)));
       else await tx.insert(terminalGrants).values(updated);
+      if (!input.enabled && current?.enabled)
+        await this.journal.append(ownerId, {
+          kind: 'disable_terminal_grant',
+          grantId: current.id,
+          terminalId: terminal.id,
+          version: updated.version,
+        });
       return grantView(updated);
     });
   }

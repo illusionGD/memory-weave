@@ -1,5 +1,7 @@
 import type {
   CreatePersonaTemplate,
+  ImportPersonaTemplate,
+  PersonaTemplateBundle,
   IdPaginationQuery,
   PersonaTemplate,
   PersonaTemplateList,
@@ -68,6 +70,29 @@ export class PersonaTemplatesService {
       },
       { isolationLevel: 'read committed' },
     );
+  }
+
+  /** 导出固定版本的可移植模板。 */
+  async exportBundle(
+    ownerId: string,
+    id: string,
+    version?: number,
+  ): Promise<PersonaTemplateBundle> {
+    const { name, initialProfile, lockedFeatures } = await this.get(ownerId, id, version);
+    const template = { name, initialProfile, lockedFeatures };
+    return {
+      format: 'memory-weave-persona-template',
+      version: 1,
+      template,
+      sha256: fingerprint(template),
+    };
+  }
+
+  /** 核对完整性，再按现有模板版本命令保存。 */
+  importBundle(ownerId: string, input: ImportPersonaTemplate): Promise<PersonaTemplate> {
+    if (fingerprint(input.bundle.template) !== input.bundle.sha256)
+      throw new ApiException(API_CODES.INVALID_REQUEST, '模板文件校验失败。');
+    return this.create(ownerId, { ...input.bundle.template, requestId: input.requestId });
   }
 
   /** 查询模板的最新版本或指定历史版本。 */
