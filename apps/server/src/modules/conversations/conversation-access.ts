@@ -110,7 +110,7 @@ export async function assertVisible(
     );
   const visible = grants.some(
     (grant) =>
-      grant.kind === 'history' ||
+      grant.kind !== 'membership' ||
       (sequence >= member.joinedSequence &&
         (member.leftSequence === null || sequence <= member.leftSequence)),
   );
@@ -130,6 +130,8 @@ export function toConversation(row: typeof conversations.$inferSelect): Conversa
     title: row.title,
     version: row.version,
     lastSequence: row.lastSequence,
+    closedAt: row.closedAt?.toISOString() ?? null,
+    peerInvitationsEnabled: row.peerInvitationsEnabled,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -146,6 +148,7 @@ export function toMember(row: typeof conversationMembers.$inferSelect): Conversa
     conversationId: row.conversationId,
     joinedSequence: row.joinedSequence,
     leftSequence: row.leftSequence,
+    removedAt: row.removedAt?.toISOString() ?? null,
     permissionVersion: row.permissionVersion,
   };
   if (row.kind === 'user' && row.userId !== null) {

@@ -1,3 +1,4 @@
+import { requireOpenConversation } from './membership-store';
 import type {
   ConversationDetail,
   ConversationListResponse,
@@ -200,7 +201,7 @@ export class ConversationsService {
     chat?: { runId: string; position: number },
   ): Promise<Message> {
     if (chat && !generated) throw new TypeError('只有生成的聊天消息可以关联回复轮次。');
-    const conversation = await requireConversation(ownerId, conversationId, tx, true);
+    const conversation = await requireOpenConversation(ownerId, conversationId, tx);
     const member = await this.speaker(ownerId, conversationId, input.speaker, tx);
     const requestFingerprint = fingerprint({
       ...input,
@@ -334,7 +335,7 @@ export class ConversationsService {
     messageId: string,
     input: PublishMessageRequest,
   ): Promise<Message> {
-    const conversation = await requireConversation(ownerId, conversationId, tx, true);
+    const conversation = await requireOpenConversation(ownerId, conversationId, tx);
     const row = await this.database.messages.findOne(
       ownerId,
       {

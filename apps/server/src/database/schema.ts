@@ -403,6 +403,8 @@ export const conversations = mysqlTable(
     version: int('version').notNull().default(1),
     lastSequence: int('last_sequence').notNull().default(0),
     lifecycleOperationId: uuid('lifecycle_operation_id'),
+    closedAt: datetime('closed_at', { fsp: 3 }),
+    peerInvitationsEnabled: boolean('peer_invitations_enabled').notNull().default(true),
     contentRevision: int('content_revision').notNull().default(1),
     requestId: uuid('request_id').notNull(),
     fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
@@ -433,6 +435,7 @@ export const conversationMembers = mysqlTable(
     runtimeEpoch: int('runtime_epoch'),
     joinedSequence: int('joined_sequence').notNull().default(1),
     leftSequence: int('left_sequence'),
+    removedAt: datetime('removed_at', { fsp: 3 }),
     permissionVersion: int('permission_version').notNull().default(1),
     deletedAt: datetime('deleted_at', { fsp: 3 }),
   },
@@ -470,7 +473,7 @@ export const conversationMembers = mysqlTable(
     ),
     check(
       'conversation_members_range_valid',
-      sql`${table.joinedSequence} > 0 AND (${table.leftSequence} IS NULL OR ${table.leftSequence} >= ${table.joinedSequence}) AND ${table.permissionVersion} > 0`,
+      sql`${table.joinedSequence} > 0 AND (${table.leftSequence} IS NULL OR ${table.leftSequence} >= ${table.joinedSequence} - 1) AND ${table.permissionVersion} > 0`,
     ),
   ],
 );
@@ -484,7 +487,7 @@ export const visibilityGrants = mysqlTable(
     membershipId: uuid('membership_id').notNull(),
     startSequence: int('start_sequence').notNull(),
     endSequence: int('end_sequence'),
-    kind: varchar('kind', { length: 32, enum: ['membership', 'history'] }).notNull(),
+    kind: varchar('kind', { length: 32, enum: ['membership', 'history', 'retained'] }).notNull(),
     permissionVersion: int('permission_version').notNull(),
   },
   (table) => [
@@ -500,7 +503,10 @@ export const visibilityGrants = mysqlTable(
       table.startSequence,
       table.permissionVersion,
     ),
-    check('visibility_grants_kind_valid', sql`${table.kind} IN ('membership', 'history')`),
+    check(
+      'visibility_grants_kind_valid',
+      sql`${table.kind} IN ('membership', 'history', 'retained')`,
+    ),
     check(
       'visibility_grants_range_valid',
       sql`${table.startSequence} > 0 AND (${table.endSequence} IS NULL OR ${table.endSequence} >= ${table.startSequence}) AND ${table.permissionVersion} > 0`,
@@ -2194,6 +2200,120 @@ export const growthCandidates = mysqlTable(
       name: 'growth_candidate_run_ref',
       columns: [table.ownerId, table.sourceRunId],
       foreignColumns: [reflectionRuns.ownerId, reflectionRuns.id],
+    }),
+  ],
+);
+
+/** 邀请的接受独立提交，邀请本身不赋予任何历史权限。 */
+export const conversationInvitations = mysqlTable(
+  'conversation_invitations',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    requestedByMembershipId: uuid('requested_by_membership_id'),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    groupTitle: varchar('group_title', { length: 80 }),
+    restoreRemoved: boolean('restore_removed').notNull().default(false),
+    state: varchar('state', { length: 16 })
+      .$type<import('@memory-weave/contracts').Invitation['state']>()
+      .notNull(),
+    version: int('version').notNull().default(1),
+    acceptedConversationId: uuid('accepted_conversation_id'),
+    decidedBy: varchar('decided_by', { length: 16, enum: ['owner', 'companion'] }),
+    createdAt: createdAt(),
+    expiresAt: datetime('expires_at', { fsp: 3 }).notNull(),
+  },
+  (table) => [
+    unique('conversation_invite_owner_id').on(table.ownerId, table.id),
+    unique('conversation_invite_request').on(table.ownerId, table.requestId),
+    index('conversation_invite_status').on(
+      table.ownerId,
+      table.conversationId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.state,
+    ),
+    foreignKey({
+      name: 'conversation_invite_conversation_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+    foreignKey({
+      name: 'conversation_invite_target_ref',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+  ],
+);
+
+/** 历史开放保留显式批准的确切区间和最初的权限版本。 */
+export const conversationHistoryShares = mysqlTable(
+  'conversation_history_shares',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    membershipId: uuid('membership_id').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    fromSequence: int('from_sequence').notNull(),
+    throughSequence: int('through_sequence').notNull(),
+    state: varchar('state', { length: 16 })
+      .$type<import('@memory-weave/contracts').HistoryShare['state']>()
+      .notNull(),
+    version: int('version').notNull().default(1),
+    permissionVersion: int('permission_version').notNull(),
+    queuedMessages: int('queued_messages').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('conversation_history_owner_id').on(table.ownerId, table.id),
+    unique('conversation_history_request').on(table.ownerId, table.requestId),
+    index('conversation_history_membership').on(table.ownerId, table.membershipId, table.state),
+    foreignKey({
+      name: 'conversation_history_member_ref',
+      columns: [table.ownerId, table.conversationId, table.membershipId],
+      foreignColumns: [
+        conversationMembers.ownerId,
+        conversationMembers.conversationId,
+        conversationMembers.id,
+      ],
+    }),
+    check(
+      'conversation_history_range',
+      sql`${table.fromSequence} > 0 AND ${table.throughSequence} >= ${table.fromSequence}`,
+    ),
+  ],
+);
+
+/** 记录成员控制、批准和决定的幂等结果。 */
+export const conversationMembershipCommands = mysqlTable(
+  'conversation_membership_commands',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    result: json('result')
+      .$type<
+        | import('@memory-weave/contracts').Invitation
+        | import('@memory-weave/contracts').HistoryShare
+        | import('@memory-weave/contracts').MemberExitResult
+        | import('@memory-weave/contracts').Conversation
+      >()
+      .notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('membership_command_request').on(table.ownerId, table.requestId),
+    foreignKey({
+      name: 'membership_command_conversation_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
     }),
   ],
 );

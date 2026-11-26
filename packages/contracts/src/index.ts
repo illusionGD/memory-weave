@@ -128,3 +128,4 @@ export * from './activities';
 export * from './relationships';
 export * from './reflections';
 export * from './growth';
+export * from './membership';

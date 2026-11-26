@@ -73,6 +73,8 @@ const conversationShape = {
   version: positiveIntegerSchema,
   /** 会话已分配的最后发布序号；尚无正式消息时为零，草稿不会推进此值。 */
   lastSequence: nonnegativeIntegerSchema,
+  closedAt: utcDateTimeSchema.nullable().default(null),
+  peerInvitationsEnabled: z.boolean().default(true),
   /** 会话首次创建的 UTC 时间。 */
   createdAt: utcDateTimeSchema,
 };
@@ -91,7 +93,8 @@ const membershipCommonShape = {
   /** 成员加入后的首个可见发布序号；F02 初始成员固定为 1。 */
   joinedSequence: positiveIntegerSchema,
   /** 成员退出对应的序号边界；尚未退出时为 null，F02 不开放退出。 */
-  leftSequence: positiveIntegerSchema.nullable(),
+  leftSequence: nonnegativeIntegerSchema.nullable(),
+  removedAt: utcDateTimeSchema.nullable().default(null),
   /** 此成员关系的权限版本，接收命令必须提交预期值。 */
   permissionVersion: positiveIntegerSchema,
 };
@@ -148,7 +151,7 @@ const visibilityGrantShape = {
   /** 授权覆盖的结束发布序号，包含此序号；持续开放时为 null。 */
   endSequence: positiveIntegerSchema.nullable(),
   /** membership 表示成员期间可见；history 表示单独授予的历史范围。 */
-  kind: z.enum(['membership', 'history']),
+  kind: z.enum(['membership', 'history', 'retained']),
   /** 产生此授权的成员权限版本。 */
   permissionVersion: positiveIntegerSchema,
 };

@@ -33,6 +33,7 @@
     "verify:f09": "pnpm --filter @memory-weave/contracts build && node --env-file-if-exists=.env scripts/verify-f09.mjs",
     "dev:web": "node --env-file=.env --env-file-if-exists=.env.models scripts/dev.mjs web",
     "dev:admin": "node --env-file=.env --env-file-if-exists=.env.models scripts/dev.mjs admin",
+    "verify:f17": "pnpm --filter @memory-weave/contracts build && pnpm --filter @memory-weave/server exec vitest run test/membership.test.ts --hookTimeout=30000",
     "verify:f16": "pnpm --filter @memory-weave/contracts build && pnpm --filter @memory-weave/server exec vitest run test/growth.test.ts --hookTimeout=30000",
     "verify:f15": "pnpm --filter @memory-weave/contracts build && pnpm --filter @memory-weave/server exec vitest run test/reflections.test.ts --hookTimeout=30000",
     "verify:f14": "pnpm --filter @memory-weave/contracts build && pnpm --filter @memory-weave/server exec vitest run test/relationships.test.ts --hookTimeout=30000",

@@ -80,7 +80,7 @@ export async function assertVersionSources(
         eq(visibilityGrants.ownerId, ownerId),
         eq(visibilityGrants.membershipId, member.id),
         eq(visibilityGrants.permissionVersion, member.permissionVersion),
-        sql`${visibilityGrants.startSequence} <= ${messages.sequence} AND (${visibilityGrants.endSequence} IS NULL OR ${visibilityGrants.endSequence} >= ${messages.sequence}) AND (${visibilityGrants.kind} = 'history' OR (${messages.sequence} >= ${member.joinedSequence} AND (${member.leftSequence} IS NULL OR ${messages.sequence} <= ${member.leftSequence})))`,
+        sql`${visibilityGrants.startSequence} <= ${messages.sequence} AND (${visibilityGrants.endSequence} IS NULL OR ${visibilityGrants.endSequence} >= ${messages.sequence}) AND (${visibilityGrants.kind} <> 'membership' OR (${messages.sequence} >= ${member.joinedSequence} AND (${member.leftSequence} IS NULL OR ${messages.sequence} <= ${member.leftSequence})))`,
       ),
     );
   const [invalid] = await tx

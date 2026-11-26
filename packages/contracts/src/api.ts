@@ -51,6 +51,7 @@ export const API_CODES = {
   VERSION_LIMIT_REACHED: 40906,
   /** 当前发言者已经离开会话。 */
   MEMBER_LEFT: 40907,
+  CONVERSATION_CLOSED: 40917,
   /** 模型调用所需的能力、价格或任务配置尚未就绪。 */
   MODEL_NOT_CONFIGURED: 40908,
   /** 当前全局或任务额度不足，未发送新的模型请求。 */
@@ -160,6 +161,10 @@ export const API_RESPONSES = {
     message: '会话或消息版本已达到当前存储上限。',
   },
   [API_CODES.MEMBER_LEFT]: { statusCode: 409, message: '发言者已离开会话。' },
+  [API_CODES.CONVERSATION_CLOSED]: {
+    statusCode: 409,
+    message: '会话已结束，仍可回查有权限的历史。',
+  },
   [API_CODES.MODEL_NOT_CONFIGURED]: { statusCode: 409, message: '模型能力或价格配置尚未就绪。' },
   [API_CODES.MODEL_BUDGET_EXCEEDED]: {
     statusCode: 429,

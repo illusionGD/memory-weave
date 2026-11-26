@@ -7,6 +7,7 @@ import type {
 import {
   companions,
   conversations,
+  conversationMembers,
   growthCandidates,
   personaVersions,
   reflectionRunMessages,
@@ -16,6 +17,7 @@ import type { PersonaDocument } from '@memory-weave/contracts';
 import { API_CODES } from '@memory-weave/contracts';
 import { randomUUID } from 'node:crypto';
 import { ApiException } from '../../http/api-exception';
+import { reflectionOriginals } from '../reflections/reflection-input';
 
 export type PersonaRow = typeof personaVersions.$inferSelect;
 type CompanionRow = typeof companions.$inferSelect;
@@ -29,7 +31,11 @@ export async function activeGrowth(
   const traits = persona.document?.growth;
   if (!traits?.length) return { persona, sources: [] };
   const candidates = await tx
-    .select({ id: growthCandidates.id, runId: growthCandidates.sourceRunId })
+    .select({
+      id: growthCandidates.id,
+      runId: growthCandidates.sourceRunId,
+      conversationId: growthCandidates.conversationId,
+    })
     .from(growthCandidates)
     .innerJoin(
       reflectionRuns,
@@ -61,30 +67,54 @@ export async function activeGrowth(
         mode ? eq(growthCandidates.mode, mode) : undefined,
       ),
     );
-  const approved = new Set(candidates.map(({ id }) => id));
+  const approved = new Set<string>();
+  const refs = new Map<string, { messageId: string; contentVersion: number }>();
+  for (const candidate of candidates) {
+    const [member] = await tx
+      .select()
+      .from(conversationMembers)
+      .where(
+        and(
+          eq(conversationMembers.ownerId, persona.ownerId),
+          eq(conversationMembers.conversationId, candidate.conversationId),
+          eq(conversationMembers.companionId, persona.companionId),
+          eq(conversationMembers.runtimeEpoch, persona.runtimeEpoch),
+          isNull(conversationMembers.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!member) continue;
+    const originals = await tx
+      .select({
+        messageId: reflectionRunMessages.messageId,
+        contentVersion: reflectionRunMessages.contentVersion,
+      })
+      .from(reflectionRunMessages)
+      .where(
+        and(
+          eq(reflectionRunMessages.ownerId, persona.ownerId),
+          eq(reflectionRunMessages.runId, candidate.runId),
+        ),
+      )
+      .orderBy(asc(reflectionRunMessages.messageId), asc(reflectionRunMessages.contentVersion));
+    try {
+      await reflectionOriginals(member, originals, tx);
+    } catch (error) {
+      if (!(error instanceof ApiException) || error.code !== API_CODES.RESOURCE_NOT_FOUND)
+        throw error;
+      continue;
+    }
+    approved.add(candidate.id);
+    for (const ref of originals) refs.set(`${ref.messageId}:${ref.contentVersion}`, ref);
+  }
   const kept = traits.filter((trait) => approved.has(trait.growthId));
-  const runIds = candidates.map(({ runId }) => runId);
-  const refs = runIds.length
-    ? await tx
-        .selectDistinct({
-          messageId: reflectionRunMessages.messageId,
-          contentVersion: reflectionRunMessages.contentVersion,
-        })
-        .from(reflectionRunMessages)
-        .where(
-          and(
-            eq(reflectionRunMessages.ownerId, persona.ownerId),
-            inArray(reflectionRunMessages.runId, runIds),
-          ),
-        )
-        .orderBy(asc(reflectionRunMessages.messageId), asc(reflectionRunMessages.contentVersion))
-    : [];
+
   return {
     persona:
       kept.length === traits.length
         ? persona
         : { ...persona, document: { ...persona.document!, growth: kept } },
-    sources: refs,
+    sources: [...refs.values()],
   };
 }
 

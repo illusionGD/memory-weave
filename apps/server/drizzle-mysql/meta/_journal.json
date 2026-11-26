@@ -50,6 +50,13 @@
       "when": 1795720184709,
       "tag": "0006_growth",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1795720696676,
+      "tag": "0007_membership",
+      "breakpoints": true
     }
   ]
 }

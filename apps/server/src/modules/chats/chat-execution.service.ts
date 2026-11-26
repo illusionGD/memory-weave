@@ -378,6 +378,8 @@ export class ChatExecutionService {
     const run = await this.database.chatRuns.findById(ownerId, lease.task.id, tx);
     if (!thread || !run || thread.currentRunId !== run.id || run.interruptedAt)
       throw new ApiException(API_CODES.TASK_LEASE_LOST);
+    const conversation = await requireConversation(ownerId, run.conversationId, tx);
+    if (conversation.closedAt) throw new ApiException(API_CODES.TASK_LEASE_LOST);
     if (run.context) {
       if (run.context.relationships?.length || run.context.reflections?.length) {
         const member = await requireCompanionMember(

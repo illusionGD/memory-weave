@@ -1,6 +1,6 @@
 import { API_CODES } from '@memory-weave/contracts';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
-import type { DatabaseTransaction } from '../../database/database.service';
+import type { DatabaseTransaction, QueryDatabase } from '../../database/database.service';
 import {
   activities,
   activityVersions,
@@ -33,11 +33,7 @@ export interface MaterializedEvent {
 }
 
 /** 核对确切发布版本和当前成员授权。 */
-export async function reflectionOriginals(
-  member: Member,
-  refs: OriginalRef[],
-  tx: DatabaseTransaction,
-) {
+export async function reflectionOriginals(member: Member, refs: OriginalRef[], tx: QueryDatabase) {
   if (!refs.length) return new Map<string, typeof messages.$inferSelect>();
   const originals = await tx
     .select()

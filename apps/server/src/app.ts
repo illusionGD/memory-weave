@@ -1,3 +1,8 @@
+import { ConversationMembershipController } from './modules/conversations/conversation-membership.controller';
+import { ConversationBackground } from './modules/conversations/conversation-background.service';
+import { ConversationHistory } from './modules/conversations/conversation-history.service';
+import { ConversationInvitations } from './modules/conversations/conversation-invitations.service';
+import { ConversationMembership } from './modules/conversations/conversation-membership.service';
 import { GrowthController } from './modules/growth/growth-controller';
 import { GrowthExecution } from './modules/growth/growth-execution';
 import { GrowthService } from './modules/growth/growth-service';
@@ -117,6 +122,7 @@ class ApplicationModule {
         PersonaTemplatesController,
         CompanionPersonasController,
         ConversationsController,
+        ConversationMembershipController,
         ReceivingController,
         ModelsController,
         TasksController,
@@ -160,6 +166,10 @@ class ApplicationModule {
         PersonaTemplatesService,
         CompanionPersonasService,
         ConversationsService,
+        ConversationBackground,
+        ConversationHistory,
+        ConversationInvitations,
+        ConversationMembership,
         ReceivingService,
         WorkspaceService,
         ModelConfigurationService,

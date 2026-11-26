@@ -421,7 +421,8 @@ export class ChatsService {
     if (!thread) throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
     if (active) {
       await requireCompanion(this.database, ownerId, thread.companionId, thread.runtimeEpoch, tx);
-      await requireConversation(ownerId, id, tx);
+      const conversation = await requireConversation(ownerId, id, tx);
+      if (conversation.closedAt) throw new ApiException(API_CODES.CONVERSATION_CLOSED);
     }
     return thread;
   }
@@ -433,7 +434,10 @@ export class ChatsService {
     const conversation = await this.database.conversations.findById(ownerId, id, tx);
     const availability = conversation!.lifecycleOperationId
       ? 'cleaning'
-      : !companion || companion.deletedAt || companion.runtimeEpoch !== thread.runtimeEpoch
+      : conversation!.closedAt ||
+          !companion ||
+          companion.deletedAt ||
+          companion.runtimeEpoch !== thread.runtimeEpoch
         ? 'archived'
         : companion.lifecycleOperationId
           ? 'cleaning'
