@@ -1,3 +1,5 @@
+import { relationshipConfigurationSchema } from './modules/relationships/relationship-config';
+import type { RelationshipConfiguration } from './modules/relationships/relationship-config';
 import { terminalConfigurationSchema } from './modules/terminals/terminal-config';
 import type { TerminalConfiguration } from './modules/terminals/terminal-config';
 import { materialConfigurationSchema } from './modules/materials/material-config';
@@ -17,6 +19,7 @@ import type { ModelDeployment } from './modules/models/model-deployment';
 export interface ServerConfig {
   /** 终端心跳与动作时限。 */
   terminalConfiguration?: TerminalConfiguration;
+  relationshipConfiguration?: RelationshipConfiguration;
   /** 集中材料解析和获取预算。 */
   materialConfiguration?: MaterialConfiguration;
   /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
@@ -260,6 +263,14 @@ export function loadServerConfig(
   } catch {
     throw new ConfigurationError('材料配置无效，请检查 MATERIAL_CONFIG_JSON。');
   }
+  let relationshipConfiguration: RelationshipConfiguration;
+  try {
+    relationshipConfiguration = relationshipConfigurationSchema.parse(
+      JSON.parse(environment.RELATIONSHIP_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('关系状态配置无效，请检查 RELATIONSHIP_CONFIG_JSON。');
+  }
   let terminalConfiguration: TerminalConfiguration;
   try {
     terminalConfiguration = terminalConfigurationSchema.parse(
@@ -270,6 +281,7 @@ export function loadServerConfig(
   }
   return {
     terminalConfiguration,
+    relationshipConfiguration,
     materialConfiguration,
     logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),

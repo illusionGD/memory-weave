@@ -1,9 +1,15 @@
+import { RelationshipService } from '../relationships/relationship-service';
 import { TerminalService } from '../terminals/terminal-service';
 import type { MaterialsService } from '../materials/materials.service';
 import { selectMaterialContext } from '../materials/material-context';
 import { DatabaseService } from '../../database/database.service';
 import type { ChatContext, ModelConfigurationVersion, RecallResult } from '@memory-weave/contracts';
-import { API_CODES, materialContextSchema, recallResultSchema } from '@memory-weave/contracts';
+import {
+  API_CODES,
+  materialContextSchema,
+  recallResultSchema,
+  relationshipContextSchema,
+} from '@memory-weave/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { DatabaseTransaction } from '../../database/database.service';
@@ -33,6 +39,7 @@ export class ChatContextService {
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(TerminalService) private readonly terminals: TerminalService,
+    @Inject(RelationshipService) private readonly relationships: RelationshipService,
   ) {}
 
   /**
@@ -183,6 +190,9 @@ export class ChatContextService {
         tx,
       );
       if (capabilities.length) snapshot.terminalCapabilities = capabilities;
+      const relationMode = config.config.tasks.chat.providerId === 'test' ? 'test' : 'model';
+      const relationships = await this.relationships.snapshot(member, relationMode, tx);
+      if (relationships.length) snapshot.relationships = relationships;
       if (materialSummaryTaskId) snapshot.materialSummaryTaskId = materialSummaryTaskId;
       const materialContext = await selectMaterialContext(
         ownerId,
@@ -204,12 +214,23 @@ export class ChatContextService {
       snapshot.materials = snapshot.materials.map((item) => materialContextSchema.parse(item));
     // MySQL JSON 会调整字段顺序；每次按同一 schema 重建新格式，确保恢复时 inputText 字节一致。
     if (snapshot.recall) snapshot.recall = recallResultSchema.parse(snapshot.recall);
+    if (snapshot.relationships)
+      snapshot.relationships = snapshot.relationships.map((item) =>
+        relationshipContextSchema.parse(item),
+      );
     /** 组装聊天模型所需的上下文消息。 */
     const assemble = (): string =>
       JSON.stringify({
         ...(snapshot.materials?.length ? { materials: snapshot.materials } : {}),
         ...(snapshot.materialSummaryTaskId ? { materialSummary: 'scheduled' } : {}),
         ...(snapshot.recall ? { recall: snapshot.recall } : {}),
+        ...(snapshot.relationships?.length
+          ? {
+              relationships: snapshot.relationships.map(
+                ({ kind, topic, document, observedAt }) => ({ kind, topic, document, observedAt }),
+              ),
+            }
+          : {}),
         persona: {
           name: persona.document?.name ?? companion.name,
           document: persona.document,
@@ -288,6 +309,11 @@ export class ChatContextService {
           if (image) {
             delete image.observation;
             image.reason = 'image-not-in-reply-budget';
+            inputText = assemble();
+            continue;
+          }
+          if (snapshot.relationships?.length) {
+            snapshot.relationships.pop();
             inputText = assemble();
             continue;
           }

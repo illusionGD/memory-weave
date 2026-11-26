@@ -1,3 +1,4 @@
+import { scheduleRelationship } from '../relationships/relationship-execution';
 import { DatabaseService } from '../../database/database.service';
 import { adoptMemories } from './memory-records';
 import { Inject, Injectable } from '@nestjs/common';
@@ -102,6 +103,7 @@ export class MemoryExecutionService {
       )
         throw new ApiException(API_CODES.VERSION_CONFLICT);
       const outcomes = await adoptMemories(this.database, ownerId, current, output.data, tx);
+      await scheduleRelationship(this.database, ownerId, current, output.data, tx);
       await this.database.memoryBatches.update(
         ownerId,
         id,

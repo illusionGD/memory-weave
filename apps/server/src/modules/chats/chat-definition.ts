@@ -36,11 +36,12 @@ export function chatDefinitionForContext(context: ChatContext): ModelTaskDefinit
     context.materials?.length || context.materialSummaryTaskId
       ? chatMaterialDefinition
       : chatDefinition;
-  if (!context.terminalCapabilities?.length) return base;
-  return {
-    ...base,
-    systemPrompt:
-      base.systemPrompt +
-      '\nterminalCapabilities 仅记录本轮开始时有权且在线的目标终端诊断能力。聊天文本不会执行动作，不能声称调用已发出或完成。只有网关的实际结果才证明执行。',
-  };
+  let systemPrompt = base.systemPrompt;
+  if (context.terminalCapabilities?.length)
+    systemPrompt +=
+      '\nterminalCapabilities 仅记录本轮开始时有权且在线的目标终端诊断能力。聊天文本不会执行动作，不能声称调用已发出或完成。只有网关的实际结果才证明执行。';
+  if (context.relationships?.length)
+    systemPrompt +=
+      '\nrelationships 是本伴侣对当前用户的有来源状态，结合最新原文使用。inference 是不确定的认识。不要把对方偏好视为共同约定或把暂时情绪视为人格。可以温和保留分歧，不必直接表达每项内部感受。';
+  return systemPrompt === base.systemPrompt ? base : { ...base, systemPrompt };
 }

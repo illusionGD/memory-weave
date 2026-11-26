@@ -1,3 +1,4 @@
+import { RelationshipExecution } from '../relationships/relationship-execution';
 import { ActivityService } from '../activities/activity-service';
 import { MaterialSummaryService } from '../materials/material-summary.service';
 import { MaterialsService } from '../materials/materials.service';
@@ -38,6 +39,7 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
     @Inject(MaterialSummaryService) private readonly materialSummary: MaterialSummaryService,
     @Inject(MaterialsService) private readonly materials: MaterialsService,
+    @Inject(RelationshipExecution) private readonly relationships: RelationshipExecution,
     @Inject(ActivityService) private readonly activities: ActivityService,
     @Inject(ChatExecutionService) private readonly chats: ChatExecutionService,
     @Inject(TasksService) private readonly tasks: TasksService,
@@ -173,6 +175,8 @@ export class TaskWorkerService implements OnModuleDestroy {
         await this.memoryExecution.execute(lease);
       } else if (lease.input.kind === 'lifecycle_cleanup') {
         await this.lifecycle.execute(lease);
+      } else if (lease.input.kind === 'relationship_update') {
+        await this.relationships.execute(lease);
       } else if (lease.input.kind === 'activity') {
         await this.activities.execute(lease);
       } else if (lease.input.kind === 'material_summary') {

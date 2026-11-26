@@ -1,3 +1,4 @@
+import { relationshipContextSchema } from './relationships';
 import { terminalCapabilitySchema } from './terminals';
 import { materialContextSchema } from './materials';
 import { companionAvatarSchema } from './avatars';
@@ -92,6 +93,7 @@ const chatContextShape = {
   environment: z.literal('web'),
   /** 首次构建时确实在线的授权能力。执行前由网关重新检查。 */
   terminalCapabilities: z.array(terminalCapabilitySchema).max(32).optional(),
+  relationships: z.array(relationshipContextSchema).max(3).optional(),
   /** 构建时固定的用户显示名称，不是登录凭据。 */
   userName: z.string(),
 };

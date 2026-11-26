@@ -1,3 +1,6 @@
+import { RelationshipController } from './modules/relationships/relationship-controller';
+import { RelationshipService } from './modules/relationships/relationship-service';
+import { RelationshipExecution } from './modules/relationships/relationship-execution';
 import { ActivityController } from './modules/activities/activity-controller';
 import { ActivityService } from './modules/activities/activity-service';
 import { TerminalController } from './modules/terminals/terminal-controller';
@@ -112,6 +115,7 @@ class ApplicationModule {
         TasksController,
         TerminalController,
         ActivityController,
+        RelationshipController,
       ],
       providers: [
         MemoryExplorerService,
@@ -159,6 +163,8 @@ class ApplicationModule {
         TaskConfigurationService,
         TerminalService,
         ActivityService,
+        RelationshipExecution,
+        RelationshipService,
       ],
     };
   }

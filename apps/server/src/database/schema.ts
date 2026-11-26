@@ -1819,3 +1819,113 @@ export const activityVersions = mysqlTable(
     check('activity_versions_version_positive', sql`${table.version} > 0`),
   ],
 );
+
+/** 每个伴侣拥有自己的定向关系视图，版本按会话、对方成员和主题递增。 */
+export const relationshipStates = mysqlTable(
+  'relationship_states',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    counterpartMembershipId: uuid('counterpart_membership_id').notNull(),
+    kind: varchar('kind', { length: 24 })
+      .$type<import('@memory-weave/contracts').RelationshipKind>()
+      .notNull(),
+    topic: varchar('topic', { length: 40 }).notNull(),
+    currentVersion: int('current_version').notNull(),
+    lastSequence: int('last_sequence').notNull(),
+  },
+  (table) => [
+    unique('rel_state_owner_id').on(table.ownerId, table.id),
+    unique('rel_state_direction').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.conversationId,
+      table.counterpartMembershipId,
+      table.kind,
+      table.topic,
+    ),
+    foreignKey({
+      name: 'rel_state_companion_ref',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+    foreignKey({
+      name: 'rel_state_member_ref',
+      columns: [table.ownerId, table.conversationId, table.counterpartMembershipId],
+      foreignColumns: [
+        conversationMembers.ownerId,
+        conversationMembers.conversationId,
+        conversationMembers.id,
+      ],
+    }),
+    check(
+      'rel_state_valid',
+      sql`${table.runtimeEpoch} > 0 AND ${table.currentVersion} > 0 AND ${table.lastSequence} > 0`,
+    ),
+  ],
+);
+
+/** 实际采用的认识版本保存逐条引用，删除来源时当前状态保持失效。 */
+export const relationshipVersions = mysqlTable(
+  'relationship_versions',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    stateId: uuid('state_id').notNull(),
+    version: int('version').notNull(),
+    taskId: uuid('task_id').notNull(),
+    document: json('document').$type<import('@memory-weave/contracts').RelationshipDocument>(),
+    evidence: json('evidence').$type<import('@memory-weave/contracts').RelationshipEvidence[]>(),
+    mode: varchar('mode', { length: 10 }).$type<'test' | 'model'>().notNull(),
+    observedAt: datetime('observed_at', { fsp: 3 }).notNull(),
+    expiresAt: datetime('expires_at', { fsp: 3 }),
+    invalidatedAt: datetime('invalidated_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('rel_version_owner_id').on(table.ownerId, table.id),
+    unique('rel_version_number').on(table.ownerId, table.stateId, table.version),
+    unique('rel_version_batch').on(table.ownerId, table.stateId, table.taskId),
+    foreignKey({
+      name: 'rel_version_state_ref',
+      columns: [table.ownerId, table.stateId],
+      foreignColumns: [relationshipStates.ownerId, relationshipStates.id],
+    }),
+    foreignKey({
+      name: 'rel_version_task_ref',
+      columns: [table.ownerId, table.taskId],
+      foreignColumns: [tasks.ownerId, tasks.id],
+    }),
+  ],
+);
+
+/** 记录形成版本时实际输入的消息，支持精确删除和下游使用。 */
+export const relationshipSources = mysqlTable(
+  'relationship_sources',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    versionId: uuid('version_id').notNull(),
+    messageId: uuid('message_id').notNull(),
+    contentVersion: int('content_version').notNull(),
+  },
+  (table) => [
+    unique('rel_source_unique').on(
+      table.ownerId,
+      table.versionId,
+      table.messageId,
+      table.contentVersion,
+    ),
+    index('rel_source_message').on(table.ownerId, table.messageId),
+    foreignKey({
+      name: 'rel_source_version_ref',
+      columns: [table.ownerId, table.versionId],
+      foreignColumns: [relationshipVersions.ownerId, relationshipVersions.id],
+    }),
+  ],
+);

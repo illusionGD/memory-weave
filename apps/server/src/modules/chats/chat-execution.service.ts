@@ -1,3 +1,4 @@
+import { RelationshipService } from '../relationships/relationship-service';
 import { MaterialSummaryService } from '../materials/material-summary.service';
 import { MaterialsService } from '../materials/materials.service';
 import { DatabaseService } from '../../database/database.service';
@@ -52,6 +53,7 @@ export class ChatExecutionService {
     @Inject(ConversationsService) private readonly originals: ConversationsService,
     @Inject(MaterialSummaryService) private readonly summaries: MaterialSummaryService,
     @Inject(MaterialsService) private readonly materials: MaterialsService,
+    @Inject(RelationshipService) private readonly relationships: RelationshipService,
     @Inject(ChatContextService) private readonly contexts: ChatContextService,
   ) {}
 
@@ -121,6 +123,7 @@ export class ChatExecutionService {
           .values(
             [
               ...built.context.sources,
+              ...(built.context.relationships ?? []).flatMap((state) => state.sources),
               ...(built.context.recall?.querySources ?? []).map((source) => ({
                 messageId: source.messageId,
                 contentVersion: source.contentVersion,
@@ -371,6 +374,17 @@ export class ChatExecutionService {
     if (!thread || !run || thread.currentRunId !== run.id || run.interruptedAt)
       throw new ApiException(API_CODES.TASK_LEASE_LOST);
     if (run.context) {
+      if (run.context.relationships?.length) {
+        const member = await requireCompanionMember(
+          this.database,
+          ownerId,
+          thread.companionId,
+          thread.runtimeEpoch,
+          run.conversationId,
+          tx,
+        );
+        await this.relationships.validateSnapshot(member, run.context.relationships, tx);
+      }
       if (run.context.recall)
         await validateRecallSnapshot(
           this.database,
