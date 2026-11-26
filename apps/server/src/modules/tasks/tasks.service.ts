@@ -197,7 +197,8 @@ export class TasksService {
           row.kind !== 'activity' &&
           row.kind !== 'relationship_update' &&
           row.kind !== 'reflection' &&
-          row.kind !== 'growth',
+          row.kind !== 'growth' &&
+          row.kind !== 'autonomy',
       ).length;
       const kinds: Task['kind'][] = [];
       if (ordinary < current.config.maxConcurrent)
@@ -213,12 +214,24 @@ export class TasksService {
       if (!active.some((row) => row.kind === 'material_fetch')) kinds.push('material_fetch');
       if (
         !active.some((row) =>
-          ['material_summary', 'activity', 'relationship_update', 'reflection', 'growth'].includes(
-            row.kind,
-          ),
+          [
+            'material_summary',
+            'activity',
+            'relationship_update',
+            'reflection',
+            'growth',
+            'autonomy',
+          ].includes(row.kind),
         )
       )
-        kinds.push('material_summary', 'activity', 'relationship_update', 'reflection', 'growth');
+        kinds.push(
+          'material_summary',
+          'activity',
+          'relationship_update',
+          'reflection',
+          'growth',
+          'autonomy',
+        );
       if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
       if (!kinds.length) return null;
       const row = await this.database.tasks.findOne(
@@ -231,7 +244,7 @@ export class TasksService {
             lte(tasks.availableAt, now),
           ),
           orderBy: [
-            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization','group_turn') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary', 'relationship_update', 'reflection', 'growth') THEN 5 ELSE 2 END`,
+            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization','group_turn') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary', 'relationship_update', 'reflection', 'growth', 'autonomy') THEN 5 ELSE 2 END`,
             asc(tasks.availableAt),
             asc(tasks.id),
           ],

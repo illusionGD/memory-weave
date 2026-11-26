@@ -1,3 +1,5 @@
+import { AutonomyBudget } from '../autonomy/autonomy-budget';
+import { currentAutonomyPolicy } from '../autonomy/autonomy-policy';
 import { stageReflectionEvent } from '../reflections/reflection-events';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_CODES } from '@memory-weave/contracts';
@@ -70,6 +72,7 @@ export class ActivityService {
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
     @Inject(TerminalService) private readonly terminals: TerminalService,
+    @Inject(AutonomyBudget) private readonly budget: AutonomyBudget,
   ) {}
 
   /** 同一创建命令重放取回原活动版本。 */
@@ -88,6 +91,35 @@ export class ActivityService {
       const root = await this.root(ownerId, id, tx);
       return this.schedule(root, 1, specification, requestId, hash, config.version, tx, now);
     });
+  }
+
+  /** 自主机会在已校验授权的同一事务中创建实际活动。 */
+  async createAutonomous(
+    ownerId: string,
+    scope: ActivityScope,
+    specification: ActivityGoal,
+    requestId: string,
+    configVersion: number,
+    policyVersion: number,
+    tx: DatabaseTransaction,
+    now: Date,
+  ): Promise<Activity> {
+    const hash = fingerprint({ scope, specification, origin: 'companion', policyVersion });
+    const replay = await this.replay(ownerId, requestId, hash, tx);
+    if (replay) return replay;
+    const id = randomUUID();
+    await tx.insert(activities).values({ ownerId, id, ...scope, origin: 'companion' });
+    return this.schedule(
+      await this.root(ownerId, id, tx),
+      1,
+      specification,
+      requestId,
+      hash,
+      configVersion,
+      tx,
+      now,
+      policyVersion,
+    );
   }
 
   /** 目标变更与取消旧租约、创建新任务在同一事务。 */
@@ -265,7 +297,19 @@ export class ActivityService {
     const ownerId = lease.ownerId;
     const load = async (tx: DatabaseTransaction) => {
       await this.jobs.guardDispatch(ownerId, tx, lease);
-      return this.target(ownerId, job, lease.task.id, tx);
+      const target = await this.target(ownerId, job, lease.task.id, tx);
+      if (job.autonomyPolicyVersion !== undefined) {
+        const { companionId, runtimeEpoch, conversationId } = target.root;
+        const policy = await currentAutonomyPolicy(ownerId, companionId, runtimeEpoch, tx);
+        if (
+          !this.budget.limits.enabled ||
+          !policy?.enabled ||
+          policy.version !== job.autonomyPolicyVersion ||
+          policy.conversationId !== conversationId
+        )
+          throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
+      }
+      return target;
     };
     const initial = await this.store.locked(ownerId, async (tx, now) => {
       const { root, record } = await load(tx);
@@ -386,20 +430,34 @@ export class ActivityService {
     const hash = createHash('sha256').update(`activity-v1:${lease.task.id}:${step}`).digest('hex');
     const requestId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
     const inputText = JSON.stringify(input);
-    const call = await this.models.execute(
-      lease.ownerId,
-      {
-        requestId,
-        expectedConfigVersion: configVersion,
-        role: 'chat',
-        operation: 'text',
-        inputText,
-        lane: 'background',
-      },
-      modelSteps[step],
-      lease.task.scope,
-      guard,
-    );
+    const autonomous =
+      lease.input.kind === 'activity' && lease.input.autonomyPolicyVersion !== undefined;
+    let call;
+    try {
+      call = await this.models.execute(
+        lease.ownerId,
+        {
+          requestId,
+          expectedConfigVersion: configVersion,
+          role: 'chat',
+          operation: 'text',
+          inputText,
+          lane: 'background',
+        },
+        modelSteps[step],
+        lease.task.scope,
+        async (ownerId, tx) => {
+          await guard(ownerId, tx);
+          if (autonomous)
+            await this.budget.model(ownerId, lease.task.scope.companionId!, requestId, tx);
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof ApiException) || error.code !== API_CODES.AUTONOMY_DAILY_LIMIT)
+        throw error;
+      await this.jobs.park(lease, 'autonomy_generation_budget', this.budget.nextDay(new Date()));
+      return null;
+    }
     if (call.status === 'unknown' || call.status === 'running') {
       await this.jobs.block(lease, 'model_result_unknown');
       return null;
@@ -422,6 +480,7 @@ export class ActivityService {
     configVersion: number,
     tx: DatabaseTransaction,
     now: Date,
+    autonomyPolicyVersion?: number,
   ): Promise<Activity> {
     const { input, actionSourceMessageId } = await this.assess(root, specification, tx, now);
     const taskId = randomUUID();
@@ -432,7 +491,13 @@ export class ActivityService {
         requestKey: `activity:${requestId}`,
         fingerprint: hash,
         kind: 'activity',
-        input: { kind: 'activity', activityId: root.id, version, configVersion },
+        input: {
+          kind: 'activity',
+          activityId: root.id,
+          version,
+          configVersion,
+          ...(autonomyPolicyVersion === undefined ? {} : { autonomyPolicyVersion }),
+        },
         scope: activityScope(root),
         totalSteps: 2,
         status: input.state === 'ready' ? 'queued' : input.state,
@@ -613,6 +678,7 @@ export class ActivityService {
     return {
       id: root.id,
       scope: activityScope(root),
+      origin: root.origin,
       version: record.version,
       currentVersion: root.currentVersion,
       specification: requireSpecification(record),

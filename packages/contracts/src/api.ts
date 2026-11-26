@@ -58,6 +58,7 @@ export const API_CODES = {
   MODEL_BUDGET_EXCEEDED: 42901,
   /** 当前交互或后台并发容量已占满。 */
   MODEL_CAPACITY_EXCEEDED: 42902,
+  AUTONOMY_DAILY_LIMIT: 42905,
   /** 模型返回内容未通过结构、完成状态或维度校验。 */
   MODEL_OUTPUT_INVALID: 50201,
   /** 外部模型返回明确失败；原始错误不向客户端输出。 */
@@ -169,6 +170,10 @@ export const API_RESPONSES = {
   [API_CODES.MODEL_BUDGET_EXCEEDED]: {
     statusCode: 429,
     message: '模型调用额度不足，未发送新请求。',
+  },
+  [API_CODES.AUTONOMY_DAILY_LIMIT]: {
+    statusCode: 429,
+    message: '自主生成额度已达到当前时段上限。',
   },
   [API_CODES.MODEL_CAPACITY_EXCEEDED]: {
     statusCode: 429,

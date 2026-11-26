@@ -15,6 +15,7 @@
 - [F16 自主人格成长](docs/features/f16-growth.md)
 - [F17 会话成员和历史授权](docs/features/f17-membership.md)
 - [F18 多参与者顺序接话](docs/features/f18-group-turns.md)
+- [F19 自主探索、活动与联系](docs/features/f19-autonomy.md)
 - [F11 材料阅读与升级](docs/features/f11-materials.md)
 - [Pino 日志、Nest 开发启动与 PM2 轮转](docs/features/logging-and-dev.md)
 - [模型 JSON 配置与环境区分](docs/features/model-json-config.md)

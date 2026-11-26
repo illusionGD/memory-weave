@@ -1,3 +1,6 @@
+import { AutonomyContacts } from '../autonomy/autonomy-contacts';
+import { AutonomyExecution } from '../autonomy/autonomy-execution';
+import { AutonomyService } from '../autonomy/autonomy-service';
 import { GroupTurnExecution } from '../group-turns/group-turn-execution';
 import { GrowthExecution } from '../growth/growth-execution';
 import { ReflectionExecution } from '../reflections/reflection-execution';
@@ -43,6 +46,9 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
     @Inject(MaterialSummaryService) private readonly materialSummary: MaterialSummaryService,
     @Inject(MaterialsService) private readonly materials: MaterialsService,
+    @Inject(AutonomyExecution) private readonly autonomy: AutonomyExecution,
+    @Inject(AutonomyContacts) private readonly contacts: AutonomyContacts,
+    @Inject(AutonomyService) private readonly autonomyPlanning: AutonomyService,
     @Inject(GroupTurnExecution) private readonly groupTurns: GroupTurnExecution,
     @Inject(GrowthExecution) private readonly growth: GrowthExecution,
     @Inject(ReflectionExecution) private readonly reflection: ReflectionExecution,
@@ -114,6 +120,8 @@ export class TaskWorkerService implements OnModuleDestroy {
       await this.materials.sweep(ownerId);
       await this.activities.wake(ownerId);
       await this.reflectionPlanning.wake(ownerId);
+      await this.contacts.deliver(ownerId);
+      await this.autonomyPlanning.wake(ownerId);
       await this.memories.schedule(ownerId);
       if (!this.indexing)
         this.indexing = this.indexes
@@ -184,6 +192,8 @@ export class TaskWorkerService implements OnModuleDestroy {
         await this.memoryExecution.execute(lease);
       } else if (lease.input.kind === 'lifecycle_cleanup') {
         await this.lifecycle.execute(lease);
+      } else if (lease.input.kind === 'autonomy') {
+        await this.autonomy.execute(lease);
       } else if (lease.input.kind === 'group_turn') {
         await this.groupTurns.execute(lease);
       } else if (lease.input.kind === 'growth') {

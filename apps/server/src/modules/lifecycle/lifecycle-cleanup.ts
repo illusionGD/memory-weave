@@ -1,3 +1,4 @@
+import { cleanupAutonomyPage } from '../autonomy/autonomy-cleanup';
 import { cleanupGroupTurnPage } from '../group-turns/group-turn-cleanup';
 import { cleanupGrowthPage } from '../growth/growth-cleanup';
 import { cleanupReflectionPage } from '../reflections/reflection-cleanup';
@@ -61,6 +62,7 @@ export const LIFECYCLE_STAGES = [
   'reflections',
   'growth',
   'group_turns',
+  'autonomy',
 ] as const;
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */
 export type LifecycleRecord = typeof lifecycleOperations.$inferSelect;
@@ -109,6 +111,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (
       ),
     );
   const stage = LIFECYCLE_STAGES[operation.stage];
+  if (stage === 'autonomy') return cleanupAutonomyPage(database, ownerId, tx, operation, limit);
   if (stage === 'group_turns') return cleanupGroupTurnPage(database, ownerId, tx, operation, limit);
   if (stage === 'growth') return cleanupGrowthPage(database, ownerId, tx, operation, limit);
   if (stage === 'reflections')

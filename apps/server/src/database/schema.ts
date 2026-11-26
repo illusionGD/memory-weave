@@ -1759,6 +1759,9 @@ export const activities = mysqlTable(
     runtimeEpoch: int('runtime_epoch').notNull(),
     conversationId: uuid('conversation_id').notNull(),
     currentVersion: int('current_version').notNull().default(1),
+    origin: varchar('origin', { length: 16, enum: ['user', 'companion'] })
+      .notNull()
+      .default('user'),
     createdAt: createdAt(),
   },
   (table) => [
@@ -2396,6 +2399,142 @@ export const groupTurnSteps = mysqlTable(
       name: 'group_turn_step_turn_ref',
       columns: [table.ownerId, table.turnId],
       foreignColumns: [groupTurns.ownerId, groupTurns.id],
+    }),
+  ],
+);
+
+/** 用户对指定实例及会话的自主活动和联系许可。 */
+export const autonomyPolicies = mysqlTable(
+  'autonomy_policies',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    version: int('version').notNull(),
+    enabled: boolean('enabled').notNull(),
+    contactsEnabled: boolean('contacts_enabled').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('autonomy_policy_version').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.version,
+    ),
+    unique('autonomy_policy_request').on(table.ownerId, table.companionId, table.requestId),
+    index('autonomy_policy_scan').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.version,
+    ),
+  ],
+);
+
+/** 实际机会、开始的模型尝试和已经发布的联系独立计量。 */
+export const autonomyUsage = mysqlTable(
+  'autonomy_usage',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    companionId: uuid('companion_id'),
+    kind: varchar('kind', { length: 16, enum: ['exploration', 'model', 'contact'] }).notNull(),
+    key: varchar('event_key', { length: 85 }).notNull(),
+    timeZone: varchar('time_zone', { length: 80 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('autonomy_usage_event').on(table.ownerId, table.kind, table.key),
+    index('autonomy_usage_window').on(
+      table.ownerId,
+      table.kind,
+      table.companionId,
+      table.createdAt,
+    ),
+  ],
+);
+
+/** 机会和采用结果固定到授权版本及该任务身份。 */
+export const autonomyOpportunities = mysqlTable(
+  'autonomy_opportunities',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    policyVersion: int('policy_version').notNull(),
+    mode: varchar('mode', { length: 10, enum: ['test', 'model'] }).notNull(),
+    outcome: varchar('outcome', { length: 16 })
+      .$type<import('@memory-weave/contracts').AutonomyOpportunity['outcome']>()
+      .notNull(),
+    reason: varchar('reason', { length: 64 }),
+    explanation: varchar('explanation', { length: 400 }),
+    preparation:
+      json('preparation').$type<
+        import('../modules/autonomy/autonomy-execution').AutonomyPreparation
+      >(),
+    sourceMessageId: uuid('source_message_id'),
+    activityId: uuid('activity_id'),
+    contactId: uuid('contact_id'),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('autonomy_opportunity_owner_id').on(table.ownerId, table.id),
+    index('autonomy_opportunity_view').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.id,
+    ),
+    foreignKey({
+      name: 'autonomy_opportunity_task_ref',
+      columns: [table.ownerId, table.id],
+      foreignColumns: [tasks.ownerId, tasks.id],
+    }),
+  ],
+);
+
+/** 联系意向在实际发布前可暂缓、取消或失效。 */
+export const contactIntents = mysqlTable(
+  'contact_intents',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    opportunityId: uuid('opportunity_id').notNull(),
+    policyVersion: int('policy_version').notNull(),
+    state: varchar('state', { length: 16 })
+      .$type<import('@memory-weave/contracts').ContactIntent['state']>()
+      .notNull(),
+    reason: varchar('reason', { length: 64 }),
+    explanation: varchar('explanation', { length: 400 }),
+    text: text('text'),
+    sourceMessageId: uuid('source_message_id'),
+    sourceContentVersion: int('source_content_version'),
+    messageId: uuid('message_id'),
+    expiresAt: datetime('expires_at', { fsp: 3 }).notNull(),
+    publishedAt: datetime('published_at', { fsp: 3 }),
+    acknowledgedAt: datetime('acknowledged_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('contact_opportunity').on(table.ownerId, table.opportunityId),
+    index('contact_intent_dispatch').on(table.ownerId, table.state, table.createdAt),
+    index('contact_intent_cooldown').on(table.ownerId, table.publishedAt),
+    foreignKey({
+      name: 'contact_opportunity_ref',
+      columns: [table.ownerId, table.opportunityId],
+      foreignColumns: [autonomyOpportunities.ownerId, autonomyOpportunities.id],
     }),
   ],
 );

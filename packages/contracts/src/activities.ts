@@ -75,6 +75,7 @@ export const activityArtifactSchema = z.strictObject({
 export const activitySchema = z.strictObject({
   id: uuidSchema,
   scope: activityScopeSchema,
+  origin: z.enum(['user', 'companion']).default('user'),
   version: positiveIntegerSchema,
   currentVersion: positiveIntegerSchema,
   specification: activityGoalSchema,

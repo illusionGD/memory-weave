@@ -1,3 +1,8 @@
+import { AutonomyController } from './modules/autonomy/autonomy-controller';
+import { AutonomyBudget } from './modules/autonomy/autonomy-budget';
+import { AutonomyContacts } from './modules/autonomy/autonomy-contacts';
+import { AutonomyExecution } from './modules/autonomy/autonomy-execution';
+import { AutonomyService } from './modules/autonomy/autonomy-service';
 import { GroupTurnsController } from './modules/group-turns/group-turns.controller';
 import { GroupTurnsService } from './modules/group-turns/group-turns.service';
 import { GroupTurnExecution } from './modules/group-turns/group-turn-execution';
@@ -127,6 +132,7 @@ class ApplicationModule {
         ConversationsController,
         ConversationMembershipController,
         GroupTurnsController,
+        AutonomyController,
         ReceivingController,
         ModelsController,
         TasksController,
@@ -176,6 +182,10 @@ class ApplicationModule {
         ConversationMembership,
         GroupTurnsService,
         GroupTurnExecution,
+        AutonomyBudget,
+        AutonomyContacts,
+        AutonomyExecution,
+        AutonomyService,
         ReceivingService,
         WorkspaceService,
         ModelConfigurationService,

@@ -1,3 +1,5 @@
+import { autonomyConfigurationSchema } from './modules/autonomy/autonomy-config';
+import type { AutonomyConfiguration } from './modules/autonomy/autonomy-config';
 import { growthConfigurationSchema } from './modules/growth/growth-config';
 import type { GrowthConfiguration } from './modules/growth/growth-config';
 import { reflectionConfigurationSchema } from './modules/reflections/reflection-config';
@@ -26,6 +28,7 @@ export interface ServerConfig {
   relationshipConfiguration?: RelationshipConfiguration;
   reflectionConfiguration?: ReflectionConfiguration;
   growthConfiguration?: GrowthConfiguration;
+  autonomyConfiguration?: AutonomyConfiguration;
   /** 集中材料解析和获取预算。 */
   materialConfiguration?: MaterialConfiguration;
   /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
@@ -269,6 +272,14 @@ export function loadServerConfig(
   } catch {
     throw new ConfigurationError('材料配置无效，请检查 MATERIAL_CONFIG_JSON。');
   }
+  let autonomyConfiguration: AutonomyConfiguration;
+  try {
+    autonomyConfiguration = autonomyConfigurationSchema.parse(
+      JSON.parse(environment.AUTONOMY_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('自主活动配置无效，请检查 AUTONOMY_CONFIG_JSON。');
+  }
   let growthConfiguration: GrowthConfiguration;
   try {
     growthConfiguration = growthConfigurationSchema.parse(
@@ -306,6 +317,7 @@ export function loadServerConfig(
     relationshipConfiguration,
     reflectionConfiguration,
     growthConfiguration,
+    autonomyConfiguration,
     materialConfiguration,
     logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),
