@@ -1,3 +1,4 @@
+import { interruptGroupTurn } from '../group-turns/group-turn-store';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_CODES } from '@memory-weave/contracts';
 import type {
@@ -210,5 +211,6 @@ export class ConversationMembership {
       );
     for (const row of rows)
       await this.jobs.controlInTransaction(ownerId, tx, now, row.id, 'cancel');
+    if (!companionId) await interruptGroupTurn(ownerId, conversationId, now, tx, this.jobs);
   }
 }

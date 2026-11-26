@@ -1,3 +1,6 @@
+import { GroupTurnsController } from './modules/group-turns/group-turns.controller';
+import { GroupTurnsService } from './modules/group-turns/group-turns.service';
+import { GroupTurnExecution } from './modules/group-turns/group-turn-execution';
 import { ConversationMembershipController } from './modules/conversations/conversation-membership.controller';
 import { ConversationBackground } from './modules/conversations/conversation-background.service';
 import { ConversationHistory } from './modules/conversations/conversation-history.service';
@@ -123,6 +126,7 @@ class ApplicationModule {
         CompanionPersonasController,
         ConversationsController,
         ConversationMembershipController,
+        GroupTurnsController,
         ReceivingController,
         ModelsController,
         TasksController,
@@ -170,6 +174,8 @@ class ApplicationModule {
         ConversationHistory,
         ConversationInvitations,
         ConversationMembership,
+        GroupTurnsService,
+        GroupTurnExecution,
         ReceivingService,
         WorkspaceService,
         ModelConfigurationService,

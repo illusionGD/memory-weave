@@ -1,3 +1,5 @@
+import { interruptGroupTurn } from '../group-turns/group-turn-store';
+import { TasksService } from '../tasks/tasks.service';
 import { requireOpenConversation } from './membership-store';
 import type {
   ConversationDetail,
@@ -47,7 +49,10 @@ import {
 @Injectable()
 export class ConversationsService {
   /** 初始化会话与消息管理服务。 */
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(TasksService) private readonly jobs: TasksService,
+  ) {}
 
   /**
    * 创建会话、初始成员及可见授权。
@@ -405,6 +410,8 @@ export class ConversationsService {
       { lastSequence: sequence, version: conversation.version + 1 },
       tx,
     );
+    if (member.kind === 'user' && conversation.kind === 'group')
+      await interruptGroupTurn(ownerId, conversationId, publishedAt, tx, this.jobs, sequence);
     const recipients = await tx
       .select({ member: conversationMembers })
       .from(conversationMembers)

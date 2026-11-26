@@ -201,7 +201,13 @@ export class TasksService {
       ).length;
       const kinds: Task['kind'][] = [];
       if (ordinary < current.config.maxConcurrent)
-        kinds.push('diagnostic', 'model_probe', 'persona_initialization', 'chat_reply');
+        kinds.push(
+          'diagnostic',
+          'model_probe',
+          'persona_initialization',
+          'chat_reply',
+          'group_turn',
+        );
       if (!active.some((row) => row.kind === 'memory_extraction' || row.kind === 'memory_index'))
         kinds.push('memory_extraction', 'memory_index');
       if (!active.some((row) => row.kind === 'material_fetch')) kinds.push('material_fetch');
@@ -225,7 +231,7 @@ export class TasksService {
             lte(tasks.availableAt, now),
           ),
           orderBy: [
-            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary', 'relationship_update', 'reflection', 'growth') THEN 5 ELSE 2 END`,
+            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization','group_turn') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary', 'relationship_update', 'reflection', 'growth') THEN 5 ELSE 2 END`,
             asc(tasks.availableAt),
             asc(tasks.id),
           ],
@@ -642,6 +648,16 @@ export class TasksService {
     if (row.input.kind === 'redacted') throw new ApiException(API_CODES.LIFECYCLE_RESTRICTED);
     if (scope.companionId === null && scope.runtimeEpoch === null && scope.conversationId === null)
       return;
+    if (
+      row.kind === 'group_turn' &&
+      !scope.companionId &&
+      !scope.runtimeEpoch &&
+      scope.conversationId
+    ) {
+      const conversation = await requireConversation(ownerId, scope.conversationId, tx, true);
+      if (conversation.closedAt) throw new ApiException(API_CODES.CONVERSATION_CLOSED);
+      return;
+    }
     if (
       row.kind === 'persona_initialization' &&
       scope.companionId &&

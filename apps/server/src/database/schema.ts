@@ -2317,3 +2317,85 @@ export const conversationMembershipCommands = mysqlTable(
     }),
   ],
 );
+
+/** 会话只有一个当前接话指针，取消或插话使旧轮次失去写回资格。 */
+export const groupTurnHeads = mysqlTable(
+  'group_turn_heads',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    conversationId: uuid('conversation_id').primaryKey(),
+    turnId: uuid('turn_id').notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: 'group_turn_head_conversation_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+  ],
+);
+
+/** 触发和接话次序分别持久化，只有实际发布推进发言状态。 */
+export const groupTurns = mysqlTable(
+  'group_turns',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    id: uuid('id').primaryKey(),
+    conversationId: uuid('conversation_id').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    triggerMessageId: uuid('trigger_message_id').notNull(),
+    triggerContentVersion: int('trigger_content_version').notNull(),
+    triggerSequence: int('trigger_sequence').notNull(),
+    origin: varchar('origin', { length: 16, enum: ['user', 'autonomous'] }).notNull(),
+    addressing: varchar('addressing', { length: 16, enum: ['any', 'mention', 'each'] }).notNull(),
+    mode: varchar('mode', { length: 10, enum: ['test', 'model'] }).notNull(),
+    interruptedAt: datetime('interrupted_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('group_turn_owner_id').on(table.ownerId, table.id),
+    unique('group_turn_request').on(table.ownerId, table.conversationId, table.requestId),
+    foreignKey({
+      name: 'group_turn_task_ref',
+      columns: [table.ownerId, table.id],
+      foreignColumns: [tasks.ownerId, tasks.id],
+    }),
+    foreignKey({
+      name: 'group_turn_conversation_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+  ],
+);
+
+/** 每个发言机会在前一位发布后固定本人的上下文。 */
+export const groupTurnSteps = mysqlTable(
+  'group_turn_steps',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    turnId: uuid('turn_id').notNull(),
+    ordinal: int('ordinal').notNull(),
+    membershipId: uuid('membership_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    status: varchar('status', { length: 16 })
+      .$type<import('@memory-weave/contracts').GroupTurnStep['state']>()
+      .notNull(),
+    preparation:
+      json('preparation').$type<
+        import('../modules/group-turns/group-turn-context').GroupPreparation
+      >(),
+    publishedMessageId: uuid('published_message_id'),
+    modelCallId: uuid('model_call_id'),
+    completedAt: datetime('completed_at', { fsp: 3 }),
+  },
+  (table) => [
+    unique('group_turn_step_order').on(table.ownerId, table.turnId, table.ordinal),
+    foreignKey({
+      name: 'group_turn_step_turn_ref',
+      columns: [table.ownerId, table.turnId],
+      foreignColumns: [groupTurns.ownerId, groupTurns.id],
+    }),
+  ],
+);
