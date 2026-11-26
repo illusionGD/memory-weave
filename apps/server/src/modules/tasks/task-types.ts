@@ -3,6 +3,7 @@ export type TaskInput =
   | { kind: 'memory_index'; indexId: string; modelRequestId: string }
   | { kind: 'lifecycle_cleanup'; operationId: string }
   | { kind: 'memory_batch'; batchId: string }
+  | { kind: 'activity'; activityId: string; version: number; configVersion: number }
   | { kind: 'redacted' }
   | { kind: 'chat_reply'; runId: string }
   | { kind: 'material_fetch'; materialId: string; messageId: string; contentVersion: number }

@@ -1,3 +1,4 @@
+import { ActivityService } from '../activities/activity-service';
 import { MaterialSummaryService } from '../materials/material-summary.service';
 import { MaterialsService } from '../materials/materials.service';
 import { RetrievalIndexService } from '../retrieval/retrieval-index.service';
@@ -37,6 +38,7 @@ export class TaskWorkerService implements OnModuleDestroy {
     @Inject(LifecycleExecutionService) private readonly lifecycle: LifecycleExecutionService,
     @Inject(MaterialSummaryService) private readonly materialSummary: MaterialSummaryService,
     @Inject(MaterialsService) private readonly materials: MaterialsService,
+    @Inject(ActivityService) private readonly activities: ActivityService,
     @Inject(ChatExecutionService) private readonly chats: ChatExecutionService,
     @Inject(TasksService) private readonly tasks: TasksService,
     @Inject(TaskOutboxService) private readonly outbox: TaskOutboxService,
@@ -100,6 +102,7 @@ export class TaskWorkerService implements OnModuleDestroy {
     if (current.config.enabled) {
       await this.outbox.dispatch(ownerId);
       await this.materials.sweep(ownerId);
+      await this.activities.wake(ownerId);
       await this.memories.schedule(ownerId);
       if (!this.indexing)
         this.indexing = this.indexes
@@ -170,6 +173,8 @@ export class TaskWorkerService implements OnModuleDestroy {
         await this.memoryExecution.execute(lease);
       } else if (lease.input.kind === 'lifecycle_cleanup') {
         await this.lifecycle.execute(lease);
+      } else if (lease.input.kind === 'activity') {
+        await this.activities.execute(lease);
       } else if (lease.input.kind === 'material_summary') {
         await this.materialSummary.execute(lease);
       } else if (lease.input.kind === 'material_fetch') {

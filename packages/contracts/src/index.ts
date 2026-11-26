@@ -124,3 +124,4 @@ export * from './memory-explorer';
 export * from './materials';
 
 export * from './terminals';
+export * from './activities';

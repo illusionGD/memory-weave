@@ -1738,3 +1738,84 @@ export const terminalActions = mysqlTable(
     }),
   ],
 );
+
+/** 活动身份与代次固定，修改目标只推进当前版本。 */
+export const activities = mysqlTable(
+  'activities',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    currentVersion: int('current_version').notNull().default(1),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('activities_owner_id').on(table.ownerId, table.id),
+    index('activities_scope').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.conversationId,
+      table.id,
+    ),
+    foreignKey({
+      name: 'activities_companion_ref',
+      columns: [table.ownerId, table.companionId],
+      foreignColumns: [companions.ownerId, companions.id],
+    }),
+    foreignKey({
+      name: 'activities_conversation_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+    check(
+      'activities_version_positive',
+      sql`${table.currentVersion} > 0 AND ${table.runtimeEpoch} > 0`,
+    ),
+  ],
+);
+
+/** 保存同一目标版本的实际检查点、成果与交付确认，保留来源删除边界。 */
+export const activityVersions = mysqlTable(
+  'activity_versions',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    activityId: uuid('activity_id').notNull(),
+    version: int('version').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }),
+    taskId: uuid('task_id').notNull(),
+    specification: json('specification').$type<import('@memory-weave/contracts').ActivityGoal>(),
+    sourceMessageId: uuid('source_message_id'),
+    actionSourceMessageId: uuid('action_source_message_id'),
+    preparation:
+      json('preparation').$type<
+        import('../modules/activities/activity-input').ActivityPreparation
+      >(),
+    artifact: json('artifact').$type<import('@memory-weave/contracts').ActivityArtifact>(),
+    acknowledgedAt: datetime('acknowledged_at', { fsp: 3 }),
+    redactedAt: datetime('redacted_at', { fsp: 3 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('activity_versions_version').on(table.ownerId, table.activityId, table.version),
+    unique('activity_versions_request').on(table.ownerId, table.requestId),
+    index('activity_versions_source').on(table.ownerId, table.sourceMessageId),
+    index('activity_versions_action_source').on(table.ownerId, table.actionSourceMessageId),
+    foreignKey({
+      name: 'activity_versions_activity_ref',
+      columns: [table.ownerId, table.activityId],
+      foreignColumns: [activities.ownerId, activities.id],
+    }),
+    foreignKey({
+      name: 'activity_versions_task_ref',
+      columns: [table.ownerId, table.taskId],
+      foreignColumns: [tasks.ownerId, tasks.id],
+    }),
+    check('activity_versions_version_positive', sql`${table.version} > 0`),
+  ],
+);

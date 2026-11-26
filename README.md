@@ -9,6 +9,7 @@
 较早版本已将业务表从 42 张合并为 41 张，并重建初始化基线。只有尚未升级到 `0000_development_baseline` 的旧开发库需要停止后端再执行 `pnpm db:reset`；该命令清空开发数据及对应向量、头像和 Redis 命名空间。已使用该基线的环境和新安装均执行 `pnpm db:migrate`，以应用 F11 的材料结构。旧库重建步骤见 [数据库访问说明](docs/features/crud-repositories.md#较早开发库的结构升级)。
 
 - [F12 终端协议与回执](docs/features/f12-terminals.md)
+- [F13 委托活动与成果](docs/features/f13-activities.md)
 - [F11 材料阅读与升级](docs/features/f11-materials.md)
 - [Pino 日志、Nest 开发启动与 PM2 轮转](docs/features/logging-and-dev.md)
 - [模型 JSON 配置与环境区分](docs/features/model-json-config.md)

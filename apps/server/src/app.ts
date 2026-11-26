@@ -1,3 +1,5 @@
+import { ActivityController } from './modules/activities/activity-controller';
+import { ActivityService } from './modules/activities/activity-service';
 import { TerminalController } from './modules/terminals/terminal-controller';
 import { TerminalService } from './modules/terminals/terminal-service';
 import { MaterialSummaryService } from './modules/materials/material-summary.service';
@@ -109,6 +111,7 @@ class ApplicationModule {
         ModelsController,
         TasksController,
         TerminalController,
+        ActivityController,
       ],
       providers: [
         MemoryExplorerService,
@@ -155,6 +158,7 @@ class ApplicationModule {
         TaskWorkerService,
         TaskConfigurationService,
         TerminalService,
+        ActivityService,
       ],
     };
   }

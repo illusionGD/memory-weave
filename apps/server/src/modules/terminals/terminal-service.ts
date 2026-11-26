@@ -326,6 +326,25 @@ export class TerminalService {
     });
   }
 
+  /** 在活动事务中核对同一作用域的终端结果。 */
+  async activityDependency(
+    ownerId: string,
+    id: string,
+    scope: Scope,
+    tx: DatabaseTransaction,
+    now: Date,
+  ): Promise<TerminalAction> {
+    const row = await this.action(ownerId, id, tx);
+    if (
+      row.companionId !== scope.companionId ||
+      row.runtimeEpoch !== scope.runtimeEpoch ||
+      row.conversationId !== scope.conversationId
+    )
+      throw new ApiException(API_CODES.RESOURCE_NOT_FOUND);
+    const terminal = await this.terminal(ownerId, row.terminalId, tx);
+    return this.visibleAction(ownerId, row, terminal, tx, now);
+  }
+
   /** 用户可以撤销未发出的请求。已发出的动作仍需核对结果。 */
   cancelAction(ownerId: string, id: string): Promise<TerminalAction> {
     return this.store.locked(ownerId, async (tx, now) => {

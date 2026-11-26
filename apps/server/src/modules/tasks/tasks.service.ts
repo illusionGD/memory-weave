@@ -193,7 +193,8 @@ export class TasksService {
           row.kind !== 'memory_extraction' &&
           row.kind !== 'memory_index' &&
           row.kind !== 'material_fetch' &&
-          row.kind !== 'material_summary',
+          row.kind !== 'material_summary' &&
+          row.kind !== 'activity',
       ).length;
       const kinds: Task['kind'][] = [];
       if (ordinary < current.config.maxConcurrent)
@@ -201,7 +202,8 @@ export class TasksService {
       if (!active.some((row) => row.kind === 'memory_extraction' || row.kind === 'memory_index'))
         kinds.push('memory_extraction', 'memory_index');
       if (!active.some((row) => row.kind === 'material_fetch')) kinds.push('material_fetch');
-      if (!active.some((row) => row.kind === 'material_summary')) kinds.push('material_summary');
+      if (!active.some((row) => row.kind === 'material_summary' || row.kind === 'activity'))
+        kinds.push('material_summary', 'activity');
       if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
       if (!kinds.length) return null;
       const row = await this.database.tasks.findOne(
@@ -214,7 +216,7 @@ export class TasksService {
             lte(tasks.availableAt, now),
           ),
           orderBy: [
-            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 ELSE 2 END`,
+            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary') THEN 5 ELSE 2 END`,
             asc(tasks.availableAt),
             asc(tasks.id),
           ],
@@ -506,6 +508,29 @@ export class TasksService {
    */
   block(lease: TaskLease, reason: string): Promise<Task> {
     return this.settleFailure(lease, reason, false, true);
+  }
+
+  /** 等待业务依赖，并结束当前租约。唤醒责任由对应领域管理。 */
+  async park(lease: TaskLease, reason: string, availableAt: Date): Promise<void> {
+    const ownerId = lease.ownerId;
+    await this.store.locked(ownerId, async (tx, now) => {
+      const row = await this.requireLease(ownerId, tx, now, lease);
+      if (!/^[a-z][a-z0-9_]{0,63}$/.test(reason) || availableAt <= now)
+        throw new ApiException(API_CODES.INVALID_REQUEST);
+      await this.finishAttempt(ownerId, tx, row, now, 'waiting', reason);
+      await this.database.tasks.update(
+        ownerId,
+        row.id,
+        {
+          status: 'waiting',
+          reason,
+          availableAt,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        },
+        tx,
+      );
+    });
   }
 
   /** 保存任务失败或阻塞的执行结果。 */
