@@ -197,6 +197,9 @@ export class ModelRuntimeService {
       context,
       systemPrompt: definition.systemPrompt,
       outputJsonSchema,
+      ...(definition.maxOutputTokens === undefined
+        ? {}
+        : { maxOutputTokens: definition.maxOutputTokens }),
       ...(onText ? { streaming: true } : {}),
       ...(inputImage ? { imageHash: createHash('sha256').update(inputImage).digest('hex') } : {}),
     });
@@ -215,7 +218,14 @@ export class ModelRuntimeService {
       }
       if (current.version !== input.expectedConfigVersion)
         throw new ApiException(API_CODES.VERSION_CONFLICT);
-      const task = current.config.tasks[input.role];
+      const configured = current.config.tasks[input.role];
+      const task =
+        definition.maxOutputTokens === undefined
+          ? configured
+          : {
+              ...configured,
+              maxOutputTokens: Math.min(configured.maxOutputTokens, definition.maxOutputTokens),
+            };
       const imageTokens = inputImage ? this.providers.visionReservation(task.providerId) : 0;
       assertRunnable(input, task, definition, imageTokens);
       if (

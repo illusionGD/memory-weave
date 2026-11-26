@@ -10,6 +10,8 @@ export interface ModelTaskDefinition {
   preprocessingVersion: string;
   /** 实际发送的系统提示词，最多 4000 字符。 */
   systemPrompt: string;
+  /** 领域可把单次输出预算降到配置上限以下。 */
+  maxOutputTokens?: number;
   /** 结构化任务的本地校验；JSON schema 从同一规则生成。 */
   outputSchema?: z.ZodType;
   /** 仅供确定性 adapter 使用的固定输出，不替代真实模型评估。 */

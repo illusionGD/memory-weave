@@ -198,7 +198,8 @@ export class TasksService {
           row.kind !== 'relationship_update' &&
           row.kind !== 'reflection' &&
           row.kind !== 'growth' &&
-          row.kind !== 'autonomy',
+          row.kind !== 'autonomy' &&
+          row.kind !== 'peer_turn',
       ).length;
       const kinds: Task['kind'][] = [];
       if (ordinary < current.config.maxConcurrent)
@@ -221,6 +222,7 @@ export class TasksService {
             'reflection',
             'growth',
             'autonomy',
+            'peer_turn',
           ].includes(row.kind),
         )
       )
@@ -231,6 +233,7 @@ export class TasksService {
           'reflection',
           'growth',
           'autonomy',
+          'peer_turn',
         );
       if (!active.some((row) => row.kind === 'lifecycle_cleanup')) kinds.push('lifecycle_cleanup');
       if (!kinds.length) return null;
@@ -244,7 +247,7 @@ export class TasksService {
             lte(tasks.availableAt, now),
           ),
           orderBy: [
-            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization','group_turn') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary', 'relationship_update', 'reflection', 'growth', 'autonomy') THEN 5 ELSE 2 END`,
+            sql`CASE WHEN ${tasks.kind} = 'lifecycle_cleanup' THEN 0 WHEN ${tasks.kind} = 'material_fetch' THEN 1 WHEN ${tasks.kind} IN ('chat_reply','persona_initialization','group_turn') THEN 2 WHEN ${tasks.kind} = 'memory_extraction' THEN 3 WHEN ${tasks.kind} = 'memory_index' THEN 4 WHEN ${tasks.kind} IN ('activity', 'material_summary', 'relationship_update', 'reflection', 'growth', 'autonomy', 'peer_turn') THEN 5 ELSE 2 END`,
             asc(tasks.availableAt),
             asc(tasks.id),
           ],
@@ -662,7 +665,7 @@ export class TasksService {
     if (scope.companionId === null && scope.runtimeEpoch === null && scope.conversationId === null)
       return;
     if (
-      row.kind === 'group_turn' &&
+      (row.kind === 'group_turn' || row.kind === 'peer_turn') &&
       !scope.companionId &&
       !scope.runtimeEpoch &&
       scope.conversationId

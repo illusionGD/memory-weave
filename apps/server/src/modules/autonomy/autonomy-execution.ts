@@ -1,3 +1,5 @@
+import { PeerService } from '../peer-talk/peer-service';
+import { currentPeerPolicy, peerProfiles } from '../peer-talk/peer-policy';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_CODES } from '@memory-weave/contracts';
 import { and, eq, gt } from 'drizzle-orm';
@@ -26,6 +28,7 @@ export interface AutonomyPreparation {
   personaVersionId: string;
   source: { messageId: string; contentVersion: number } | null;
   inputText: string;
+  allowedPeerIds?: string[];
 }
 
 /** 自主候选先判断保持安静，选择活动时才能创建实际执行任务。 */
@@ -40,6 +43,7 @@ export class AutonomyExecution {
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
     @Inject(ActivityService) private readonly activities: ActivityService,
     @Inject(AutonomyBudget) private readonly budget: AutonomyBudget,
+    @Inject(PeerService) private readonly peers: PeerService,
   ) {}
 
   /** 固定真实会话材料，完成后记录实际选择或联系意向。 */
@@ -68,15 +72,28 @@ export class AutonomyExecution {
               locks: profile.document.locks,
             }
           : { initialProfile: profile.profileText };
+        const actor = await currentPeerPolicy(
+          ownerId,
+          opportunity.companionId,
+          opportunity.runtimeEpoch,
+          tx,
+        );
+        const profiles = actor?.enabled
+          ? (await peerProfiles(ownerId, { limit: 6 }, tx)).items.filter(
+              (entry) => entry.companionId !== opportunity.companionId,
+            )
+          : [];
         const inputText = JSON.stringify({
           persona: baseline,
           contactsAllowed: policy.contactsEnabled,
+          ...(profiles.length ? { peers: profiles } : {}),
           lastUserText: source?.text.slice(0, 650).replace(/[\uD800-\uDBFF]$/u, '') ?? null,
         });
         preparation = {
           personaVersionId: profile.id,
           source: source ? { messageId: source.id, contentVersion: source.contentVersion } : null,
           inputText,
+          allowedPeerIds: profiles.map((entry) => entry.companionId),
         };
         await this.update(
           opportunity,
@@ -174,6 +191,24 @@ export class AutonomyExecution {
         );
         return;
       }
+      if (
+        choice === 'peer_invite' &&
+        parsed.data.peerId &&
+        preparation.allowedPeerIds?.includes(parsed.data.peerId)
+      ) {
+        const invitationId = await this.peers.invite(
+          ownerId,
+          checked.context.member,
+          parsed.data.peerId,
+          opportunity.id,
+          tx,
+          now,
+        );
+        if (invitationId) {
+          await this.update(opportunity, { ...common, outcome: 'invitation', invitationId }, tx);
+          return;
+        }
+      }
       if (choice === 'contact' && text && checked.policy.contactsEnabled) {
         const [pending] = await tx
           .select({ id: contactIntents.id })
@@ -219,7 +254,9 @@ export class AutonomyExecution {
               ? null
               : choice === 'write'
                 ? 'autonomy_activity_unavailable'
-                : 'autonomy_contact_deferred',
+                : choice === 'peer_invite'
+                  ? 'autonomy_peer_unavailable'
+                  : 'autonomy_contact_deferred',
         },
         tx,
       );
@@ -294,6 +331,7 @@ export class AutonomyExecution {
         | 'sourceMessageId'
         | 'activityId'
         | 'contactId'
+        | 'invitationId'
       >
     >,
     tx: DatabaseTransaction,

@@ -1,12 +1,23 @@
+import { PeerBudget } from '../peer-talk/peer-budget';
+import type { Session } from '../peer-talk/peer-budget';
+import { currentPeerPolicy, currentPeerRoom } from '../peer-talk/peer-policy';
+import { ConversationMembership } from '../conversations/conversation-membership.service';
+import { membership } from '../conversations/membership-store';
 import { Inject, Injectable } from '@nestjs/common';
 import { API_CODES } from '@memory-weave/contracts';
 import type { ModelCall } from '@memory-weave/contracts';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseService } from '../../database/database.service';
 import type { DatabaseTransaction } from '../../database/database.service';
-import { groupTurnHeads, groupTurnSteps, groupTurns, messageSources } from '../../database/schema';
+import {
+  groupTurnHeads,
+  groupTurnSteps,
+  groupTurns,
+  messages,
+  messageSources,
+} from '../../database/schema';
 import { ApiException } from '../../http/api-exception';
 import { ConversationsService } from '../conversations/conversations.service';
 import { requireOpenConversation } from '../conversations/membership-store';
@@ -17,7 +28,12 @@ import type { TaskLease } from '../tasks/task-types';
 import { TasksService } from '../tasks/tasks.service';
 import { prepareGroupStep, validGroupStep } from './group-turn-context';
 import type { GroupPreparation } from './group-turn-context';
-import { groupReplySchema, groupTurnDefinition } from './group-turn-definition';
+import {
+  groupReplySchema,
+  groupTurnDefinition,
+  peerReplySchema,
+  peerTurnDefinition,
+} from './group-turn-definition';
 
 /** 每次只推进一个实际参与者，检查点和消息发布保持原子。 */
 @Injectable()
@@ -30,6 +46,8 @@ export class GroupTurnExecution {
     @Inject(ConversationsService) private readonly originals: ConversationsService,
     @Inject(ModelConfigurationService) private readonly configuration: ModelConfigurationService,
     @Inject(ModelRuntimeService) private readonly models: ModelRuntimeService,
+    @Inject(PeerBudget) private readonly peers: PeerBudget,
+    @Inject(ConversationMembership) private readonly memberships: ConversationMembership,
   ) {}
 
   /** 恢复到尚未确认的参与者，已发布发言不重复生成。 */
@@ -45,13 +63,23 @@ export class GroupTurnExecution {
       const prepared = await this.store.locked(ownerId, async (tx) => {
         const turn = await this.guard(lease, tx);
         const step = await this.step(ownerId, turn.id, ordinal, tx);
-        const context =
-          step.preparation ?? (await prepareGroupStep(this.database, turn, step, config, tx));
+        const session =
+          turn.origin === 'autonomous' ? await this.peers.session(ownerId, turn.id, tx) : undefined;
+        const allowed =
+          turn.origin === 'user' ||
+          (session && (await this.peers.allowed(session, step.companionId, step.runtimeEpoch, tx)));
+        const definition = session
+          ? peerTurnDefinition(session.maxOutputTokens)
+          : groupTurnDefinition;
+        const context = allowed
+          ? (step.preparation ??
+            (await prepareGroupStep(this.database, turn, step, config, definition, tx)))
+          : null;
         if (context && !step.preparation)
           await this.updateStep(ownerId, turn.id, ordinal, { preparation: context }, tx);
-        return { turn, step, context };
+        return { turn, step, context, session, definition };
       });
-      const { turn, step, context } = prepared;
+      const { turn, step, context, session, definition } = prepared;
       if (!context || !(await this.valid(lease, turn, step, context))) {
         await this.settle(lease, ordinal, null, null);
         continue;
@@ -72,7 +100,7 @@ export class GroupTurnExecution {
             lane: turn.origin === 'user' ? 'interactive' : 'background',
             inputText: context.inputText,
           },
-          groupTurnDefinition,
+          definition,
           {
             conversationId: turn.conversationId,
             companionId: step.companionId,
@@ -82,9 +110,25 @@ export class GroupTurnExecution {
             await this.guard(lease, tx);
             if (!(await validGroupStep(this.database, turn, step, context, tx)))
               throw new ApiException(API_CODES.PERMISSION_VERSION_CONFLICT);
+            if (session)
+              await this.peers.dispatch(
+                session,
+                step.companionId,
+                step.runtimeEpoch,
+                requestId,
+                tx,
+              );
           },
         );
       } catch (error) {
+        if (
+          session &&
+          error instanceof ApiException &&
+          (await this.knownBudgetStop(lease, session, error.code))
+        ) {
+          await this.settle(lease, ordinal, null, null);
+          continue;
+        }
         if (await this.valid(lease, turn, step, context)) throw error;
         await this.settle(lease, ordinal, null, null);
         continue;
@@ -98,18 +142,34 @@ export class GroupTurnExecution {
         await this.settle(lease, ordinal, null, call.id);
         continue;
       }
+      if (
+        session &&
+        call.errorCode &&
+        (await this.knownBudgetStop(lease, session, call.errorCode))
+      ) {
+        await this.settle(lease, ordinal, null, call.id);
+        continue;
+      }
       if (call.status === 'unknown') {
         await this.jobs.block(lease, 'model_result_unknown');
         return;
       }
-      const result = groupReplySchema.safeParse(
-        call.result?.kind === 'structured' ? call.result.value : null,
-      );
+      const value = call.result?.kind === 'structured' ? call.result.value : null;
+      const autonomousReply = session ? peerReplySchema.safeParse(value) : null;
+      const result = autonomousReply ?? groupReplySchema.safeParse(value);
       if (call.status !== 'succeeded' || !result.success) {
         await this.jobs.fail(lease, 'group_reply_failed');
         return;
       }
-      await this.settle(lease, ordinal, { context, text: result.data.text, requestId }, call.id);
+      const leaveEvidence = autonomousReply?.success
+        ? autonomousReply.data.evidenceMessageIds
+        : undefined;
+      await this.settle(
+        lease,
+        ordinal,
+        { context, text: result.data.text, requestId, session, leaveEvidence },
+        call.id,
+      );
     }
     await this.jobs.complete(lease, async (_, tx) => {
       await this.guard(lease, tx);
@@ -160,6 +220,14 @@ export class GroupTurnExecution {
   ): Promise<boolean> {
     return this.store.locked(lease.ownerId, async (tx) => {
       await this.guard(lease, tx);
+      if (turn.origin === 'autonomous') {
+        const session = await this.peers.session(lease.ownerId, turn.id, tx);
+        if (
+          !session ||
+          !(await this.peers.allowed(session, step.companionId, step.runtimeEpoch, tx))
+        )
+          return false;
+      }
       return validGroupStep(this.database, turn, step, context, tx);
     });
   }
@@ -168,7 +236,13 @@ export class GroupTurnExecution {
   private async settle(
     lease: TaskLease,
     ordinal: number,
-    result: { context: GroupPreparation; text: string | null; requestId: string } | null,
+    result: {
+      context: GroupPreparation;
+      text: string | null;
+      requestId: string;
+      session?: Session;
+      leaveEvidence?: string[];
+    } | null,
     modelCallId: string | null,
   ): Promise<void> {
     const ownerId = lease.ownerId;
@@ -183,10 +257,25 @@ export class GroupTurnExecution {
         const turn = await this.guard(lease, tx);
         const step = await this.step(ownerId, turn.id, ordinal, tx);
         const now = await taskDatabaseTime(this.database, ownerId, tx);
-        let status: 'silent' | 'spoken' | 'skipped' = 'skipped';
+        let status: 'silent' | 'spoken' | 'skipped' | 'left' = 'skipped';
         let publishedMessageId: string | null = null;
-        if (result && (await validGroupStep(this.database, turn, step, result.context, tx))) {
+        const peer = result?.session ? await this.peers.session(ownerId, turn.id, tx) : undefined;
+        const allowed =
+          turn.origin === 'user' ||
+          (peer && (await this.peers.allowed(peer, step.companionId, step.runtimeEpoch, tx)));
+        if (
+          result &&
+          allowed &&
+          (await validGroupStep(this.database, turn, step, result.context, tx))
+        ) {
           status = 'silent';
+          if (peer && result.leaveEvidence) {
+            status = (await this.exitWithEvidence(peer, step, result, tx, now))
+              ? 'left'
+              : 'skipped';
+          } else if (peer && result.text === null) {
+            await this.peers.reason(ownerId, turn.id, 'peer_quiet', tx);
+          }
           if (result.text !== null) {
             const conversation = await requireOpenConversation(ownerId, turn.conversationId, tx);
             const draft = await this.originals.saveInTransaction(
@@ -256,6 +345,72 @@ export class GroupTurnExecution {
         );
       },
     );
+  }
+
+  /** 区分本场结束和单个实例额度用尽，预算变化从不改变成员。 */
+  private async knownBudgetStop(
+    lease: TaskLease,
+    session: Session,
+    code: number,
+  ): Promise<boolean> {
+    if (code === API_CODES.AUTONOMY_DAILY_LIMIT) return true;
+    if (code !== API_CODES.PEER_SESSION_LIMIT) return false;
+    await this.store.locked(lease.ownerId, async (tx) => {
+      await this.guard(lease, tx);
+      await this.peers.reason(lease.ownerId, session.id, 'peer_session_limit', tx);
+    });
+    return true;
+  }
+
+  /** 只有已实际参与且有独立来源的明确退出意向才影响群聊成员。 */
+  private async exitWithEvidence(
+    session: Session,
+    step: typeof groupTurnSteps.$inferSelect,
+    result: { context: GroupPreparation; requestId: string; leaveEvidence?: string[] },
+    tx: DatabaseTransaction,
+    now: Date,
+  ): Promise<boolean> {
+    const { ownerId, conversationId } = session;
+    const scope = await requireOpenConversation(ownerId, conversationId, tx);
+    const room = await currentPeerRoom(ownerId, conversationId, tx);
+    const policy = await currentPeerPolicy(ownerId, step.companionId, step.runtimeEpoch, tx);
+    if (scope.kind !== 'group' || !room?.allowExit || !policy?.allowExit) return false;
+    const ids = [...new Set(result.leaveEvidence)];
+    if (
+      ids.length < 2 ||
+      !ids.every((id) => result.context.messages.some((source) => source.messageId === id))
+    )
+      return false;
+    const evidence = await tx
+      .select({ speaker: messages.speakerMembershipId })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.ownerId, ownerId),
+          eq(messages.conversationId, conversationId),
+          inArray(messages.id, ids),
+        ),
+      );
+    if (
+      evidence.length !== ids.length ||
+      !evidence.some((row) => row.speaker === step.membershipId)
+    )
+      return false;
+    const member = await membership(ownerId, conversationId, step.membershipId, tx);
+    await this.memberships.exitInTransaction(
+      ownerId,
+      conversationId,
+      step.membershipId,
+      {
+        requestId: result.requestId,
+        expectedConversationVersion: scope.version,
+        expectedPermissionVersion: member.permissionVersion,
+      },
+      'companion',
+      tx,
+      now,
+    );
+    return true;
   }
 
   /** 读取待推进的第几个参与者。 */

@@ -71,6 +71,13 @@
       "when": 1795722018582,
       "tag": "0009_autonomy",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1795722715122,
+      "tag": "0010_peer_talk",
+      "breakpoints": true
     }
   ]
 }

@@ -151,7 +151,7 @@ export class GroupTurnsService {
       ownerId,
       {
         id,
-        kind: 'group_turn',
+        kind: metadata.origin === 'autonomous' ? 'peer_turn' : 'group_turn',
         input: { kind: 'group_turn', configVersion: metadata.version },
         requestKey: `group-turn:${conversationId}:${metadata.requestId}`,
         fingerprint: metadata.fingerprint,

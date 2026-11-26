@@ -35,6 +35,7 @@ export const autonomyOutcomeSchema = z.enum([
   'quiet',
   'activity',
   'contact',
+  'invitation',
   'invalidated',
 ]);
 export const autonomyOpportunitySchema = z.strictObject({
@@ -47,6 +48,7 @@ export const autonomyOpportunitySchema = z.strictObject({
   explanation: z.string().nullable(),
   activityId: uuidSchema.nullable(),
   contactId: uuidSchema.nullable(),
+  invitationId: uuidSchema.nullable().default(null),
   createdAt: utcDateTimeSchema,
 });
 export const autonomyOpportunitiesSchema = z.strictObject({

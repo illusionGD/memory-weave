@@ -147,6 +147,7 @@ export class AutonomyService {
           mode: row.mode,
           activityId: row.activityId,
           contactId: row.contactId,
+          invitationId: row.invitationId,
           createdAt: row.createdAt.toISOString(),
         }),
       );

@@ -13,7 +13,7 @@ import { ApiException } from '../../http/api-exception';
 import { assertVisible, requireCompanionMember } from '../conversations/conversation-access';
 import { activeGrowth } from '../growth/growth-persona';
 import { modelInputReservation } from '../models/model-runtime.service';
-import { groupTurnDefinition } from './group-turn-definition';
+import type { ModelTaskDefinition } from '../models/model-task';
 
 export interface GroupSource {
   messageId: string;
@@ -39,6 +39,7 @@ export async function prepareGroupStep(
   turn: Turn,
   step: Step,
   config: ModelConfigurationVersion,
+  definition: ModelTaskDefinition,
   tx: DatabaseTransaction,
 ): Promise<GroupPreparation | null> {
   const { ownerId, conversationId } = turn;
@@ -142,7 +143,7 @@ export async function prepareGroupStep(
     });
   let inputText = assemble();
   while (
-    modelInputReservation(inputText, groupTurnDefinition, 'structured') >
+    modelInputReservation(inputText, definition, 'structured') >
       config.config.tasks.chat.maxInputTokens ||
     inputText.length > 65536
   ) {

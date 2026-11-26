@@ -59,6 +59,7 @@ export const API_CODES = {
   /** 当前交互或后台并发容量已占满。 */
   MODEL_CAPACITY_EXCEEDED: 42902,
   AUTONOMY_DAILY_LIMIT: 42905,
+  PEER_SESSION_LIMIT: 42906,
   /** 模型返回内容未通过结构、完成状态或维度校验。 */
   MODEL_OUTPUT_INVALID: 50201,
   /** 外部模型返回明确失败；原始错误不向客户端输出。 */
@@ -175,6 +176,7 @@ export const API_RESPONSES = {
     statusCode: 429,
     message: '自主生成额度已达到当前时段上限。',
   },
+  [API_CODES.PEER_SESSION_LIMIT]: { statusCode: 429, message: '本场互聊的调用或费用额度已用完。' },
   [API_CODES.MODEL_CAPACITY_EXCEEDED]: {
     statusCode: 429,
     message: '模型调用并发已满，请稍后重试。',

@@ -25,3 +25,28 @@ messages 是已正式发布的同步交流，triggerSequence 标出本轮需要�
     return { kind: 'speak', text: `测试接话：${group.self.name}` };
   },
 };
+
+/** 自主回复允许结束本场，退出成员资格需要独立真实依据。 */
+export const peerReplySchema = z
+  .strictObject({
+    kind: z.enum(['speak', 'silent', 'leave']),
+    text: z.string().trim().min(1).max(4000).nullable(),
+    evidenceMessageIds: z.array(z.uuid()).min(2).max(4).optional(),
+  })
+  .refine(
+    ({ kind, text, evidenceMessageIds }) =>
+      (kind === 'speak') === (text !== null) && (kind === 'leave') === Boolean(evidenceMessageIds),
+  );
+
+/** 有新观点才继续自主互聊，退出不由预算或沉默触发。 */
+export function peerTurnDefinition(maxOutputTokens: number): ModelTaskDefinition {
+  return {
+    ...groupTurnDefinition,
+    maxOutputTokens,
+    outputSchema: peerReplySchema,
+    systemPrompt:
+      groupTurnDefinition.systemPrompt +
+      '\n本场为已授权的自主互聊。没有相关补充时保持 silent。只有长期明确不适合或有真实结束依据才提出 leave，并引用本会话中至少两条实际消息 evidenceMessageIds。额度、暂时无话或单次分歧绝不构成退出依据。leave 的 text 为 null。',
+    testOutput: () => ({ kind: 'silent', text: null }),
+  };
+}

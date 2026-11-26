@@ -131,3 +131,4 @@ export * from './growth';
 export * from './membership';
 export * from './group-turns';
 export * from './autonomy';
+export * from './peer-talk';

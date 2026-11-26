@@ -35,6 +35,7 @@ export const taskKindSchema = z.enum([
   'reflection',
   'growth',
   'group_turn',
+  'peer_turn',
   'autonomy',
 ]);
 const diagnosticTaskShape = {

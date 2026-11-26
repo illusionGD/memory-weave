@@ -1,3 +1,5 @@
+import { peerConfigurationSchema } from './modules/peer-talk/peer-config';
+import type { PeerConfiguration } from './modules/peer-talk/peer-config';
 import { autonomyConfigurationSchema } from './modules/autonomy/autonomy-config';
 import type { AutonomyConfiguration } from './modules/autonomy/autonomy-config';
 import { growthConfigurationSchema } from './modules/growth/growth-config';
@@ -29,6 +31,7 @@ export interface ServerConfig {
   reflectionConfiguration?: ReflectionConfiguration;
   growthConfiguration?: GrowthConfiguration;
   autonomyConfiguration?: AutonomyConfiguration;
+  peerConfiguration?: PeerConfiguration;
   /** 集中材料解析和获取预算。 */
   materialConfiguration?: MaterialConfiguration;
   /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
@@ -272,6 +275,14 @@ export function loadServerConfig(
   } catch {
     throw new ConfigurationError('材料配置无效，请检查 MATERIAL_CONFIG_JSON。');
   }
+  let peerConfiguration: PeerConfiguration;
+  try {
+    peerConfiguration = peerConfigurationSchema.parse(
+      JSON.parse(environment.PEER_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('自主互聊配置无效，请检查 PEER_CONFIG_JSON。');
+  }
   let autonomyConfiguration: AutonomyConfiguration;
   try {
     autonomyConfiguration = autonomyConfigurationSchema.parse(
@@ -318,6 +329,7 @@ export function loadServerConfig(
     reflectionConfiguration,
     growthConfiguration,
     autonomyConfiguration,
+    peerConfiguration,
     materialConfiguration,
     logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),

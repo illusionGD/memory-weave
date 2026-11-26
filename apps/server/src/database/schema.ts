@@ -2484,6 +2484,7 @@ export const autonomyOpportunities = mysqlTable(
     sourceMessageId: uuid('source_message_id'),
     activityId: uuid('activity_id'),
     contactId: uuid('contact_id'),
+    invitationId: uuid('invitation_id'),
     createdAt: createdAt(),
   },
   (table) => [
@@ -2535,6 +2536,109 @@ export const contactIntents = mysqlTable(
       name: 'contact_opportunity_ref',
       columns: [table.ownerId, table.opportunityId],
       foreignColumns: [autonomyOpportunities.ownerId, autonomyOpportunities.id],
+    }),
+  ],
+);
+
+/** 只有用户明确公开的简介参与同伴发现。 */
+export const peerPolicies = mysqlTable(
+  'peer_policies',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    version: int('version').notNull(),
+    enabled: boolean('enabled').notNull(),
+    publicDescription: varchar('public_description', { length: 250 }),
+    invitationDecision: varchar('invitation_decision', {
+      length: 16,
+      enum: ['accept', 'decline', 'defer'],
+    }).notNull(),
+    allowExit: boolean('allow_exit').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('peer_policy_version').on(
+      table.ownerId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.version,
+    ),
+    unique('peer_policy_request').on(table.ownerId, table.companionId, table.requestId),
+  ],
+);
+
+/** 当前会话的自主许可，旧版本仍可用于审计但不能继续发言。 */
+export const peerRoomSettings = mysqlTable(
+  'peer_room_settings',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    version: int('version').notNull(),
+    enabled: boolean('enabled').notNull(),
+    allowExit: boolean('allow_exit').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('peer_room_version').on(table.ownerId, table.conversationId, table.version),
+    unique('peer_room_request').on(table.ownerId, table.conversationId, table.requestId),
+    foreignKey({
+      name: 'peer_room_conversation_ref',
+      columns: [table.ownerId, table.conversationId],
+      foreignColumns: [conversations.ownerId, conversations.id],
+    }),
+  ],
+);
+
+/** 一场交流跨所有参与者共用额度，与确切的实际话题触发绑定。 */
+export const peerSessions = mysqlTable(
+  'peer_sessions',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: uuid('owner_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    triggerMessageId: uuid('trigger_message_id').notNull(),
+    topicFingerprint: varchar('topic_fingerprint', { length: 64 }),
+    roomVersion: int('room_version').notNull(),
+    maxCalls: int('max_calls').notNull(),
+    maxOutputTokens: int('max_output_tokens').notNull(),
+    maxCostMicros: int('max_cost_micros').notNull(),
+    reason: varchar('reason', { length: 64 }),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    unique('peer_session_owner_id').on(table.ownerId, table.id),
+    unique('peer_session_trigger').on(table.ownerId, table.triggerMessageId),
+    index('peer_session_topic').on(table.ownerId, table.topicFingerprint, table.createdAt),
+    foreignKey({
+      name: 'peer_session_turn_ref',
+      columns: [table.ownerId, table.id],
+      foreignColumns: [groupTurns.ownerId, groupTurns.id],
+    }),
+  ],
+);
+
+/** 只登记确实获得派发资格的模型尝试，费用随实际 F03 用量查询。 */
+export const peerSessionAttempts = mysqlTable(
+  'peer_session_attempts',
+  {
+    ownerId: uuid('owner_id').notNull(),
+    sessionId: uuid('session_id').notNull(),
+    callId: uuid('call_id').notNull(),
+    attempt: int('attempt').notNull(),
+  },
+  (table) => [
+    unique('peer_attempt_once').on(table.ownerId, table.sessionId, table.callId, table.attempt),
+    foreignKey({
+      name: 'peer_attempt_session_ref',
+      columns: [table.ownerId, table.sessionId],
+      foreignColumns: [peerSessions.ownerId, peerSessions.id],
     }),
   ],
 );

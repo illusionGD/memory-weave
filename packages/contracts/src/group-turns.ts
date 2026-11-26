@@ -32,7 +32,7 @@ export const groupTurnStepSchema = z.strictObject({
   membershipId: uuidSchema,
   companionId: uuidSchema,
   runtimeEpoch: positiveIntegerSchema,
-  state: z.enum(['pending', 'spoken', 'silent', 'skipped']),
+  state: z.enum(['pending', 'spoken', 'silent', 'skipped', 'left']),
   publishedMessageId: uuidSchema.nullable(),
   modelCallId: uuidSchema.nullable(),
   completedAt: utcDateTimeSchema.nullable(),

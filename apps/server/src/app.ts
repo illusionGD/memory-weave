@@ -1,3 +1,7 @@
+import { PeerController } from './modules/peer-talk/peer-controller';
+import { PeerService } from './modules/peer-talk/peer-service';
+import { PeerBudget } from './modules/peer-talk/peer-budget';
+import { PeerPolicyService } from './modules/peer-talk/peer-policy';
 import { AutonomyController } from './modules/autonomy/autonomy-controller';
 import { AutonomyBudget } from './modules/autonomy/autonomy-budget';
 import { AutonomyContacts } from './modules/autonomy/autonomy-contacts';
@@ -133,6 +137,7 @@ class ApplicationModule {
         ConversationMembershipController,
         GroupTurnsController,
         AutonomyController,
+        PeerController,
         ReceivingController,
         ModelsController,
         TasksController,
@@ -186,6 +191,9 @@ class ApplicationModule {
         AutonomyContacts,
         AutonomyExecution,
         AutonomyService,
+        PeerService,
+        PeerBudget,
+        PeerPolicyService,
         ReceivingService,
         WorkspaceService,
         ModelConfigurationService,
