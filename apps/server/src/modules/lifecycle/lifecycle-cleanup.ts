@@ -1,3 +1,4 @@
+import { cleanupTerminalPage } from '../terminals/terminal-cleanup';
 import type { DatabaseService } from '../../database/database.service';
 import type { SQL } from 'drizzle-orm';
 import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
@@ -49,6 +50,7 @@ export const LIFECYCLE_STAGES = [
   'messages',
   'avatar_files',
   'materials',
+  'terminals',
 ] as const;
 /** 阶段输入只有目标身份，禁止把被删除正文写入日志或新任务。 */
 export type LifecycleRecord = typeof lifecycleOperations.$inferSelect;
@@ -97,6 +99,7 @@ export const cleanupLifecyclePage: LifecycleCleanupPage = async (
       ),
     );
   const stage = LIFECYCLE_STAGES[operation.stage];
+  if (stage === 'terminals') return cleanupTerminalPage(database, ownerId, tx, operation, limit);
   if (stage === 'search_terms') return cleanupSearchPage(database, ownerId, tx, operation, limit);
   if (stage === 'recall_propagation') {
     const memory = await propagateRecallDeletion(database, ownerId, tx, operation, limit);

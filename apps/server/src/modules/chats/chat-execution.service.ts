@@ -35,7 +35,7 @@ import { TaskStore } from '../tasks/task-store';
 import type { TaskLease } from '../tasks/task-types';
 import { TasksService } from '../tasks/tasks.service';
 import { ChatContextService } from './chat-context.service';
-import { CHAT_DEFINITION_VERSION, chatDefinition, chatMaterialDefinition } from './chat-definition';
+import { CHAT_DEFINITION_VERSION, chatDefinitionForContext } from './chat-definition';
 
 /** 持久任务执行聊天；每次发布均重查当前轮次和租约，迟到输出无法写入。 */
 @Injectable()
@@ -161,10 +161,7 @@ export class ChatExecutionService {
         run,
         inputText: built.inputText,
         configVersion: run.modelConfigVersion ?? config.version,
-        definition:
-          built.context.materials?.length || built.context.materialSummaryTaskId
-            ? chatMaterialDefinition
-            : chatDefinition,
+        definition: chatDefinitionForContext(built.context),
       };
     });
     const initial = await this.store.locked(ownerId, (tx) =>

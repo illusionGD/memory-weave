@@ -1,3 +1,5 @@
+import { TerminalController } from './modules/terminals/terminal-controller';
+import { TerminalService } from './modules/terminals/terminal-service';
 import { MaterialSummaryService } from './modules/materials/material-summary.service';
 import { materialConfigurationSchema } from './modules/materials/material-config';
 import { MaterialsService } from './modules/materials/materials.service';
@@ -106,6 +108,7 @@ class ApplicationModule {
         ReceivingController,
         ModelsController,
         TasksController,
+        TerminalController,
       ],
       providers: [
         MemoryExplorerService,
@@ -151,6 +154,7 @@ class ApplicationModule {
         TaskOutboxService,
         TaskWorkerService,
         TaskConfigurationService,
+        TerminalService,
       ],
     };
   }

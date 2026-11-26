@@ -122,3 +122,5 @@ export * from './avatars';
 export * from './memory-explorer';
 
 export * from './materials';
+
+export * from './terminals';

@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm';
 import {
   check,
   bigint,
+  boolean,
   foreignKey,
   index,
   int,
@@ -1613,5 +1614,127 @@ export const materialReadings = mysqlTable(
         messageMaterials.materialId,
       ],
     }).onDelete('cascade'),
+  ],
+);
+
+/** 账号登记的设备与当前连接数据，数据库仅保存设备凭据的摘要。 */
+export const terminals = mysqlTable(
+  'terminals',
+  {
+    id: uuid('id').primaryKey(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => owners.id),
+    name: varchar('name', { length: 80 }).notNull(),
+    secretHash: varchar('secret_hash', { length: 64 }).notNull(),
+    connectionId: uuid('connection_id'),
+    workspaceId: varchar('workspace_id', { length: 64 }),
+    capabilities: json('capabilities').$type<import('@memory-weave/contracts').TerminalTool[]>(),
+    lastHeartbeatAt: datetime('last_heartbeat_at', { fsp: 3 }),
+    expiresAt: datetime('expires_at', { fsp: 3 }),
+    revokedAt: datetime('revoked_at', { fsp: 3 }),
+  },
+  (table) => [unique('terminals_owner_id').on(table.ownerId, table.id)],
+);
+
+/** 能力授权固定到工作区、会话和伴侣代次，授权版本单调递增。 */
+export const terminalGrants = mysqlTable(
+  'terminal_grants',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    terminalId: uuid('terminal_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    workspaceId: varchar('workspace_id', { length: 64 }).notNull(),
+    tool: varchar('tool', { length: 40 })
+      .$type<import('@memory-weave/contracts').TerminalTool>()
+      .notNull(),
+    version: int('version').notNull(),
+    enabled: boolean('enabled').notNull(),
+  },
+  (table) => [
+    unique('terminal_grants_owner_id').on(table.ownerId, table.id),
+    unique('terminal_grants_scope').on(
+      table.ownerId,
+      table.terminalId,
+      table.conversationId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.workspaceId,
+      table.tool,
+    ),
+    index('terminal_grants_lookup').on(
+      table.ownerId,
+      table.conversationId,
+      table.companionId,
+      table.runtimeEpoch,
+      table.enabled,
+    ),
+    foreignKey({
+      name: 'terminal_grants_terminal_ref',
+      columns: [table.ownerId, table.terminalId],
+      foreignColumns: [terminals.ownerId, terminals.id],
+    }),
+  ],
+);
+
+/** 每个动作持久记录一次派发及其回执，丢失回执不重新领取。 */
+export const terminalActions = mysqlTable(
+  'terminal_actions',
+  {
+    id: uuid('id').primaryKey().$defaultFn(randomUUID),
+    ownerId: uuid('owner_id').notNull(),
+    terminalId: uuid('terminal_id').notNull(),
+    requestId: uuid('request_id').notNull(),
+    fingerprint: varchar('fingerprint', { length: 64 }).notNull(),
+    grantId: uuid('grant_id').notNull(),
+    grantVersion: int('grant_version').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    companionId: uuid('companion_id').notNull(),
+    runtimeEpoch: int('runtime_epoch').notNull(),
+    workspaceId: varchar('workspace_id', { length: 64 }).notNull(),
+    tool: varchar('tool', { length: 40 })
+      .$type<import('@memory-weave/contracts').TerminalTool>()
+      .notNull(),
+    sourceMessageId: uuid('source_message_id'),
+    sourceContentVersion: int('source_content_version'),
+    requestedBy: varchar('requested_by', { length: 16 }).$type<'user' | 'companion'>().notNull(),
+    arguments: json('arguments').$type<{ text: string }>(),
+    state: varchar('state', { length: 16 })
+      .$type<import('@memory-weave/contracts').TerminalActionState>()
+      .notNull(),
+    claimId: uuid('claim_id'),
+    dispatchedConnectionId: uuid('dispatched_connection_id'),
+    receiptHash: varchar('receipt_hash', { length: 64 }),
+    result: json('result').$type<{ text: string }>(),
+    createdAt: createdAt(),
+    deadlineAt: datetime('deadline_at', { fsp: 3 }).notNull(),
+  },
+  (table) => [
+    unique('terminal_actions_request').on(table.ownerId, table.requestedBy, table.requestId),
+    index('terminal_actions_queue').on(
+      table.ownerId,
+      table.terminalId,
+      table.state,
+      table.deadlineAt,
+    ),
+    index('terminal_actions_source').on(
+      table.ownerId,
+      table.sourceMessageId,
+      table.sourceContentVersion,
+    ),
+    index('terminal_actions_instance').on(table.ownerId, table.companionId, table.runtimeEpoch),
+    foreignKey({
+      name: 'terminal_actions_terminal_ref',
+      columns: [table.ownerId, table.terminalId],
+      foreignColumns: [terminals.ownerId, terminals.id],
+    }),
+    foreignKey({
+      name: 'terminal_actions_grant_ref',
+      columns: [table.ownerId, table.grantId],
+      foreignColumns: [terminalGrants.ownerId, terminalGrants.id],
+    }),
   ],
 );

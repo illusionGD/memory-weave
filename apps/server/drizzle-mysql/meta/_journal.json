@@ -15,6 +15,13 @@
       "when": 1795525746660,
       "tag": "0001_materials",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1795716937523,
+      "tag": "0002_terminals",
+      "breakpoints": true
     }
   ]
 }

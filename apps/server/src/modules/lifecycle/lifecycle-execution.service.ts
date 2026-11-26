@@ -145,7 +145,10 @@ export class LifecycleExecutionService {
             lease.task.id,
             {
               completedSteps: operation.stage + 1,
-              stage: 'cleanup_complete',
+              stage:
+                operation.stage + 1 < (lease.task.progress.totalSteps ?? 0)
+                  ? 'terminals'
+                  : 'cleanup_complete',
               updatedAt: new Date(),
             },
             tx,

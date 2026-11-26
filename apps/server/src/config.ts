@@ -1,3 +1,5 @@
+import { terminalConfigurationSchema } from './modules/terminals/terminal-config';
+import type { TerminalConfiguration } from './modules/terminals/terminal-config';
 import { materialConfigurationSchema } from './modules/materials/material-config';
 import type { MaterialConfiguration } from './modules/materials/material-config';
 import type { LoggingConfig } from './logging';
@@ -13,6 +15,8 @@ import type { ModelDeployment } from './modules/models/model-deployment';
 
 /** 由部署环境提供的服务端配置。 */
 export interface ServerConfig {
+  /** 终端心跳与动作时限。 */
+  terminalConfiguration?: TerminalConfiguration;
   /** 集中材料解析和获取预算。 */
   materialConfiguration?: MaterialConfiguration;
   /** 日志级别与格式；程序化调用省略时使用 info / JSON。 */
@@ -256,7 +260,16 @@ export function loadServerConfig(
   } catch {
     throw new ConfigurationError('材料配置无效，请检查 MATERIAL_CONFIG_JSON。');
   }
+  let terminalConfiguration: TerminalConfiguration;
+  try {
+    terminalConfiguration = terminalConfigurationSchema.parse(
+      JSON.parse(environment.TERMINAL_CONFIG_JSON || '{}') as unknown,
+    );
+  } catch {
+    throw new ConfigurationError('终端配置无效，请检查 TERMINAL_CONFIG_JSON。');
+  }
   return {
+    terminalConfiguration,
     materialConfiguration,
     logging: { level: level as LoggingConfig['level'], format },
     retrievalConfiguration: parseRetrievalConfiguration(environment.RETRIEVAL_CONFIG_JSON),

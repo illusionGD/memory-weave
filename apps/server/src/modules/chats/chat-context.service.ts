@@ -1,3 +1,4 @@
+import { TerminalService } from '../terminals/terminal-service';
 import type { MaterialsService } from '../materials/materials.service';
 import { selectMaterialContext } from '../materials/material-context';
 import { DatabaseService } from '../../database/database.service';
@@ -23,13 +24,16 @@ import {
 import { modelInputReservation } from '../models/model-runtime.service';
 import { validateRecallSnapshot } from '../retrieval/retrieval-snapshot';
 import type { TaskLease } from '../tasks/task-types';
-import { chatDefinition, chatMaterialDefinition } from './chat-definition';
+import { chatDefinitionForContext } from './chat-definition';
 
 /** 选取有界的当前会话原文，固定来源后才能派发模型；不依赖记忆整理。 */
 @Injectable()
 export class ChatContextService {
   /** 注入可复用的数据库操作。 */
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(TerminalService) private readonly terminals: TerminalService,
+  ) {}
 
   /**
    * 创建或读取聊天轮次的上下文快照。
@@ -169,6 +173,16 @@ export class ChatContextService {
       userName: owner!.displayName,
     };
     if (!context) {
+      const capabilities = await this.terminals.capabilities(
+        ownerId,
+        {
+          companionId: companion.id,
+          runtimeEpoch: scope.runtimeEpoch!,
+          conversationId: scope.conversationId!,
+        },
+        tx,
+      );
+      if (capabilities.length) snapshot.terminalCapabilities = capabilities;
       if (materialSummaryTaskId) snapshot.materialSummaryTaskId = materialSummaryTaskId;
       const materialContext = await selectMaterialContext(
         ownerId,
@@ -205,7 +219,17 @@ export class ChatContextService {
             : { explicitLocks: snapshot.explicitLocks }),
         },
         userName: snapshot.userName,
-        environment: { terminal: 'web', tools: [] },
+        environment: {
+          terminal: 'web',
+          tools: [],
+          ...(snapshot.terminalCapabilities?.length
+            ? {
+                terminalCapabilities: snapshot.terminalCapabilities.map(
+                  ({ terminalId, workspaceId, tool }) => ({ terminalId, workspaceId, tool }),
+                ),
+              }
+            : {}),
+        },
         currentInputFromSequence: run.firstUserSequence,
         omittedThroughSequence: snapshot.omittedThroughSequence,
         messages: selected.map((row) => ({
@@ -225,13 +249,8 @@ export class ChatContextService {
       if (!selected.some((row) => row.sequence === run.firstUserSequence))
         throw new ApiException(API_CODES.CHAT_CONTEXT_LIMIT);
       while (
-        modelInputReservation(
-          inputText,
-          snapshot.materials?.length || snapshot.materialSummaryTaskId
-            ? chatMaterialDefinition
-            : chatDefinition,
-          'text',
-        ) > config.config.tasks.chat.maxInputTokens ||
+        modelInputReservation(inputText, chatDefinitionForContext(snapshot), 'text') >
+          config.config.tasks.chat.maxInputTokens ||
         inputText.length > 65536
       ) {
         const next = selected.findIndex(
@@ -269,6 +288,11 @@ export class ChatContextService {
           if (image) {
             delete image.observation;
             image.reason = 'image-not-in-reply-budget';
+            inputText = assemble();
+            continue;
+          }
+          if (snapshot.terminalCapabilities?.length) {
+            delete snapshot.terminalCapabilities;
             inputText = assemble();
             continue;
           }

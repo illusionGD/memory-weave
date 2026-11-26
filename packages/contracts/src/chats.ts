@@ -1,3 +1,4 @@
+import { terminalCapabilitySchema } from './terminals';
 import { materialContextSchema } from './materials';
 import { companionAvatarSchema } from './avatars';
 import { z } from 'zod';
@@ -87,8 +88,10 @@ const chatContextShape = {
   sources: z.array(chatContextSourceSchema).max(500),
   /** 未选入的更早历史截止序号；零表示未省略。 */
   omittedThroughSequence: nonnegativeIntegerSchema,
-  /** 当前只有 Web 聊天环境，没有外部工具能力。 */
+  /** 目前的聊天入口；执行动作的目标设备另行记录。 */
   environment: z.literal('web'),
+  /** 首次构建时确实在线的授权能力。执行前由网关重新检查。 */
+  terminalCapabilities: z.array(terminalCapabilitySchema).max(32).optional(),
   /** 构建时固定的用户显示名称，不是登录凭据。 */
   userName: z.string(),
 };
